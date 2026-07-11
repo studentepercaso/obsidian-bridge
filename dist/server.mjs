@@ -31039,16 +31039,17 @@ function resolveDataDirectory(env) {
   return path.resolve(value);
 }
 function defaultSettingsPath(env = process.env, platform = process.platform, homeDirectory = os.homedir()) {
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
   if (platform === "win32") {
     const localAppData = env.LOCALAPPDATA?.trim();
-    return path.join(
-      localAppData !== void 0 && localAppData.length > 0 ? localAppData : path.join(homeDirectory, "AppData", "Local"),
+    return pathApi.join(
+      localAppData !== void 0 && localAppData.length > 0 ? localAppData : pathApi.join(homeDirectory, "AppData", "Local"),
       "ObsidianBridge",
       "settings.json"
     );
   }
   if (platform === "darwin") {
-    return path.join(
+    return pathApi.join(
       homeDirectory,
       "Library",
       "Application Support",
@@ -31057,19 +31058,20 @@ function defaultSettingsPath(env = process.env, platform = process.platform, hom
     );
   }
   const xdgConfigHome = env.XDG_CONFIG_HOME?.trim();
-  return path.join(
-    xdgConfigHome !== void 0 && xdgConfigHome.length > 0 ? xdgConfigHome : path.join(homeDirectory, ".config"),
+  return pathApi.join(
+    xdgConfigHome !== void 0 && xdgConfigHome.length > 0 ? xdgConfigHome : pathApi.join(homeDirectory, ".config"),
     "ObsidianBridge",
     "settings.json"
   );
 }
 function resolveSettingsPath(env = process.env, platform = process.platform, homeDirectory = os.homedir()) {
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
   const override = env.OBSIDIAN_BRIDGE_SETTINGS_PATH?.trim();
   const value = override !== void 0 && override.length > 0 ? override : defaultSettingsPath(env, platform, homeDirectory);
-  if (!path.isAbsolute(value) || /[\u0000-\u001f\u007f]/u.test(value)) {
+  if (!pathApi.isAbsolute(value) || /[\u0000-\u001f\u007f]/u.test(value)) {
     throw new Error("OBSIDIAN_BRIDGE_SETTINGS_PATH must be an absolute path");
   }
-  return path.resolve(value);
+  return pathApi.resolve(value);
 }
 function detectObsidianExecutable(env = process.env, platform = process.platform, isRegularFile = (candidate) => {
   try {

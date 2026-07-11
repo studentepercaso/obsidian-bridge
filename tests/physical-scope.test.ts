@@ -85,7 +85,11 @@ describe("physical vault scope", () => {
   });
 
   it("allows a missing leaf only when explicitly requested", async () => {
-    const expected = path.join(vaultRoot, "Projects", "New.md");
+    const expected = path.join(
+      await realpath(vaultRoot),
+      "Projects",
+      "New.md",
+    );
 
     await expect(
       assertPhysicalVaultPath(vaultRoot, "Projects/New.md"),
@@ -98,7 +102,12 @@ describe("physical vault scope", () => {
   });
 
   it("allows missing ancestors for a contained create target", async () => {
-    const expected = path.join(vaultRoot, "New", "Nested", "Note.md");
+    const expected = path.join(
+      await realpath(vaultRoot),
+      "New",
+      "Nested",
+      "Note.md",
+    );
 
     await expect(
       assertPhysicalVaultPath(vaultRoot, "New/Nested/Note.md", {

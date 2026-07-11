@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolve } from "node:path";
+import { resolve, win32 } from "node:path";
 
 import {
   DEFAULT_CHANGE_TTL_MS,
@@ -122,7 +122,7 @@ describe("bridge configuration", () => {
         "C:\\Users\\Ada",
       ),
     ).toBe(
-      resolve(
+      win32.join(
         "C:\\Users\\Ada\\AppData\\Local",
         "ObsidianBridge",
         "settings.json",

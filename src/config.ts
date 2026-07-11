@@ -129,19 +129,21 @@ export function defaultSettingsPath(
   platform: NodeJS.Platform = process.platform,
   homeDirectory: string = os.homedir(),
 ): string {
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
+
   if (platform === "win32") {
     const localAppData = env.LOCALAPPDATA?.trim();
-    return path.join(
+    return pathApi.join(
       localAppData !== undefined && localAppData.length > 0
         ? localAppData
-        : path.join(homeDirectory, "AppData", "Local"),
+        : pathApi.join(homeDirectory, "AppData", "Local"),
       "ObsidianBridge",
       "settings.json",
     );
   }
 
   if (platform === "darwin") {
-    return path.join(
+    return pathApi.join(
       homeDirectory,
       "Library",
       "Application Support",
@@ -151,10 +153,10 @@ export function defaultSettingsPath(
   }
 
   const xdgConfigHome = env.XDG_CONFIG_HOME?.trim();
-  return path.join(
+  return pathApi.join(
     xdgConfigHome !== undefined && xdgConfigHome.length > 0
       ? xdgConfigHome
-      : path.join(homeDirectory, ".config"),
+      : pathApi.join(homeDirectory, ".config"),
     "ObsidianBridge",
     "settings.json",
   );
@@ -165,15 +167,16 @@ export function resolveSettingsPath(
   platform: NodeJS.Platform = process.platform,
   homeDirectory: string = os.homedir(),
 ): string {
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
   const override = env.OBSIDIAN_BRIDGE_SETTINGS_PATH?.trim();
   const value =
     override !== undefined && override.length > 0
       ? override
       : defaultSettingsPath(env, platform, homeDirectory);
-  if (!path.isAbsolute(value) || /[\u0000-\u001f\u007f]/u.test(value)) {
+  if (!pathApi.isAbsolute(value) || /[\u0000-\u001f\u007f]/u.test(value)) {
     throw new Error("OBSIDIAN_BRIDGE_SETTINGS_PATH must be an absolute path");
   }
-  return path.resolve(value);
+  return pathApi.resolve(value);
 }
 
 export function detectObsidianExecutable(
