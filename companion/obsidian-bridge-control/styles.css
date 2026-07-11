@@ -270,6 +270,14 @@
   overflow-wrap: anywhere;
 }
 
+.bridge-folder-depth-0 { --bridge-folder-depth: 0; }
+.bridge-folder-depth-1 { --bridge-folder-depth: 1; }
+.bridge-folder-depth-2 { --bridge-folder-depth: 2; }
+.bridge-folder-depth-3 { --bridge-folder-depth: 3; }
+.bridge-folder-depth-4 { --bridge-folder-depth: 4; }
+.bridge-folder-depth-5 { --bridge-folder-depth: 5; }
+.bridge-folder-depth-6 { --bridge-folder-depth: 6; }
+
 .bridge-control-folder-picker__check {
   display: inline-flex;
   align-items: center;

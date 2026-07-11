@@ -1,6 +1,6 @@
 # Publishing paths
 
-Obsidian Bridge 0.3.2 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
+Obsidian Bridge 0.3.3 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
 
 ## GitHub community distribution
 
@@ -33,7 +33,7 @@ Official references:
 
 ## Obsidian Community Plugins
 
-This repository now contains the desktop-only **Bridge Control** companion with its own manifest and built assets. The guided installer can place it in one selected vault for local testing, but it has **not** been submitted to or accepted by the Obsidian Community Plugins catalog.
+This repository contains the desktop-only **Bridge Control** companion used by the guided installer. Its canonical, review-ready source and release assets are also published at [studentepercaso/bridge-control](https://github.com/studentepercaso/bridge-control). Publication there does not imply acceptance by the Obsidian Community Plugins catalog.
 
 Before a catalog submission, publish the required companion release assets, provide a public source repository and support/security information, verify the minimum Obsidian version, satisfy Obsidian's automated and manual review requirements, and test update/uninstall behavior independently of the Codex marketplace package. The companion should remain a permission and diagnostics surface rather than becoming an unrestricted vault server.
 

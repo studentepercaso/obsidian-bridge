@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3 - 2026-07-11
+
+- Publish the standalone, bilingual [Bridge Control](https://github.com/studentepercaso/bridge-control) repository and release assets for Obsidian Community Plugins review.
+- Stop accepting a shared-settings destination from vault plugin data, and stop persisting that destination from both the companion and guided installer.
+- Read Obsidian's global vault registry through a regular-file, no-symlink and fixed 1 MiB boundary before parsing.
+- Run companion CLI diagnostics only after an explicit click, remove ambient `PATH` discovery, and require recognized Obsidian version output.
+- Replace inline folder indentation styles with scoped CSS classes.
+- Add 17 companion tests and CI protection against stale generated server or companion bundles.
+- Keep all existing permissions, default-deny behavior and two-step write confirmation unchanged during update.
+
 ## 0.3.2 - 2026-07-11
 
 - Publish the community preview with a Git-backed Codex marketplace, bilingual GitHub documentation, CI, issue templates, support information and reproducible release packaging.

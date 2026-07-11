@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:BridgePluginId = 'bridge-control'
 $script:CodexPluginId = 'obsidian-bridge'
-$script:ExpectedCodexPluginVersion = '0.3.2'
+$script:ExpectedCodexPluginVersion = '0.3.3'
 $script:BridgePluginRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:PayloadRoot = Join-Path $script:BridgePluginRoot 'companion\obsidian-bridge-control'
 $localApplicationData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -1348,7 +1348,6 @@ function Merge-PluginData {
     $result.Add('readFolders', $Entry['readFolders'])
     $result.Add('writeEnabled', $Entry['writeEnabled'])
     $result.Add('writeFolders', $Entry['writeFolders'])
-    $result.Add('sharedSettingsPath', $script:SharedSettingsPath)
     $result.Add('openPanelOnNextLoad', $true)
     return $result
 }

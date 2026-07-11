@@ -39,6 +39,10 @@ describe("guided installer permission flow", () => {
     );
   });
 
+  it("does not persist an externally writable settings path in vault plugin data", () => {
+    expect(installer).not.toContain("$result.Add('sharedSettingsPath'");
+  });
+
   it.skipIf(process.platform !== "win32")(
     "executes deny-by-default and permission-preservation behavior",
     () => {

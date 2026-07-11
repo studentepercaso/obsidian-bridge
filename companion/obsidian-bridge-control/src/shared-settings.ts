@@ -12,9 +12,9 @@ import {
   unlink,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, normalize } from "node:path";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
-import { cliReportsDisabled } from "./cli-status";
+import { cliReportsDisabled, cliReportsVersion } from "./cli-status";
 
 export type DesktopPlatform = "windows" | "macos" | "linux";
 export type ReadMode = "off" | "all" | "folders";
@@ -453,9 +453,46 @@ export async function resolveVaultIdentity(
   home: string = homedir(),
 ): Promise<VaultIdentity> {
   const physicalPath = await realpath(vaultPath);
-  const raw = await readFile(registryPath(platform, env, home), "utf8");
-  if (Buffer.byteLength(raw, "utf8") > 1_048_576) {
-    throw new Error("Il registro dei vault Obsidian è troppo grande.");
+  const registry = registryPath(platform, env, home);
+  let registryHandle;
+  try {
+    const linkStat = await lstat(registry);
+    if (linkStat.isSymbolicLink()) {
+      throw new Error("Il registro dei vault Obsidian non può essere un collegamento simbolico.");
+    }
+    registryHandle = await open(
+      registry,
+      process.platform === "win32"
+        ? "r"
+        : constants.O_RDONLY | constants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    throw new Error(
+      `Il registro dei vault Obsidian non può essere aperto: ${errorMessage(error)}`,
+    );
+  }
+  let raw: string;
+  try {
+    const registryStat = await registryHandle.stat();
+    if (!registryStat.isFile()) {
+      throw new Error("Il registro dei vault Obsidian non è un file regolare.");
+    }
+    if (registryStat.size > 1_048_576) {
+      throw new Error("Il registro dei vault Obsidian è troppo grande.");
+    }
+    const registryBuffer = Buffer.alloc(1_048_577);
+    const { bytesRead } = await registryHandle.read(
+      registryBuffer,
+      0,
+      registryBuffer.byteLength,
+      0,
+    );
+    if (bytesRead > 1_048_576) {
+      throw new Error("Il registro dei vault Obsidian è troppo grande.");
+    }
+    raw = registryBuffer.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await registryHandle.close();
   }
   const parsed: unknown = JSON.parse(raw);
   if (!isRecord(parsed) || !isRecord(parsed.vaults)) {
@@ -537,12 +574,6 @@ function possibleCliPaths(
     addCandidate(candidates, "/usr/bin/obsidian", "percorso di sistema");
   }
 
-  const executableName = platform === "windows" ? "Obsidian.com" : "obsidian";
-  for (const pathDirectory of (env.PATH ?? "").split(delimiter)) {
-    const cleanDirectory = pathDirectory.trim().replace(/^"|"$/g, "");
-    if (cleanDirectory) addCandidate(candidates, join(cleanDirectory, executableName), "PATH");
-  }
-
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
     const key = platform === "windows" ? candidate.path.toLocaleLowerCase() : candidate.path;
@@ -561,7 +592,7 @@ function runVersion(executable: string): Promise<{ ok: boolean; missing: boolean
       (error, stdout, stderr) => {
         const output = `${stdout}\n${stderr}`.trim().slice(0, 500);
         resolve({
-          ok: error === null && !cliReportsDisabled(output),
+          ok: error === null && !cliReportsDisabled(output) && cliReportsVersion(output),
           missing: errorCode(error) === "ENOENT",
           output: output || (error ? error.message : "Versione non riportata"),
         });
@@ -599,7 +630,7 @@ export async function diagnoseCli(
         checkedAt: new Date().toISOString(),
         executable: candidate.path,
         version: result.output,
-        detail: "CLI trovata e verificata.",
+        detail: "Un candidato CLI ha risposto con un formato di versione Obsidian riconosciuto.",
         candidates,
       };
     }

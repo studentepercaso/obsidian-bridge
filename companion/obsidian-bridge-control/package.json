@@ -1,8 +1,9 @@
 {
   "name": "bridge-control",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Visual, per-vault permission control for Obsidian Bridge.",
   "author": "studentepercaso",
+  "license": "MIT",
   "homepage": "https://github.com/studentepercaso/obsidian-bridge#readme",
   "repository": {
     "type": "git",
@@ -15,12 +16,14 @@
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run build"
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
     "@types/node": "26.1.1",
     "esbuild": "0.28.1",
     "obsidian": "1.13.1",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   }
 }

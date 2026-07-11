@@ -3,3 +3,9 @@ export function cliReportsDisabled(output: string): boolean {
     output.trim(),
   );
 }
+
+export function cliReportsVersion(output: string): boolean {
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?(?:\s+\(installer\s+\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\))?$/u.test(
+    output.trim(),
+  );
+}

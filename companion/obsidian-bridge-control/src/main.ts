@@ -13,7 +13,6 @@ import {
   TextAreaComponent,
   ToggleComponent,
 } from "obsidian";
-import { isAbsolute, normalize } from "node:path";
 import {
   CliDiagnostic,
   DesktopPlatform,
@@ -196,7 +195,7 @@ class FolderAccessModal extends Modal {
         const row = list.createDiv({ cls: "bridge-control-folder-picker__row" });
         const folderCell = row.createDiv({ cls: "bridge-control-folder-picker__folder" });
         const depth = Math.max(0, folder.split("/").length - 1);
-        folderCell.style.setProperty("--bridge-folder-depth", String(Math.min(depth, 6)));
+        folderCell.addClass(`bridge-folder-depth-${Math.min(depth, 6)}`);
         folderCell.createSpan({ text: folder });
 
         const readParent = coveringParent(folder, this.readable);
@@ -305,8 +304,6 @@ export default class BridgeControlPlugin extends Plugin {
       callback: () => new BridgeControlModal(this.app, this, false).open(),
     });
 
-    void this.refreshCliDiagnostic();
-
     this.app.workspace.onLayoutReady(() => {
       if (!this.firstRun) return;
       new Notice("Bridge Control è pronto: completa la configurazione nel pannello guidato.", 8_000);
@@ -321,15 +318,6 @@ export default class BridgeControlPlugin extends Plugin {
       loaded === null ||
       loaded === undefined ||
       (isRecord(loaded) && loaded.openPanelOnNextLoad === true);
-    if (
-      !process.env.OBSIDIAN_BRIDGE_SETTINGS_PATH?.trim() &&
-      isRecord(loaded) &&
-      typeof loaded.sharedSettingsPath === "string" &&
-      isAbsolute(loaded.sharedSettingsPath) &&
-      !/[\u0000-\u001f\u007f]/u.test(loaded.sharedSettingsPath)
-    ) {
-      this.sharedPath = normalize(loaded.sharedSettingsPath);
-    }
     const localSettings = coerceSettings(loaded);
     try {
       this.identity = await resolveVaultIdentity(
@@ -410,7 +398,6 @@ export default class BridgeControlPlugin extends Plugin {
       readFolders: normalized.readFolders,
       writeEnabled: normalized.writeEnabled,
       writeFolders: normalized.writeFolders,
-      sharedSettingsPath: this.sharedPath,
       openPanelOnNextLoad: false,
     });
     this.settings = normalized;
@@ -811,16 +798,18 @@ function renderControlPanel(
     title.createSpan({
       text: checking
         ? "Controllo…"
-        : diagnostic?.state === "ready"
-          ? "Pronto"
-          : diagnostic?.state === "error"
-            ? "Da completare"
-            : "Non trovato",
+        : diagnostic === undefined
+          ? "Non eseguita"
+          : diagnostic.state === "ready"
+            ? "Pronto"
+            : diagnostic.state === "error"
+              ? "Da completare"
+              : "Non trovato",
       cls: `bridge-control__badge ${diagnostic?.state === "ready" ? "is-ok" : "is-warn"}`,
     });
 
     if (checking) {
-      cliCard.createEl("p", { text: "Cerco la CLI nei percorsi standard e nel PATH…" });
+      cliCard.createEl("p", { text: "Controllo la CLI soltanto nei percorsi di installazione noti…" });
       return;
     }
 
@@ -846,10 +835,10 @@ function renderControlPanel(
     }
   };
 
-  renderCli(plugin.cliDiagnostic, plugin.cliDiagnostic === undefined);
+  renderCli(plugin.cliDiagnostic);
   new Setting(diagnosticDetails)
     .setName("Controlla la CLI")
-    .setDesc("Non modifica note e non usa la rete; esegue soltanto il comando locale version.")
+    .setDesc("Solo su tua richiesta: non modifica note e non usa la rete; esegue version sui candidati nei percorsi noti.")
     .addButton((button) =>
       button.setButtonText("Esegui diagnostica").onClick(async () => {
         button.setDisabled(true);
@@ -869,22 +858,6 @@ function renderControlPanel(
       }),
     );
 
-  if (!plugin.cliDiagnostic) {
-    void plugin
-      .refreshCliDiagnostic()
-      .then((diagnostic) => {
-        if (cliCard.isConnected) renderCli(diagnostic);
-      })
-      .catch((error) => {
-        if (!cliCard.isConnected) return;
-        renderCli({
-          state: "error",
-          checkedAt: new Date().toISOString(),
-          detail: error instanceof Error ? error.message : String(error),
-          candidates: [],
-        });
-      });
-  }
 }
 
 function addStatusItem(container: HTMLElement, label: string, value: string): void {

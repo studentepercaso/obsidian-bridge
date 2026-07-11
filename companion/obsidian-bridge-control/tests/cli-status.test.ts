@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   cliReportsDisabled,
   cliReportsVersion,
-} from "../companion/obsidian-bridge-control/src/cli-status.js";
+} from "../src/cli-status.js";
 
 describe("companion CLI diagnostics", () => {
   it("recognizes Obsidian's successful-exit disabled message", () => {
@@ -17,11 +17,15 @@ describe("companion CLI diagnostics", () => {
     expect(cliReportsDisabled("1.12.7 (installer 1.11.5)")).toBe(false);
   });
 
-  it("accepts only recognized Obsidian CLI version formats", () => {
+  it("accepts recognized Obsidian CLI version formats", () => {
     expect(cliReportsVersion("1.12.7")).toBe(true);
     expect(cliReportsVersion("1.12.7 (installer 1.11.5)")).toBe(true);
     expect(cliReportsVersion("1.13.0-beta.1")).toBe(true);
+  });
+
+  it("rejects arbitrary successful output as a CLI version", () => {
     expect(cliReportsVersion("ready")).toBe(false);
+    expect(cliReportsVersion("1.12")).toBe(false);
     expect(cliReportsVersion("1.12.7\nextra output")).toBe(false);
   });
 });

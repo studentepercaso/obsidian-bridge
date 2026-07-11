@@ -25,6 +25,8 @@ Il companion aggiorna atomicamente soltanto la voce del vault corrente nel file 
 
 Conserva ID stabile del vault, percorso locale normalizzato, modalità di accesso e cartelle relative autorizzate. Non memorizza il corpo delle note.
 
+Gli amministratori possono reindirizzare esplicitamente il file di configurazione condiviso con la variabile d'ambiente `OBSIDIAN_BRIDGE_SETTINGS_PATH` prima di avviare Obsidian. Bridge Control non accetta mai questo percorso dai dati del plugin del vault.
+
 I percorsi devono essere relativi al vault. Sono rifiutati percorsi assoluti, attraversamenti, `.`, `..` e cartelle nascoste come `.obsidian` e `.trash`.
 
 ## Privacy e sicurezza
@@ -32,8 +34,9 @@ I percorsi devono essere relativi al vault. Sono rifiutati percorsi assoluti, at
 - Nessuna richiesta di rete o telemetria.
 - Il companion di configurazione non legge né scrive il contenuto delle note.
 - La Vault API di Obsidian viene usata soltanto per elencare le cartelle.
-- L'accesso Node al filesystem è limitato al file esterno delle impostazioni condivise.
-- La diagnostica esegue soltanto l'eseguibile CLI ufficiale rilevato con l'argomento consentito `version` e senza shell.
+- Il plugin legge il registro globale `obsidian.json`, con limite dimensionale, fuori dal vault per associare i permessi all'ID stabile del vault corrente.
+- Le scritture Node sono limitate al percorso deterministico del file condiviso fuori dal vault e ai dati propri del plugin. I dati salvati nel vault non possono reindirizzare quel percorso.
+- La diagnostica CLI parte soltanto dopo un clic esplicito. Controlla un override d'ambiente o percorsi di installazione noti, mai il `PATH` generale, esegue soltanto `version` senza shell e accetta soltanto un formato versione Obsidian riconosciuto.
 - Le modifiche alle note restano disattivate inizialmente e vengono gestite dallo scrittore separato con anteprima e conferma esplicita.
 
 ## Build

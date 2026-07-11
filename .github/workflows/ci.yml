@@ -38,3 +38,6 @@ jobs:
 
       - name: Run all checks
         run: npm run check:all
+
+      - name: Verify generated assets are committed
+        run: git diff --exit-code -- dist/server.mjs companion/obsidian-bridge-control/main.js

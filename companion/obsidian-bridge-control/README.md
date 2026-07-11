@@ -25,6 +25,8 @@ The companion atomically updates only the current vault entry in the version 2 s
 
 It stores the stable vault ID, normalized local path, access mode, and authorized relative folders. It does not store note bodies.
 
+Administrators may explicitly redirect the shared settings file with the `OBSIDIAN_BRIDGE_SETTINGS_PATH` environment variable before starting Obsidian. Bridge Control never accepts that path from vault plugin data.
+
 Paths must be relative to the vault. Absolute paths, traversal, `.`, `..`, and hidden folders such as `.obsidian` and `.trash` are rejected.
 
 ## Privacy and security
@@ -32,8 +34,9 @@ Paths must be relative to the vault. Absolute paths, traversal, `.`, `..`, and h
 - No network requests or telemetry.
 - Note contents are not read or written by the settings companion.
 - The Obsidian Vault API is used only to enumerate folders.
-- Node filesystem access is limited to the external shared settings file.
-- Diagnostics invoke only the detected official CLI executable with the allowlisted `version` argument and no shell.
+- The plugin reads Obsidian's size-bounded global `obsidian.json` registry outside the vault to bind permissions to the current vault's stable ID.
+- Node filesystem writes are limited to the deterministic shared settings path outside the vault and the plugin's own Obsidian data. Vault plugin data cannot redirect that path.
+- CLI diagnostics run only after an explicit click. They inspect an environment override or known installation paths, never the ambient `PATH`, invoke only `version` without a shell, and accept only recognized Obsidian version output.
 - Actual note writes remain disabled by default and are handled by the separate bridge writer with preview and explicit confirmation.
 
 ## Build

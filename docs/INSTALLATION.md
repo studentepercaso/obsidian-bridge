@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.3.2. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
+Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.3.3. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
 
 ## Prima di iniziare
 

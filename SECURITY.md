@@ -145,7 +145,11 @@ Legacy environment allowlists remain available only as a compatibility fallback 
 
 ### Bridge Control companion
 
-Bridge Control is a desktop-only Obsidian community companion. It uses Obsidian's Vault API only to enumerate selectable folders and does not read or write note bodies while configuring the bridge. Node filesystem access is limited to its own local plugin data and the shared settings file outside the vault.
+Bridge Control is a desktop-only Obsidian community companion. It uses Obsidian's Vault API only to enumerate selectable folders and does not read or write note bodies while configuring the bridge. It reads Obsidian's global `obsidian.json` registry outside the vault through a regular-file, no-symlink and 1 MiB size boundary to bind permissions to the current stable vault ID.
+
+Node filesystem writes are limited to the deterministic shared settings path outside the vault and the plugin's own Obsidian data. An administrator may explicitly set `OBSIDIAN_BRIDGE_SETTINGS_PATH` before Obsidian starts, but plugin data inside a vault cannot redirect that destination. The guided installer also omits the destination from `data.json`.
+
+CLI diagnostics run only after an explicit click. Candidate discovery is limited to an explicit environment override and known installation paths, never the ambient `PATH`; the plugin invokes only `version` without a shell and accepts only recognized Obsidian version output.
 
 Saving replaces the settings file atomically and rereads it for verification. The companion writes only after the user presses **Salva e verifica**, uses a cross-process ownership lock, updates the current stable-ID entry and preserves only other schema-valid entries. A local process running as the same OS user can still modify that file, so operating-system account security remains authoritative.
 
