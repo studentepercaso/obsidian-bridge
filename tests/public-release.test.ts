@@ -1,0 +1,61 @@
+import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+function readJson(relativePath: string): Record<string, unknown> {
+  return JSON.parse(
+    readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8"),
+  ) as Record<string, unknown>;
+}
+
+describe("public release metadata", () => {
+  it("keeps package, Codex and companion versions aligned", () => {
+    const packageJson = readJson("package.json");
+    const plugin = readJson(".codex-plugin/plugin.json");
+    const companion = readJson(
+      "companion/obsidian-bridge-control/manifest.json",
+    );
+
+    expect(packageJson.version).toBe("0.3.2");
+    expect(plugin.version).toBe("0.3.2");
+    expect(companion.version).toBe("0.3.2");
+  });
+
+  it("publishes a pinned Git-backed Codex marketplace entry", () => {
+    const marketplace = readJson(".agents/plugins/marketplace.json") as {
+      name: string;
+      plugins: Array<{
+        name: string;
+        source: Record<string, string>;
+        policy: Record<string, string>;
+        category: string;
+      }>;
+    };
+
+    expect(marketplace.name).toBe("obsidian-bridge-community");
+    expect(marketplace.plugins).toEqual([
+      {
+        name: "obsidian-bridge",
+        source: {
+          source: "url",
+          url: "https://github.com/studentepercaso/obsidian-bridge.git",
+          ref: "0.3.2",
+        },
+        policy: {
+          installation: "AVAILABLE",
+          authentication: "ON_INSTALL",
+        },
+        category: "Productivity",
+      },
+    ]);
+  });
+
+  it("contains English and Italian entry documentation", () => {
+    expect(readFileSync(new URL("../README.md", import.meta.url), "utf8")).toContain(
+      "[Italiano](README.it.md)",
+    );
+    expect(
+      readFileSync(new URL("../README.it.md", import.meta.url), "utf8"),
+    ).toContain("[English](README.md)");
+  });
+});

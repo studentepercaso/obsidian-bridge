@@ -1,0 +1,10 @@
+{
+  "id": "bridge-control",
+  "name": "Bridge Control",
+  "version": "0.3.2",
+  "minAppVersion": "1.12.7",
+  "description": "Choose safe local read and write access with a visual folder picker for an external AI bridge.",
+  "author": "studentepercaso",
+  "authorUrl": "https://github.com/studentepercaso",
+  "isDesktopOnly": true
+}

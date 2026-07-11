@@ -1,0 +1,39 @@
+{
+  "name": "@obsidian-bridge/mcp",
+  "version": "0.3.2",
+  "description": "GUI-configured, permission-scoped bridge between Codex and the official Obsidian CLI.",
+  "author": "studentepercaso",
+  "homepage": "https://github.com/studentepercaso/obsidian-bridge#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/studentepercaso/obsidian-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/studentepercaso/obsidian-bridge/issues"
+  },
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "check:companion": "npm --prefix companion/obsidian-bridge-control run check",
+    "check:all": "npm run check && npm run check:companion"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "esbuild": "0.28.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  },
+  "license": "MIT"
+}

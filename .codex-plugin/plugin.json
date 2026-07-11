@@ -1,0 +1,39 @@
+{
+  "name": "obsidian-bridge",
+  "version": "0.3.2",
+  "description": "Install with a guided wizard, then safely read, create, and append within GUI-scoped local Obsidian vaults.",
+  "author": {
+    "name": "studentepercaso",
+    "url": "https://github.com/studentepercaso"
+  },
+  "homepage": "https://github.com/studentepercaso/obsidian-bridge#readme",
+  "repository": "https://github.com/studentepercaso/obsidian-bridge",
+  "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "notes",
+    "mcp",
+    "knowledge-management"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Obsidian Bridge",
+    "shortDescription": "Guided setup for safe Obsidian access",
+    "longDescription": "Run the bundled Windows installer once, then manage vault and folder permissions from the Bridge Control panel inside Obsidian. Codex uses separate reader and writer MCP servers, previews every create or append, and commits only after explicit approval.",
+    "developerName": "studentepercaso",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Find my Obsidian notes about a project and summarize them with citations.",
+      "Show recent Obsidian notes and identify related backlinks.",
+      "Use my Bridge Control permissions to find notes or prepare an approved create or append."
+    ],
+    "brandColor": "#7C3AED",
+    "websiteURL": "https://github.com/studentepercaso/obsidian-bridge",
+    "privacyPolicyURL": "https://github.com/studentepercaso/obsidian-bridge/blob/main/PRIVACY.md"
+  }
+}

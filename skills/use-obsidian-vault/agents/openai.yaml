@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Obsidian Vault"
+  short_description: "Read, cite, create, and append Obsidian notes"
+  default_prompt: "Use $use-obsidian-vault to find relevant notes, propose a guarded creation or append, show the exact preview, and wait for my confirmation."

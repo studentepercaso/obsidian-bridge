@@ -1,0 +1,48 @@
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "node",
+      "args": [
+        "./dist/server.mjs",
+        "--mode=read"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "OBSIDIAN_CLI_PATH",
+        "OBSIDIAN_BRIDGE_SETTINGS_PATH",
+        "OBSIDIAN_BRIDGE_ALLOWED_FOLDERS",
+        "OBSIDIAN_BRIDGE_DENIED_FOLDERS",
+        "OBSIDIAN_BRIDGE_TIMEOUT_MS",
+        "OBSIDIAN_BRIDGE_MAX_OUTPUT_BYTES"
+      ],
+      "startup_timeout_sec": 20,
+      "tool_timeout_sec": 30,
+      "required": false,
+      "default_tools_approval_mode": "auto"
+    },
+    "obsidian-writer": {
+      "command": "node",
+      "args": [
+        "./dist/server.mjs",
+        "--mode=write"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "OBSIDIAN_CLI_PATH",
+        "OBSIDIAN_BRIDGE_SETTINGS_PATH",
+        "OBSIDIAN_BRIDGE_ALLOWED_FOLDERS",
+        "OBSIDIAN_BRIDGE_DENIED_FOLDERS",
+        "OBSIDIAN_BRIDGE_WRITABLE_VAULTS",
+        "OBSIDIAN_BRIDGE_WRITABLE_FOLDERS",
+        "OBSIDIAN_BRIDGE_TIMEOUT_MS",
+        "OBSIDIAN_BRIDGE_MAX_OUTPUT_BYTES",
+        "OBSIDIAN_BRIDGE_CHANGE_TTL_MS",
+        "OBSIDIAN_BRIDGE_DATA_DIR"
+      ],
+      "startup_timeout_sec": 20,
+      "tool_timeout_sec": 30,
+      "required": false,
+      "default_tools_approval_mode": "prompt"
+    }
+  }
+}

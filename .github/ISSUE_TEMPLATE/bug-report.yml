@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible problem using synthetic data only.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include real note contents, vault names, personal paths, tokens, backups, or audit records.
+        Report security issues privately as described in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Bridge version
+      placeholder: 0.3.2
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows, Node.js, Obsidian, and Codex/ChatGPT desktop versions.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use a disposable vault and synthetic note names/content.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed personal information and real vault content.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
