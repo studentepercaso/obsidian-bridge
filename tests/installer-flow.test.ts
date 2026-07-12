@@ -28,6 +28,7 @@ describe("guided installer permission flow", () => {
     for (const field of [
       "enabled",
       "accessMode",
+      "managementPermissions",
       "readMode",
       "readFolders",
       "writeEnabled",
@@ -58,6 +59,18 @@ describe("guided installer permission flow", () => {
     expect(installer).toContain(
       "accessMode = $context.VaultSettingsEntry['accessMode']",
     );
+    expect(installer).toContain(
+      "edit = [bool]$context.VaultSettingsEntry['managementPermissions']['edit']",
+    );
+  });
+
+  it("supports v4 while migrating v2 and v3 without management privileges", () => {
+    expect(installer).toContain("@([int]2, [int]3, [int]4)");
+    expect(installer).toContain("$Existing['version'] -eq 3");
+    expect(installer).toContain(
+      "$legacyEntry.Add('managementPermissions', (New-DisabledManagementPermissions))",
+    );
+    expect(installer).toContain("$Existing['version'] = 4");
   });
 
   it.skipIf(process.platform !== "win32")(
@@ -82,6 +95,7 @@ describe("guided installer permission flow", () => {
         selfTest: boolean;
         fresh: {
           accessMode: string;
+          managementPermissions: { edit: boolean; move: boolean; trash: boolean };
           enabled: boolean;
           readMode: string;
           readFolders: string[];
@@ -92,6 +106,7 @@ describe("guided installer permission flow", () => {
           vaultName: string;
           vaultPath: string;
           accessMode: string;
+          managementPermissions: { edit: boolean; move: boolean; trash: boolean };
           enabled: boolean;
           readMode: string;
           readFolders: string[];
@@ -101,11 +116,29 @@ describe("guided installer permission flow", () => {
         arraysAreIndependent: boolean;
         migratedVersion: number;
         migratedAccessMode: string;
+        migratedManagementPermissions: { edit: boolean; move: boolean; trash: boolean };
         preservedFull: {
           version: number;
           accessMode: string;
+          managementPermissions: { edit: boolean; move: boolean; trash: boolean };
           vaultName: string;
           vaultPath: string;
+        };
+        preservedManagement: {
+          version: number;
+          accessMode: string;
+          managementPermissions: { edit: boolean; move: boolean; trash: boolean };
+          objectsAreIndependent: boolean;
+          vaultName: string;
+          vaultPath: string;
+        };
+        pluginData: {
+          version: number;
+          managementPermissions: { edit: boolean; move: boolean; trash: boolean };
+        };
+        schemaGuardrails: {
+          dormantPermissionsRejected: boolean;
+          emptyManagementRejected: boolean;
         };
         reviewedAuditChangeIds: {
           count: number;
@@ -119,6 +152,7 @@ describe("guided installer permission flow", () => {
         selfTest: true,
         fresh: {
           accessMode: "protected",
+          managementPermissions: { edit: false, move: false, trash: false },
           enabled: true,
           readMode: "off",
           readFolders: [],
@@ -129,6 +163,7 @@ describe("guided installer permission flow", () => {
           vaultName: "Vault aggiornato",
           vaultPath: "C:\\Vault aggiornato",
           accessMode: "protected",
+          managementPermissions: { edit: false, move: false, trash: false },
           enabled: true,
           readMode: "folders",
           readFolders: ["Studio"],
@@ -136,13 +171,31 @@ describe("guided installer permission flow", () => {
           writeFolders: ["Studio/Appunti"],
         },
         arraysAreIndependent: true,
-        migratedVersion: 3,
+        migratedVersion: 4,
         migratedAccessMode: "protected",
+        migratedManagementPermissions: { edit: false, move: false, trash: false },
         preservedFull: {
-          version: 3,
+          version: 4,
           accessMode: "full",
+          managementPermissions: { edit: false, move: false, trash: false },
           vaultName: "Vault completo aggiornato",
           vaultPath: "C:\\Vault completo aggiornato",
+        },
+        preservedManagement: {
+          version: 4,
+          accessMode: "management",
+          managementPermissions: { edit: true, move: true, trash: false },
+          objectsAreIndependent: true,
+          vaultName: "Vault gestione aggiornato",
+          vaultPath: "C:\\Vault gestione aggiornato",
+        },
+        pluginData: {
+          version: 4,
+          managementPermissions: { edit: false, move: false, trash: false },
+        },
+        schemaGuardrails: {
+          dormantPermissionsRejected: true,
+          emptyManagementRejected: true,
         },
         reviewedAuditChangeIds: {
           count: 100,

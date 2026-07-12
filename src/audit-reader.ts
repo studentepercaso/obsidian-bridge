@@ -15,6 +15,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const SHA256 = /^[0-9a-f]{64}$/u;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const BACKUP_ID = /^[0-9A-Za-z._+-]{1,200}$/u;
+const AuditOperationSchema = z.enum([
+  "create",
+  "append",
+  "replace",
+  "frontmatter",
+  "move",
+  "trash",
+]);
 
 const AuditLineSchema = z
   .object({
@@ -50,9 +58,23 @@ const AuditLineSchema = z
           return false;
         }
       }, { message: "path must be a normalized visible Markdown path" }),
-    operation: z.enum(["create", "append"]),
+    target_path: z
+      .string()
+      .min(4)
+      .max(1_024)
+      .refine((value) => {
+        try {
+          return normalizeMarkdownPath(value) === value;
+        } catch {
+          return false;
+        }
+      }, { message: "target_path must be a normalized visible Markdown path" })
+      .optional(),
+    operation: AuditOperationSchema,
     status: z.enum(["committed", "failed"]),
-    authorization_mode: z.enum(["protected", "autonomous"]).optional(),
+    authorization_mode: z
+      .enum(["protected", "autonomous", "management"])
+      .optional(),
     before_sha256: z.string().regex(SHA256),
     after_sha256: z.string().regex(SHA256),
     backup_id: z.string().regex(BACKUP_ID).optional(),
@@ -70,11 +92,30 @@ const AuditLineSchema = z
         "recovery_scope_changed",
         "read_failed",
         "restore_failed",
+        "backup_restored",
+        "verification_failed",
+        "move_reversed",
+        "trash_requires_backup_restore",
+        "rollback_failed",
       ])
       .optional(),
   })
   .strict()
   .superRefine((value, context) => {
+    if (value.operation === "move" && value.target_path === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["target_path"],
+        message: "move records require target_path",
+      });
+    }
+    if (value.operation !== "move" && value.target_path !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["target_path"],
+        message: "target_path is allowed only for move records",
+      });
+    }
     if (value.status === "committed" && value.error_code !== undefined) {
       context.addIssue({
         code: "custom",
@@ -131,8 +172,9 @@ export interface AuditMetadataEvent {
   readonly change_id: string;
   readonly vault: string;
   readonly path: string;
-  readonly operation: "create" | "append";
-  readonly authorization_mode: "protected" | "autonomous";
+  readonly target_path?: string;
+  readonly operation: z.infer<typeof AuditOperationSchema>;
+  readonly authorization_mode: "protected" | "autonomous" | "management";
   readonly status: "committed" | "failed";
   readonly error_code?: string;
   readonly rollback_attempted?: boolean;
@@ -169,6 +211,9 @@ function sanitizeAuditLine(value: ParsedAuditLine): AuditMetadataEvent {
     change_id: value.change_id,
     vault: value.vault,
     path: value.path,
+    ...(value.target_path === undefined
+      ? {}
+      : { target_path: value.target_path }),
     operation: value.operation,
     authorization_mode: value.authorization_mode ?? "protected",
     status: value.status,

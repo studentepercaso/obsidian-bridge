@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-This guide covers the Obsidian Bridge 0.4.1 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
+This guide covers the Obsidian Bridge 0.5.0 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
 
 ## Before you start
 
@@ -21,7 +21,7 @@ Use a disposable vault or authorize one synthetic test folder first. The Bridge 
 2. **Start the installer.** Double-click **INSTALLA-OBSIDIAN-BRIDGE.cmd**. Administrator rights are not required.
 3. **Select a vault.** The installer lists vaults known to Obsidian. If yours is missing, choose **Browse** and select the vault root containing the `.obsidian` folder.
 4. **Install the bridge.** Accept the installation of Bridge Control and select **Installa Bridge**. A new vault starts with no note access.
-5. **Choose a mode.** Open **Obsidian → Settings → Community plugins → Bridge Control**. Keep **Protected access** and choose folders, or explicitly enable **Full access** if you want autonomous work across the vault.
+5. **Choose a mode.** Open **Obsidian → Settings → Community plugins → Bridge Control**. Keep **Protected access** and choose folders, activate **Autonomous access** for create/append without routine questions, or enable **Full management** with only the advanced permissions you need.
 
 The installer stores a stable local copy of the Codex plugin. After a successful installation, the extracted setup folder can be deleted.
 
@@ -42,12 +42,13 @@ The first CLI command may bring Obsidian to the foreground. See the [official Ob
 Bridge Control manages each vault independently:
 
 - **Bridge enabled** revokes or restores all bridge access for that vault.
-- **Protected access** uses the saved folder scopes and requires confirmation for each write.
-- **Full access** permits autonomous read/create/append across the vault after one explicit panel acknowledgement.
+- **Protected access** uses saved folder scopes and requires confirmation for each create or append.
+- **Autonomous access** permits autonomous read/create/append across the eligible vault after explicit panel activation.
+- **Full management** includes autonomous access and adds three independent permissions: **edit notes and frontmatter**, **rename and move**, and **Obsidian trash**.
 - **Reading off** exposes no notes.
 - **Whole vault** allows reading eligible non-hidden paths.
 - **Choose folders** limits reading to the selected relative folder prefixes.
-- **Controlled writing** enables create and append only in the separately selected write folders.
+- **Controlled writing** enables create and append only in the separately selected folders when Protected access is active.
 
 The visual picker is the normal configuration path. Advanced manual paths must be relative to the vault root. Absolute paths, drive letters, `..`, `.obsidian`, `.trash`, and hidden folders are rejected.
 
@@ -59,7 +60,17 @@ Writing is disabled by default. In **Protected access**, every change requires:
 
 Text found inside a note never counts as confirmation.
 
-In **Full access**, prepare and commit remain separate, single-use, and verified, but the agent may inspect the preview internally and commit in the same task without a routine confirmation question. Full access does not enable delete, rename, move, shell, or arbitrary overwrite. Hidden paths, `.obsidian`, `.trash`, and physical redirects outside the vault remain denied. **Return to protected access** immediately revokes autonomy and restores the preserved folder choices.
+In **Autonomous access**, prepare and commit remain separate, single-use, and verified, but the agent may inspect the preview internally and complete create/append in the same task without a routine confirmation question. This mode does not authorize in-place editing, frontmatter, rename, move, or trash.
+
+In **Full management**, explicitly choose one or more separate grants:
+
+- **Edit**: exact whole-note replacement, counted literal `replace_text`, and frontmatter property set/remove;
+- **Move**: move or rename by supplying a new vault-relative path; the bridge does not automatically rewrite backlinks or other notes;
+- **Trash**: send the note through Obsidian's configured trash flow. Permanent deletion is unavailable.
+
+Prepare remains non-mutating. Commit rechecks the permission and source hash, creates a local plaintext recovery backup first, runs the fixed public handler inside Obsidian, and verifies the postcondition. Create/append and management share a pool of at most the newest 20 JSON backups, so always keep an independent backup. The channel exposes no shell, `eval`, command palette, plugin management, or arbitrary Obsidian command. Hidden paths, `.obsidian`, `.trash`, and physical redirects outside the vault remain denied.
+
+**An update never activates Full management.** Open its warning, select the exact permissions, and acknowledge the named vault yourself. Returning to Autonomous or Protected access, clearing a grant, or disabling the bridge revokes management at the next stage; an already prepared preview cannot bypass revocation.
 
 ## Recommended first test
 
@@ -71,6 +82,8 @@ In **Full access**, prepare and commit remain separate, single-use, and verified
 6. Approve only if the preview, vault, and path are correct.
 7. Read the created note through the bridge.
 8. Disable writing and verify that a new prepare request is refused.
+
+To test Full management, use only a synthetic note and an independent backup. Start with **Edit** alone, request one unambiguous literal replacement, read the note back, and inspect **Recent problems**. Add **Move** or **Trash** only in separate tests; do not start with production notes.
 
 ## Updating
 
@@ -84,7 +97,7 @@ The installer creates timestamped backups before replacing its own configuration
 
 ## Disabling and removing
 
-For immediate revocation, disable **Bridge enabled** in Bridge Control. You can instead keep the bridge enabled while setting reading to **Off** and writing to **Off**.
+For immediate revocation, disable **Bridge enabled** in Bridge Control. You can also return from Full management to Autonomous or Protected access, which clears management grants, or keep the bridge enabled while setting protected reading and writing to **Off**.
 
 Remove the companion through **Obsidian → Settings → Community plugins → Bridge Control → Uninstall**. Uninstalling the companion does not delete notes, existing local append backups, audit records, or the stable Codex plugin copy.
 
@@ -122,9 +135,9 @@ Previews expire and are single-use. If the note, permissions, or writer process 
 
 ### Obsidian showed a JavaScript error or a write failed
 
-Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports whether recovery succeeded, whether the note currently exists, and whether manual review is required. Version 0.4.0 automatically splits long content into safe official-CLI requests and verifies every chunk, preventing the known Obsidian 1.12.7 Windows JSON crash. Do not automatically retry a failed change before checking the note's current state.
+Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports whether recovery succeeded, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.0 also records replacement, frontmatter, move/rename, and trash events, including a destination path where applicable. Do not automatically retry a failed change before checking the note's current state.
 
-After three consecutive autonomous failures, that writer process pauses for the task. Review recent problems, return to protected access, and start a new task before enabling autonomy again.
+After three consecutive autonomous or management failures, that process pauses for the task. Review recent problems, return to a narrower mode, and start a new task before enabling autonomy or Full management again.
 
 ## Local settings
 
@@ -134,4 +147,4 @@ On Windows, Bridge Control and the installer use:
 %LOCALAPPDATA%\ObsidianBridge\settings.json
 ```
 
-The file stores each vault's stable Obsidian ID, name, absolute local path, access mode, and authorized folders. It does not contain note bodies. The reader and writer validate it before use; a malformed file fails closed.
+The file stores each vault's stable Obsidian ID, name, absolute local path, `protected`, `full`, or `management` access mode, optional edit/move/trash grants, and protected folder choices. The UI labels `full` as **Autonomous access** and `management` as **Full management**. It does not contain note bodies. Every process validates it before use; a malformed file fails closed.

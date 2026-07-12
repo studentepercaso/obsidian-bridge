@@ -63,8 +63,9 @@ describe("tool schemas and handlers", () => {
     expect(parseServerMode(["--mode=read"])).toBe("read");
     expect(parseServerMode(["--mode=write"])).toBe("write");
     expect(parseServerMode(["--mode=autonomous"])).toBe("autonomous");
+    expect(parseServerMode(["--mode=management"])).toBe("management");
     expect(() => parseServerMode(["--mode=all"])).toThrow(
-      "--mode must be read, write, or autonomous",
+      "--mode must be read, write, autonomous, or management",
     );
   });
 

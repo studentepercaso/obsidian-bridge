@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
+import { join } from "node:path";
 
 const argv = process.argv.slice(2);
 const logPath = process.env.OBSIDIAN_FAKE_LOG;
@@ -29,6 +31,13 @@ function readState() {
 function writeState(state) {
   if (!statePath) throw new Error("OBSIDIAN_FAKE_STATE_FILE is required");
   writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+function hashDocumentState(exists, content = "") {
+  const hash = createHash("sha256");
+  hash.update(exists ? "present\0" : "missing\0", "utf8");
+  if (exists) hash.update(content, "utf8");
+  return hash.digest("hex");
 }
 
 const delayMs = Number.parseInt(process.env.OBSIDIAN_FAKE_DELAY_MS ?? "0", 10);
@@ -124,6 +133,58 @@ if (Number.isFinite(byteCount) && byteCount > 0) {
         process.stdout.write(JSON.stringify({ ok: true, argv }));
       }
       break;
+    case "bridge-control:commit": {
+      const requestId = parameter("request");
+      const token = parameter("token");
+      const dataDirectory = process.env.OBSIDIAN_BRIDGE_DATA_DIR;
+      if (!state || !requestId || !token || !dataDirectory) {
+        throw new Error("fake management handler is missing its request context");
+      }
+      const requestPath = join(
+        dataDirectory,
+        "management",
+        "requests",
+        `${requestId}.json`,
+      );
+      const request = JSON.parse(readFileSync(requestPath, "utf8"));
+      if (request.request_id !== requestId || request.token !== token) {
+        throw new Error("fake management request authentication failed");
+      }
+      let targetPath;
+      let afterSha256;
+      if (request.operation === "replace") {
+        state[request.path] = request.payload.content;
+        afterSha256 = hashDocumentState(true, state[request.path]);
+      } else if (request.operation === "move") {
+        targetPath = request.payload.destination;
+        state[targetPath] = state[request.path];
+        delete state[request.path];
+        afterSha256 = hashDocumentState(true, state[targetPath]);
+      } else if (request.operation === "trash") {
+        delete state[request.path];
+        afterSha256 = hashDocumentState(false);
+      } else {
+        throw new Error("fake management handler does not emulate frontmatter");
+      }
+      writeState(state);
+      process.stdout.write(
+        JSON.stringify({
+          version: 1,
+          request_id: request.request_id,
+          change_id: request.change_id,
+          status: "committed",
+          operation: request.operation,
+          path: request.path,
+          ...(targetPath === undefined ? {} : { target_path: targetPath }),
+          before_sha256: request.before_sha256,
+          after_sha256: afterSha256,
+          verified: true,
+          backup_id: `fake-backup-${request.request_id}`,
+          audit_recorded: true,
+        }),
+      );
+      break;
+    }
     case "backlinks":
     case "links":
       process.stdout.write(

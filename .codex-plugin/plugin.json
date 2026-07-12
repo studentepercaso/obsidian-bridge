@@ -1,7 +1,7 @@
 {
   "name": "obsidian-bridge",
-  "version": "0.4.1",
-  "description": "Install with a guided wizard, then safely read, create, and append within GUI-scoped local Obsidian vaults.",
+  "version": "0.5.0",
+  "description": "Connect Codex to Obsidian with visual, per-vault permissions for reading, writing, editing, moving and trashing notes.",
   "author": {
     "name": "studentepercaso",
     "url": "https://github.com/studentepercaso"
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Obsidian Bridge",
     "shortDescription": "Guided setup for safe Obsidian access",
-    "longDescription": "Run the bundled Windows installer once, then choose protected folder access or explicitly authorize full-vault autonomous create and append from Bridge Control. Separate MCP writers preserve prompt approval for protected vaults and automatic execution only for vaults set to full access.",
+    "longDescription": "Run the guided Windows installer, then choose protected folders, autonomous create/append, or explicitly grant selected full-vault management permissions. Separate MCP processes and Bridge Control recheck every grant, create recovery backups, audit outcomes, and never expose permanent deletion or arbitrary commands.",
     "developerName": "studentepercaso",
     "category": "Productivity",
     "capabilities": [
@@ -30,7 +30,7 @@
     "defaultPrompt": [
       "Find my Obsidian notes about a project and summarize them with citations.",
       "Show recent Obsidian notes and identify related backlinks.",
-      "Use my Bridge Control permissions to find notes or prepare an approved create or append."
+      "Use my Bridge Control permissions to safely update, move, or trash an Obsidian note."
     ],
     "brandColor": "#7C3AED",
     "websiteURL": "https://github.com/studentepercaso/obsidian-bridge",

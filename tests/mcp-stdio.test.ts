@@ -77,7 +77,7 @@ describe("MCP stdio integration", () => {
 
       expect(client.getServerVersion()).toMatchObject({
         name: "obsidian-bridge",
-        version: "0.4.1",
+        version: "0.5.0",
       });
       expect(client.getInstructions()).toContain("Read-only access");
 
@@ -236,6 +236,11 @@ describe("MCP stdio integration", () => {
             name: "Test Vault",
             id: "0123456789abcdef",
             access_mode: "protected",
+            management_permissions: {
+              edit: false,
+              move: false,
+              trash: false,
+            },
           },
         ],
       });

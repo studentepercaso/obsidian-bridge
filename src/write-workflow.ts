@@ -78,7 +78,7 @@ export type PrepareChangeInput = z.infer<
 >;
 export type CommitChangeInput = z.infer<typeof WriteToolInputSchemas.commitChange>;
 
-interface DocumentState {
+export interface DocumentState {
   readonly exists: boolean;
   readonly content?: string;
   readonly sha256: string;
@@ -471,7 +471,7 @@ function isMissingNoteError(error: unknown, notePath: string): boolean {
   );
 }
 
-async function readDocument(
+export async function readDocument(
   runner: ObsidianCliRunner,
   vault: string,
   notePath: string,
@@ -798,6 +798,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
       writablePolicy: runtime.writablePolicy,
       writeEnabled: runtime.writableVaults.includes(vault),
       accessMode: "protected",
+      managementPermissions: { edit: false, move: false, trash: false },
       vaultSelector: vault,
       vaultName: vault,
       source: "environment",
@@ -809,13 +810,15 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
     notePath: string,
   ): Promise<{ readonly notePath: string; readonly access: VaultAccess }> {
     const access = await effectiveAccess(vault);
-    const requiredAccessMode =
-      authorizationMode === "autonomous" ? "full" : "protected";
-    if (access.accessMode !== requiredAccessMode) {
+    const accessModeAllowed =
+      authorizationMode === "autonomous"
+        ? access.accessMode === "full" || access.accessMode === "management"
+        : access.accessMode === "protected";
+    if (!accessModeAllowed) {
       throw new Error(
         authorizationMode === "autonomous"
-          ? "autonomous writing requires Accesso completo for this vault in Bridge Control"
-          : "this vault uses Accesso completo; use the autonomous writer channel or return to protected access",
+          ? "autonomous writing requires Accesso autonomo or Gestione completa for this vault in Bridge Control"
+          : "this vault uses autonomous or management access; use the autonomous writer channel or return to protected access",
       );
     }
     if (!access.writeEnabled) {

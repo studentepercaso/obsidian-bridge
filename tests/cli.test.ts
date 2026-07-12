@@ -15,8 +15,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_CLI_IPC_FRAME_BYTES,
+  assertManagementCliArgs,
   assertReadOnlyCliArgs,
   assertWriteEnabledCliArgs,
+  buildManagementVaultArgs,
   buildVaultArgs,
   buildWriteVaultArgs,
   cliIpcFrameBytes,
@@ -200,6 +202,48 @@ describe("read-only Obsidian CLI runner", () => {
         "silent",
       ]),
     ).toThrowError(expect.objectContaining({ code: "INVALID_ARGUMENTS" }));
+  });
+
+  it("allows only the opaque custom management transport with exact parameters", () => {
+    const args = buildManagementVaultArgs(
+      "Test Vault",
+      "bridge-control:commit",
+      [
+        "request=123e4567-e89b-42d3-a456-426614174000",
+        `token=${"a".repeat(64)}`,
+      ],
+    );
+    expect(() => assertManagementCliArgs(args)).not.toThrow();
+    expect(() => assertReadOnlyCliArgs(args)).toThrowError(
+      expect.objectContaining({ code: "INVALID_ARGUMENTS" }),
+    );
+    expect(() => assertWriteEnabledCliArgs(args)).toThrowError(
+      expect.objectContaining({ code: "INVALID_ARGUMENTS" }),
+    );
+
+    for (const unsafe of [
+      ["vault=Test Vault", "bridge-control:commit", "request=id"],
+      [
+        "vault=Test Vault",
+        "bridge-control:commit",
+        "request=id",
+        "request=again",
+        "token=value",
+      ],
+      [
+        "vault=Test Vault",
+        "bridge-control:commit",
+        "request=id",
+        "token=value",
+        "path=Projects/Note.md",
+      ],
+      ["vault=Test Vault", "delete", "path=Projects/Note.md"],
+      ["vault=Test Vault", "eval", "code=app.vault.getName()"],
+    ]) {
+      expect(() => assertManagementCliArgs(unsafe)).toThrowError(
+        expect.objectContaining({ code: "INVALID_ARGUMENTS" }),
+      );
+    }
   });
 
   it("measures the complete Obsidian IPC frame including cwd and framing metadata", () => {

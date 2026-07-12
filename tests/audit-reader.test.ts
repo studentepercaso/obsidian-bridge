@@ -121,6 +121,82 @@ describe("bounded metadata-only audit reader", () => {
     expect(JSON.stringify(result)).not.toContain(HASH_B);
   });
 
+  it("accepts management operations and exposes only a validated move target", async () => {
+    await writeFile(
+      auditPath,
+      `${[
+        auditRecord(10, {
+          operation: "replace",
+          authorization_mode: "management",
+        }),
+        auditRecord(11, {
+          operation: "frontmatter",
+          status: "failed",
+          error_code: "MANAGEMENT_WRITE_FAILED",
+          rollback_attempted: true,
+          rollback_succeeded: true,
+          rollback_reason: "backup_restored",
+          backup_id: "management-backup-11",
+        }),
+        auditRecord(12, {
+          operation: "move",
+          target_path: "Archive/Renamed.md",
+        }),
+        auditRecord(13, { operation: "trash" }),
+      ].map((record) => JSON.stringify(record)).join("\n")}\n`,
+      "utf8",
+    );
+
+    const result = await readAuditTail(dataDirectory);
+    expect(result.events.map((event) => event.operation)).toEqual([
+      "trash",
+      "move",
+      "frontmatter",
+      "replace",
+    ]);
+    expect(result.events[1]).toMatchObject({
+      path: "Projects/Note-12.md",
+      target_path: "Archive/Renamed.md",
+      operation: "move",
+    });
+    expect(result.events[3]).toMatchObject({
+      operation: "replace",
+      authorization_mode: "management",
+    });
+    expect(result.events[2]).toMatchObject({
+      operation: "frontmatter",
+      status: "failed",
+      rollback_attempted: true,
+      rollback_succeeded: true,
+      rollback_reason: "backup_restored",
+    });
+    expect(JSON.stringify(result)).not.toContain(HASH_A);
+    expect(JSON.stringify(result)).not.toContain(HASH_B);
+  });
+
+  it.each([
+    ["a move without its target", auditRecord(20, { operation: "move" })],
+    [
+      "a target attached to a non-move operation",
+      auditRecord(21, {
+        operation: "replace",
+        target_path: "Archive/Unexpected.md",
+      }),
+    ],
+    [
+      "an unsafe move target",
+      auditRecord(22, {
+        operation: "move",
+        target_path: "../Outside.md",
+      }),
+    ],
+  ])("fails closed on %s", async (_label, record) => {
+    await writeFile(auditPath, `${JSON.stringify(record)}\n`, "utf8");
+    await expect(readAuditTail(dataDirectory)).rejects.toMatchObject({
+      code: "AUDIT_MALFORMED",
+    });
+  });
+
   it("reads no more than 128 KiB and safely drops one partial first record", async () => {
     const lines = Array.from({ length: 900 }, (_, index) =>
       JSON.stringify(auditRecord(index + 1)),
@@ -232,6 +308,7 @@ describe("bounded metadata-only audit reader", () => {
         writablePolicy: createWritablePathPolicy({ allowedFolders: [] }),
         writeEnabled: false,
         accessMode: "protected",
+        managementPermissions: { edit: false, move: false, trash: false },
         vaultSelector: vault,
         vaultName: allowed ? "Study Vault" : "Revoked Vault",
         vaultPath: join(sandbox, vault),
@@ -308,6 +385,7 @@ describe("bounded metadata-only audit reader", () => {
         writablePolicy: createWritablePathPolicy({ allowedFolders: [] }),
         writeEnabled: false,
         accessMode: "protected",
+        managementPermissions: { edit: false, move: false, trash: false },
         vaultSelector: vault,
         vaultName: "Study Vault",
         vaultPath: join(sandbox, vault),

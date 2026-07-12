@@ -244,7 +244,9 @@ describe("guarded MCP write workflow", () => {
         },
       });
       expect(denied.isError).toBe(true);
-      expect(JSON.stringify(denied.content)).toMatch(/Accesso completo/iu);
+      expect(JSON.stringify(denied.content)).toMatch(
+        /Accesso autonomo.*Gestione completa/iu,
+      );
       expect(readState(statePath)["Denied autonomous.md"]).toBeUndefined();
     } finally {
       await client.close();
@@ -293,7 +295,7 @@ describe("guarded MCP write workflow", () => {
       const result = await commitAutonomous(client, String(preview.change_id));
       expect((result as { isError?: boolean }).isError).toBe(true);
       expect(JSON.stringify((result as { content?: unknown }).content)).toMatch(
-        /Accesso completo/iu,
+        /Accesso autonomo.*Gestione completa/iu,
       );
       expect(readState(statePath)).toEqual({});
     } finally {

@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:BridgePluginId = 'bridge-control'
 $script:CodexPluginId = 'obsidian-bridge'
-$script:ExpectedCodexPluginVersion = '0.4.1'
+$script:ExpectedCodexPluginVersion = '0.5.0'
 $script:BridgePluginRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:PayloadRoot = Join-Path $script:BridgePluginRoot 'companion\obsidian-bridge-control'
 $localApplicationData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -1135,6 +1135,24 @@ function Assert-SharedFolderArray {
     }
 }
 
+function New-DisabledManagementPermissions {
+    $permissions = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $permissions.Add('edit', $false)
+    $permissions.Add('move', $false)
+    $permissions.Add('trash', $false)
+    return $permissions
+}
+
+function Copy-ManagementPermissions {
+    param([Parameter(Mandatory = $true)]$Value)
+
+    $permissions = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $permissions.Add('edit', [bool]$Value['edit'])
+    $permissions.Add('move', [bool]$Value['move'])
+    $permissions.Add('trash', [bool]$Value['trash'])
+    return $permissions
+}
+
 function Assert-SharedSettingsSchema {
     param(
         $Value,
@@ -1145,8 +1163,8 @@ function Assert-SharedSettingsSchema {
         throw "Le impostazioni condivise devono essere un oggetto JSON. Il file non verra sovrascritto: $Path"
     }
     Assert-ExactDictionaryKeys -Value $Value -Expected @('version', 'updatedAt', 'vaults') -Description 'Le impostazioni condivise'
-    if (-not ($Value['version'] -is [int]) -or @([int]2, [int]3) -notcontains $Value['version']) {
-        throw "Le impostazioni condivise non usano uno schema supportato (versione 2 o 3): $Path"
+    if (-not ($Value['version'] -is [int]) -or @([int]2, [int]3, [int]4) -notcontains $Value['version']) {
+        throw "Le impostazioni condivise non usano uno schema supportato (versione 2, 3 o 4): $Path"
     }
     if (-not ($Value['updatedAt'] -is [string]) -or
         [string]::IsNullOrWhiteSpace($Value['updatedAt']) -or
@@ -1178,8 +1196,11 @@ function Assert-SharedSettingsSchema {
         $expectedEntryKeys = @(
             'vaultName', 'vaultPath', 'enabled', 'readMode', 'readFolders', 'writeEnabled', 'writeFolders'
         )
-        if ($Value['version'] -eq 3) {
+        if ($Value['version'] -ge 3) {
             $expectedEntryKeys += 'accessMode'
+        }
+        if ($Value['version'] -eq 4) {
+            $expectedEntryKeys += 'managementPermissions'
         }
         Assert-ExactDictionaryKeys -Value $entry -Expected $expectedEntryKeys -Description "La configurazione del vault $vaultId"
         $vaultName = $entry['vaultName']
@@ -1200,9 +1221,30 @@ function Assert-SharedSettingsSchema {
         if (-not ($entry['readMode'] -is [string]) -or @('off', 'all', 'folders') -notcontains $entry['readMode']) {
             throw "Modalita di lettura non valida per il vault $vaultId."
         }
-        if ($Value['version'] -eq 3 -and
-            (-not ($entry['accessMode'] -is [string]) -or @('protected', 'full') -notcontains $entry['accessMode'])) {
+        if ($Value['version'] -ge 3 -and
+            (-not ($entry['accessMode'] -is [string]) -or
+             $(if ($Value['version'] -eq 4) { @('protected', 'full', 'management') } else { @('protected', 'full') }) -notcontains $entry['accessMode'])) {
             throw "Modalita di accesso non valida per il vault $vaultId."
+        }
+        if ($Value['version'] -eq 4) {
+            $permissions = $entry['managementPermissions']
+            if (-not ($permissions -is [System.Collections.Generic.Dictionary[string, object]])) {
+                throw "Permessi di gestione non validi per il vault $vaultId."
+            }
+            Assert-ExactDictionaryKeys -Value $permissions -Expected @('edit', 'move', 'trash') -Description "I permessi di gestione del vault $vaultId"
+            foreach ($permissionName in @('edit', 'move', 'trash')) {
+                if (-not ($permissions[$permissionName] -is [bool])) {
+                    throw "Il permesso di gestione $permissionName non e valido per il vault $vaultId."
+                }
+            }
+            $anyManagementPermission =
+                [bool]$permissions['edit'] -or
+                [bool]$permissions['move'] -or
+                [bool]$permissions['trash']
+            if (($entry['accessMode'] -eq 'management' -and -not $anyManagementPermission) -or
+                ($entry['accessMode'] -ne 'management' -and $anyManagementPermission)) {
+                throw "Modalita e permessi di gestione non coerenti per il vault $vaultId."
+            }
         }
         Assert-SharedFolderArray -Value $entry['readFolders'] -Description "Cartelle leggibili del vault $vaultId"
         Assert-SharedFolderArray -Value $entry['writeFolders'] -Description "Cartelle scrivibili del vault $vaultId"
@@ -1230,7 +1272,7 @@ function Assert-PluginDataObject {
     if (-not ($Value -is [System.Collections.Generic.Dictionary[string, object]]) -or
         -not $Value.ContainsKey('version') -or
         -not ($Value['version'] -is [int]) -or
-        @([int]1, [int]2, [int]3) -notcontains $Value['version']) {
+        @([int]1, [int]2, [int]3, [int]4) -notcontains $Value['version']) {
         throw "I dati locali del plugin hanno uno schema sconosciuto e non verranno sovrascritti: $Path"
     }
 }
@@ -1276,6 +1318,7 @@ function New-VaultSettingsEntry {
     $entry.Add('vaultName', $VaultName)
     $entry.Add('vaultPath', $VaultPath)
     $entry.Add('accessMode', 'protected')
+    $entry.Add('managementPermissions', (New-DisabledManagementPermissions))
     $entry.Add('enabled', $true)
     # Nessuna cartella iniziale significa accesso disattivato. La selezione visuale
     # nel companion evita che un campo vuoto conceda accidentalmente l'intero vault.
@@ -1305,6 +1348,14 @@ function New-InstallerVaultSettingsEntry {
     $entry.Add('vaultName', $VaultName)
     $entry.Add('vaultPath', $VaultPath)
     $entry.Add('accessMode', $(if ($existing.ContainsKey('accessMode')) { [string]$existing['accessMode'] } else { 'protected' }))
+    $entry.Add(
+        'managementPermissions',
+        $(if ($ExistingSharedSettings['version'] -eq 4) {
+            Copy-ManagementPermissions -Value $existing['managementPermissions']
+        } else {
+            New-DisabledManagementPermissions
+        })
+    )
     $entry.Add('enabled', [bool]$existing['enabled'])
     $entry.Add('readMode', [string]$existing['readMode'])
     $entry.Add('readFolders', [object[]]@($existing['readFolders']))
@@ -1322,7 +1373,7 @@ function Merge-SharedSettings {
 
     if ($null -eq $Existing) {
         $Existing = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
-        $Existing.Add('version', 3)
+        $Existing.Add('version', 4)
         $Existing.Add('updatedAt', [DateTime]::UtcNow.ToString('o'))
         $Existing.Add('vaults', [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal))
     }
@@ -1333,6 +1384,12 @@ function Merge-SharedSettings {
             $legacyEntry.Add('accessMode', 'protected')
         }
         $Existing['version'] = 3
+    }
+    if ($Existing['version'] -eq 3) {
+        foreach ($legacyEntry in $Existing['vaults'].Values) {
+            $legacyEntry.Add('managementPermissions', (New-DisabledManagementPermissions))
+        }
+        $Existing['version'] = 4
     }
 
     $vaults = $Existing['vaults']
@@ -1356,11 +1413,12 @@ function Merge-PluginData {
 
     Assert-PluginDataObject -Value $Existing -Path '(data.json)'
     $result = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
-    $result.Add('version', 3)
+    $result.Add('version', 4)
     $result.Add('vaultId', $VaultId)
     $result.Add('vaultName', $VaultName)
     $result.Add('vaultPath', $VaultPath)
     $result.Add('accessMode', $Entry['accessMode'])
+    $result.Add('managementPermissions', (Copy-ManagementPermissions -Value $Entry['managementPermissions']))
     $result.Add('enabled', $Entry['enabled'])
     $result.Add('readMode', $Entry['readMode'])
     $result.Add('readFolders', $Entry['readFolders'])
@@ -1681,9 +1739,18 @@ function Invoke-InstallerSelfTest {
     $arraysAreIndependent = [string]$existingEntry['readFolders'][0] -eq 'Studio'
     $migrated = Merge-SharedSettings -Existing $settings -VaultId $vaultId -Entry $preserved
 
+    # A valid v3 full entry must remain full while receiving no management
+    # capability during the v4 migration.
     $fullVaultId = 'fedcba9876543210'
-    $fullEntry = New-VaultSettingsEntry -VaultName 'Vault completo' -VaultPath 'C:\Vault completo' -ReadFolders @('Studio') -WriteEnabled $true -WriteFolders @('Studio')
-    $fullEntry['accessMode'] = 'full'
+    $fullEntry = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $fullEntry.Add('vaultName', 'Vault completo')
+    $fullEntry.Add('vaultPath', 'C:\Vault completo')
+    $fullEntry.Add('accessMode', 'full')
+    $fullEntry.Add('enabled', $true)
+    $fullEntry.Add('readMode', 'folders')
+    $fullEntry.Add('readFolders', [object[]]@('Studio'))
+    $fullEntry.Add('writeEnabled', $true)
+    $fullEntry.Add('writeFolders', [object[]]@('Studio'))
     $fullVaults = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $fullVaults.Add($fullVaultId, $fullEntry)
     $fullSettings = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
@@ -1692,6 +1759,62 @@ function Invoke-InstallerSelfTest {
     $fullSettings.Add('vaults', $fullVaults)
     $preservedFull = New-InstallerVaultSettingsEntry -ExistingSharedSettings $fullSettings -VaultId $fullVaultId -VaultName 'Vault completo aggiornato' -VaultPath 'C:\Vault completo aggiornato'
     $mergedFull = Merge-SharedSettings -Existing $fullSettings -VaultId $fullVaultId -Entry $preservedFull
+
+    # A valid v4 management entry is already explicitly authorized and must be
+    # preserved exactly on reinstall, using a deep copy of its permission map.
+    $managementVaultId = '0011223344556677'
+    $managementEntry = New-VaultSettingsEntry -VaultName 'Vault gestione' -VaultPath 'C:\Vault gestione' -ReadFolders @('Studio') -WriteEnabled $true -WriteFolders @('Studio')
+    $managementEntry['accessMode'] = 'management'
+    $managementEntry['managementPermissions']['edit'] = $true
+    $managementEntry['managementPermissions']['move'] = $true
+    $managementVaults = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $managementVaults.Add($managementVaultId, $managementEntry)
+    $managementSettings = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $managementSettings.Add('version', 4)
+    $managementSettings.Add('updatedAt', [DateTime]::UtcNow.ToString('o'))
+    $managementSettings.Add('vaults', $managementVaults)
+    $preservedManagement = New-InstallerVaultSettingsEntry -ExistingSharedSettings $managementSettings -VaultId $managementVaultId -VaultName 'Vault gestione aggiornato' -VaultPath 'C:\Vault gestione aggiornato'
+    $preservedManagementSnapshot = [ordered]@{
+        edit = [bool]$preservedManagement['managementPermissions']['edit']
+        move = [bool]$preservedManagement['managementPermissions']['move']
+        trash = [bool]$preservedManagement['managementPermissions']['trash']
+    }
+    $preservedManagement['managementPermissions']['edit'] = $false
+    $managementObjectsAreIndependent = [bool]$managementEntry['managementPermissions']['edit']
+    $preservedManagement['managementPermissions']['edit'] = $true
+    $mergedManagement = Merge-SharedSettings -Existing $managementSettings -VaultId $managementVaultId -Entry $preservedManagement
+
+    $invalidDormantEntry = New-VaultSettingsEntry -VaultName 'Vault non valido' -VaultPath 'C:\Vault non valido' -ReadFolders @() -WriteEnabled $false -WriteFolders @()
+    $invalidDormantEntry['managementPermissions']['edit'] = $true
+    $invalidDormantVaults = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $invalidDormantVaults.Add('8899aabbccddeeff', $invalidDormantEntry)
+    $invalidDormantSettings = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $invalidDormantSettings.Add('version', 4)
+    $invalidDormantSettings.Add('updatedAt', [DateTime]::UtcNow.ToString('o'))
+    $invalidDormantSettings.Add('vaults', $invalidDormantVaults)
+    $invalidDormantRejected = $false
+    try {
+        Assert-SharedSettingsSchema -Value $invalidDormantSettings -Path '(self-test dormant permissions)'
+    }
+    catch {
+        $invalidDormantRejected = $true
+    }
+
+    $invalidEmptyEntry = New-VaultSettingsEntry -VaultName 'Vault non valido' -VaultPath 'C:\Vault non valido' -ReadFolders @() -WriteEnabled $false -WriteFolders @()
+    $invalidEmptyEntry['accessMode'] = 'management'
+    $invalidEmptyVaults = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $invalidEmptyVaults.Add('7766554433221100', $invalidEmptyEntry)
+    $invalidEmptySettings = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $invalidEmptySettings.Add('version', 4)
+    $invalidEmptySettings.Add('updatedAt', [DateTime]::UtcNow.ToString('o'))
+    $invalidEmptySettings.Add('vaults', $invalidEmptyVaults)
+    $invalidEmptyRejected = $false
+    try {
+        Assert-SharedSettingsSchema -Value $invalidEmptySettings -Path '(self-test empty management)'
+    }
+    catch {
+        $invalidEmptyRejected = $true
+    }
 
     $reviewedInput = New-Object System.Collections.ArrayList
     foreach ($index in 1..102) {
@@ -1709,6 +1832,11 @@ function Invoke-InstallerSelfTest {
         selfTest = $true
         fresh = [ordered]@{
             accessMode = [string]$fresh['accessMode']
+            managementPermissions = [ordered]@{
+                edit = [bool]$fresh['managementPermissions']['edit']
+                move = [bool]$fresh['managementPermissions']['move']
+                trash = [bool]$fresh['managementPermissions']['trash']
+            }
             enabled = [bool]$fresh['enabled']
             readMode = [string]$fresh['readMode']
             readFolders = [object[]]@($fresh['readFolders'])
@@ -1719,6 +1847,11 @@ function Invoke-InstallerSelfTest {
             vaultName = [string]$preserved['vaultName']
             vaultPath = [string]$preserved['vaultPath']
             accessMode = [string]$preserved['accessMode']
+            managementPermissions = [ordered]@{
+                edit = [bool]$preserved['managementPermissions']['edit']
+                move = [bool]$preserved['managementPermissions']['move']
+                trash = [bool]$preserved['managementPermissions']['trash']
+            }
             enabled = [bool]$preserved['enabled']
             readMode = [string]$preserved['readMode']
             readFolders = $preservedReadFolders
@@ -1728,11 +1861,41 @@ function Invoke-InstallerSelfTest {
         arraysAreIndependent = $arraysAreIndependent
         migratedVersion = [int]$migrated['version']
         migratedAccessMode = [string]$migrated['vaults'][$vaultId]['accessMode']
+        migratedManagementPermissions = [ordered]@{
+            edit = [bool]$migrated['vaults'][$vaultId]['managementPermissions']['edit']
+            move = [bool]$migrated['vaults'][$vaultId]['managementPermissions']['move']
+            trash = [bool]$migrated['vaults'][$vaultId]['managementPermissions']['trash']
+        }
         preservedFull = [ordered]@{
             version = [int]$mergedFull['version']
             accessMode = [string]$mergedFull['vaults'][$fullVaultId]['accessMode']
+            managementPermissions = [ordered]@{
+                edit = [bool]$mergedFull['vaults'][$fullVaultId]['managementPermissions']['edit']
+                move = [bool]$mergedFull['vaults'][$fullVaultId]['managementPermissions']['move']
+                trash = [bool]$mergedFull['vaults'][$fullVaultId]['managementPermissions']['trash']
+            }
             vaultName = [string]$mergedFull['vaults'][$fullVaultId]['vaultName']
             vaultPath = [string]$mergedFull['vaults'][$fullVaultId]['vaultPath']
+        }
+        preservedManagement = [ordered]@{
+            version = [int]$mergedManagement['version']
+            accessMode = [string]$mergedManagement['vaults'][$managementVaultId]['accessMode']
+            managementPermissions = $preservedManagementSnapshot
+            objectsAreIndependent = $managementObjectsAreIndependent
+            vaultName = [string]$mergedManagement['vaults'][$managementVaultId]['vaultName']
+            vaultPath = [string]$mergedManagement['vaults'][$managementVaultId]['vaultPath']
+        }
+        pluginData = [ordered]@{
+            version = [int]$mergedPluginData['version']
+            managementPermissions = [ordered]@{
+                edit = [bool]$mergedPluginData['managementPermissions']['edit']
+                move = [bool]$mergedPluginData['managementPermissions']['move']
+                trash = [bool]$mergedPluginData['managementPermissions']['trash']
+            }
+        }
+        schemaGuardrails = [ordered]@{
+            dormantPermissionsRejected = $invalidDormantRejected
+            emptyManagementRejected = $invalidEmptyRejected
         }
         reviewedAuditChangeIds = [ordered]@{
             count = [int]$preservedReviewedIds.Count
@@ -1767,6 +1930,11 @@ function Invoke-DryRun {
         pluginDestination = $context.DestinationPluginDirectory
         sharedSettingsPath = $script:SharedSettingsPath
         accessMode = $context.VaultSettingsEntry['accessMode']
+        managementPermissions = [ordered]@{
+            edit = [bool]$context.VaultSettingsEntry['managementPermissions']['edit']
+            move = [bool]$context.VaultSettingsEntry['managementPermissions']['move']
+            trash = [bool]$context.VaultSettingsEntry['managementPermissions']['trash']
+        }
         readMode = $context.VaultSettingsEntry['readMode']
         readFolders = [object[]]@($context.VaultSettingsEntry['readFolders'])
         writeEnabled = [bool]$context.VaultSettingsEntry['writeEnabled']
@@ -1801,7 +1969,7 @@ function Show-Installer {
     [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Installa Obsidian Bridge 0.4.1'
+    $form.Text = 'Installa Obsidian Bridge 0.5.0'
     $form.StartPosition = 'CenterScreen'
     $form.Size = New-Object System.Drawing.Size(780, 650)
     $form.MinimumSize = New-Object System.Drawing.Size(780, 650)
@@ -1816,7 +1984,7 @@ function Show-Installer {
     $form.Controls.Add($header)
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = 'Collega Obsidian a ChatGPT - Bridge 0.4.1'
+    $title.Text = 'Collega Obsidian a ChatGPT - Bridge 0.5.0'
     $title.ForeColor = [System.Drawing.Color]::White
     $title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 20)
     $title.AutoSize = $true
@@ -1879,7 +2047,7 @@ function Show-Installer {
     $content.Controls.Add($accessCard)
 
     $accessText = New-Object System.Windows.Forms.Label
-    $accessText.Text = "Un nuovo vault parte in Accesso protetto senza cartelle. In Bridge Control scegli le cartelle oppure attiva Accesso completo confermando l'avviso. L'installer non attiva mai l'accesso completo."
+    $accessText.Text = "Un nuovo vault parte in Accesso protetto senza cartelle. In Bridge Control scegli le cartelle, Accesso autonomo o i permessi di Gestione completa. L'installer non attiva mai modalita elevate."
     $accessText.ForeColor = [System.Drawing.Color]::FromArgb(55, 48, 90)
     $accessText.Location = New-Object System.Drawing.Point(12, 11)
     $accessText.Size = New-Object System.Drawing.Size(662, 52)
@@ -1944,7 +2112,7 @@ function Show-Installer {
     $completion.Controls.Add($doneTitle)
 
     $doneText = New-Object System.Windows.Forms.Label
-    $doneText.Text = "Bridge Control e installato nel vault.`r`nApri Obsidian > Impostazioni > Bridge Control: usa Accesso protetto per scegliere le cartelle, oppure Accesso completo solo dopo l'avviso esplicito.`r`nL'installer non attiva Accesso completo. In Problemi recenti puoi controllare errori, recupero e note coinvolte.`r`nNessuna API key richiesta: il collegamento usa la CLI locale ufficiale di Obsidian."
+    $doneText.Text = "Bridge Control e installato nel vault.`r`nApri Obsidian > Impostazioni > Bridge Control: usa Accesso protetto, Accesso autonomo o scegli i permessi di Gestione completa dopo l'avviso esplicito.`r`nL'installer non attiva modalita elevate. In Problemi recenti puoi controllare errori, recupero e note coinvolte.`r`nNessuna API key richiesta: il collegamento usa la CLI locale ufficiale di Obsidian."
     $doneText.Font = New-Object System.Drawing.Font('Segoe UI', 11)
     $doneText.Location = New-Object System.Drawing.Point(38, 174)
     $doneText.Size = New-Object System.Drawing.Size(690, 128)

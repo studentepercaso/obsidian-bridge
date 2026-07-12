@@ -23,7 +23,8 @@ const requestedMode = process.env.OBSIDIAN_BRIDGE_MODE ?? "read";
 if (
   requestedMode !== "read" &&
   requestedMode !== "write" &&
-  requestedMode !== "autonomous"
+  requestedMode !== "autonomous" &&
+  requestedMode !== "management"
 ) {
   throw new Error("invalid OBSIDIAN_BRIDGE_MODE in test fixture");
 }
@@ -33,9 +34,15 @@ const spawnImplementation: SpawnImplementation = (
   args,
   options,
 ) => spawn(process.execPath, [fakeCliPath, ...args], options);
-const runner = createObsidianCliRunner(config, spawnImplementation, {
-  allowWrites: mode !== "read",
-});
+const runner = createObsidianCliRunner(
+  config,
+  spawnImplementation,
+  mode === "management"
+    ? { allowManagement: true }
+    : mode === "write" || mode === "autonomous"
+      ? { allowWrites: true }
+      : {},
+);
 const server = createObsidianServer({ config, runner, mode });
 
 await server.connect(new StdioServerTransport());

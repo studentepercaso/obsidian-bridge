@@ -51,9 +51,42 @@ const LegacyVaultSettingsSchema = z
   })
   .strict();
 
-export const VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
+const Version3VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
   accessMode: z.enum(["protected", "full"]),
 }).strict();
+
+export const ManagementPermissionsSchema = z
+  .object({
+    edit: z.boolean(),
+    move: z.boolean(),
+    trash: z.boolean(),
+  })
+  .strict();
+
+export const VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
+  accessMode: z.enum(["protected", "full", "management"]),
+  managementPermissions: ManagementPermissionsSchema,
+})
+  .strict()
+  .superRefine((value, context) => {
+    const permissions = Object.values(value.managementPermissions);
+    const hasManagementPermission = permissions.some(Boolean);
+    if (value.accessMode === "management" && !hasManagementPermission) {
+      context.addIssue({
+        code: "custom",
+        path: ["managementPermissions"],
+        message: "management mode requires at least one management permission",
+      });
+    }
+    if (value.accessMode !== "management" && hasManagementPermission) {
+      context.addIssue({
+        code: "custom",
+        path: ["managementPermissions"],
+        message:
+          "management permissions must be disabled outside management mode",
+      });
+    }
+  });
 
 const SharedSettingsFields = {
   updatedAt: z
@@ -82,9 +115,26 @@ const LegacySharedSettingsSchema = z
     }
   });
 
-export const SharedSettingsSchema = z
+const Version3SharedSettingsSchema = z
   .object({
     version: z.literal(3),
+    ...SharedSettingsFields,
+    vaults: z.record(VaultId, Version3VaultSettingsSchema),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (Object.keys(value.vaults).length > 256) {
+      context.addIssue({
+        code: "custom",
+        path: ["vaults"],
+        message: "at most 256 vault entries are allowed",
+      });
+    }
+  });
+
+export const SharedSettingsSchema = z
+  .object({
+    version: z.literal(4),
     ...SharedSettingsFields,
     vaults: z.record(VaultId, VaultSettingsSchema),
   })
@@ -101,6 +151,10 @@ export const SharedSettingsSchema = z
 
 export type VaultSettings = z.infer<typeof VaultSettingsSchema>;
 export type SharedSettings = z.infer<typeof SharedSettingsSchema>;
+export type AccessMode = VaultSettings["accessMode"];
+export type ManagementPermissions = z.infer<
+  typeof ManagementPermissionsSchema
+>;
 
 export type SharedSettingsSnapshot =
   | { readonly status: "absent" }
@@ -114,6 +168,12 @@ export class SharedSettingsError extends Error {
     this.name = "SharedSettingsError";
   }
 }
+
+const NO_MANAGEMENT_PERMISSIONS: ManagementPermissions = Object.freeze({
+  edit: false,
+  move: false,
+  trash: false,
+});
 
 function validatePolicyFolders(settings: SharedSettings): void {
   try {
@@ -224,10 +284,17 @@ export async function readSharedSettings(
     }
 
     const current = SharedSettingsSchema.safeParse(parsed);
-    const legacy = current.success
+    const version3 = current.success
+      ? undefined
+      : Version3SharedSettingsSchema.safeParse(parsed);
+    const legacy = current.success || version3?.success
       ? undefined
       : LegacySharedSettingsSchema.safeParse(parsed);
-    if (!current.success && (legacy === undefined || !legacy.success)) {
+    if (
+      !current.success &&
+      (version3 === undefined || !version3.success) &&
+      (legacy === undefined || !legacy.success)
+    ) {
       throw new SharedSettingsError("shared settings do not match schema", {
         cause: current.error,
       });
@@ -235,14 +302,35 @@ export async function readSharedSettings(
     let settings: SharedSettings;
     if (current.success) {
       settings = current.data;
+    } else if (version3?.success) {
+      settings = {
+        version: 4,
+        updatedAt: version3.data.updatedAt,
+        vaults: Object.fromEntries(
+          Object.entries(version3.data.vaults).map(([vaultId, entry]) => [
+            vaultId,
+            {
+              ...entry,
+              // The version-3 acknowledgement explicitly excluded edit,
+              // move, and trash. Preserve full-vault create/append access but
+              // never infer the new management authority during migration.
+              managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS },
+            },
+          ]),
+        ),
+      };
     } else if (legacy?.success) {
       settings = {
-        version: 3,
+        version: 4,
         updatedAt: legacy.data.updatedAt,
         vaults: Object.fromEntries(
           Object.entries(legacy.data.vaults).map(([vaultId, entry]) => [
             vaultId,
-            { ...entry, accessMode: "protected" as const },
+            {
+              ...entry,
+              accessMode: "protected" as const,
+              managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS },
+            },
           ]),
         ),
       };
@@ -266,7 +354,9 @@ export interface VaultAccess {
   readonly writablePolicy: PathPolicy;
   readonly writeEnabled: boolean;
   /** Selects the prompt-approved or separately auto-approved writer channel. */
-  readonly accessMode: "protected" | "full";
+  readonly accessMode: AccessMode;
+  /** Effective management grants; all false outside an enabled management entry. */
+  readonly managementPermissions: Readonly<ManagementPermissions>;
   /** Stable Obsidian vault ID used for every CLI call. */
   readonly vaultSelector: string;
   readonly vaultName: string;
@@ -298,9 +388,13 @@ function accessFromEntry(
   entry: VaultSettings,
   deniedFolders: readonly string[],
 ): VaultAccess {
-  const fullAccess = entry.enabled && entry.accessMode === "full";
+  const accessMode: AccessMode = entry.enabled
+    ? entry.accessMode
+    : "protected";
+  const wholeVaultAccess =
+    accessMode === "full" || accessMode === "management";
   const readPolicy =
-    fullAccess || (entry.enabled && entry.readMode === "all")
+    wholeVaultAccess || (entry.enabled && entry.readMode === "all")
       ? createPathPolicy({ allowedFolders: null, deniedFolders })
       : entry.enabled && entry.readMode === "folders"
         ? createWritablePathPolicy({
@@ -308,8 +402,8 @@ function accessFromEntry(
             deniedFolders,
           })
         : denyPolicy(deniedFolders);
-  const writeEnabled = fullAccess || (entry.enabled && entry.writeEnabled);
-  const writablePolicy = fullAccess
+  const writeEnabled = wholeVaultAccess || (entry.enabled && entry.writeEnabled);
+  const writablePolicy = wholeVaultAccess
     ? createPathPolicy({
         allowedFolders: null,
         deniedFolders,
@@ -322,12 +416,17 @@ function accessFromEntry(
           caseSensitive: readPolicy.caseSensitive,
         })
       : denyPolicy(deniedFolders);
+  const managementPermissions =
+    accessMode === "management"
+      ? Object.freeze({ ...entry.managementPermissions })
+      : NO_MANAGEMENT_PERMISSIONS;
 
   return Object.freeze({
     readPolicy,
     writablePolicy,
     writeEnabled,
-    accessMode: fullAccess ? "full" : "protected",
+    accessMode,
+    managementPermissions,
     vaultSelector: vaultId,
     vaultName: entry.vaultName,
     vaultPath: entry.vaultPath,
@@ -344,6 +443,7 @@ function unconfiguredSettingsAccess(
     writablePolicy: denyPolicy(deniedFolders),
     writeEnabled: false,
     accessMode: "protected",
+    managementPermissions: NO_MANAGEMENT_PERMISSIONS,
     vaultSelector: vault,
     vaultName: vault,
     source: "settings" as const,
@@ -374,6 +474,7 @@ function environmentAccess(
     writablePolicy,
     writeEnabled,
     accessMode: "protected",
+    managementPermissions: NO_MANAGEMENT_PERMISSIONS,
     vaultSelector: vault,
     vaultName: vault,
     source: "environment" as const,

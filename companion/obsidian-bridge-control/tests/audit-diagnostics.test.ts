@@ -188,6 +188,98 @@ describe("bounded companion audit diagnostics", () => {
     expect(JSON.stringify(result)).not.toContain("THIS MUST NEVER LEAVE");
   });
 
+  it("classifies management operations and retains a safe move target", async () => {
+    const records = [
+      auditRecord(10, {
+        operation: "replace",
+        authorization_mode: "management",
+      }),
+      auditRecord(11, {
+        operation: "frontmatter",
+        status: "failed",
+        error_code: "MANAGEMENT_WRITE_FAILED",
+        rollback_attempted: true,
+        rollback_succeeded: true,
+        rollback_reason: "backup_restored",
+        backup_id: "management-backup-11",
+      }),
+      auditRecord(12, {
+        operation: "move",
+        target_path: "Archive/Renamed.md",
+      }),
+      auditRecord(13, { operation: "trash" }),
+    ];
+    await writeFile(
+      auditPath,
+      `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+      "utf8",
+    );
+
+    const result = await readAuditDiagnostics(VAULT_ID, {
+      platform: runtimePlatform(),
+      env,
+      limit: 20,
+    });
+
+    expect(result.malformedLines).toBe(0);
+    expect(result.records.map((record) => record.operation)).toEqual([
+      "trash",
+      "move",
+      "frontmatter",
+      "replace",
+    ]);
+    expect(result.records[1]).toMatchObject({
+      path: "Projects/Note-12.md",
+      targetPath: "Archive/Renamed.md",
+      operation: "move",
+    });
+    expect(result.records[2]).toMatchObject({
+      operation: "frontmatter",
+      severity: "warning",
+      recovery: "restored",
+      rollbackReason: "backup_restored",
+    });
+    expect(result.records[3]).toMatchObject({
+      operation: "replace",
+      authorizationMode: "management",
+    });
+  });
+
+  it("rejects missing, misplaced, and unsafe move targets", async () => {
+    const records = [
+      auditRecord(20, { operation: "move" }),
+      auditRecord(21, {
+        operation: "replace",
+        target_path: "Archive/Unexpected.md",
+      }),
+      auditRecord(22, {
+        operation: "move",
+        target_path: "../Outside.md",
+      }),
+      auditRecord(23, {
+        operation: "move",
+        target_path: "Archive/Accepted.md",
+      }),
+    ];
+    await writeFile(
+      auditPath,
+      `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+      "utf8",
+    );
+
+    const result = await readAuditDiagnostics(VAULT_ID, {
+      platform: runtimePlatform(),
+      env,
+      limit: 20,
+    });
+    expect(result.malformedLines).toBe(3);
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({
+      operation: "move",
+      targetPath: "Archive/Accepted.md",
+    });
+  });
+
   it("retains failures independently when newer successes fill the normal window", async () => {
     const records: Record<string, unknown>[] = [
       auditRecord(1, {

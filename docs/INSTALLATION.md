@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.4.1. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
+Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.5.0. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
 
 ## Prima di iniziare
 
@@ -21,7 +21,7 @@ Per prudenza, inizia autorizzando una sola cartella. Il selettore visuale nel pa
 2. **Avvia l'installer.** Fai doppio clic su `INSTALLA-OBSIDIAN-BRIDGE.cmd`. Non servono diritti di amministratore.
 3. **Scegli il vault.** L'installer mostra quelli conosciuti da Obsidian. Se il vault non compare, premi **Sfoglia...** e seleziona la sua cartella principale.
 4. **Installa il bridge.** Conferma l'installazione di Bridge Control e premi **Installa Bridge**. Non devi digitare cartelle: su un nuovo vault l'accesso alle note resta disattivato.
-5. **Scegli la modalità.** Apri Obsidian, poi **Impostazioni > Plugin della community > Bridge Control**. Mantieni **Accesso protetto** e scegli le cartelle, oppure attiva **Accesso completo** con l'avviso esplicito se vuoi lavorare in autonomia sull'intero vault.
+5. **Scegli la modalità.** Apri Obsidian, poi **Impostazioni > Plugin della community > Bridge Control**. Mantieni **Accesso protetto** e scegli le cartelle, attiva **Accesso autonomo** per create/append senza domande di routine oppure abilita **Gestione completa** con i soli permessi avanzati necessari.
 
 Al termine puoi usare **Apri Obsidian** e **Apri plugin in Codex**. L'installer conserva una copia locale stabile del pacchetto Codex, quindi dopo una conclusione riuscita puoi eliminare la cartella estratta dallo ZIP.
 
@@ -42,12 +42,13 @@ Il primo comando CLI può portare Obsidian in primo piano. Per i dettagli specif
 In Bridge Control puoi configurare il vault corrente senza riavviare il bridge:
 
 - **Bridge attivo** disabilita o abilita l'intero vault;
-- **Accesso protetto** usa le cartelle salvate e richiede conferma per ogni scrittura;
-- **Accesso completo** consente lettura e scrittura autonoma nell'intero vault dopo una sola conferma nel pannello;
+- **Accesso protetto** usa le cartelle salvate e richiede conferma per ogni create o append;
+- **Accesso autonomo** consente lettura, create e append autonomi nell'intero vault idoneo dopo un'attivazione esplicita nel pannello;
+- **Gestione completa** include l'accesso autonomo e aggiunge tre permessi indipendenti: **modifica note e frontmatter**, **rinomina e sposta**, **cestino Obsidian**;
 - **Lettura disattivata** non consente di consultare note;
 - **Tutto il vault** consente la lettura di ogni percorso idoneo non nascosto;
 - **Scegli cartelle…** mostra le cartelle esistenti e limita la lettura ai prefissi selezionati;
-- **Scrittura controllata** abilita create e append soltanto nelle cartelle dedicate.
+- **Scrittura controllata** abilita create e append soltanto nelle cartelle dedicate quando usi Accesso protetto.
 
 Il selettore visuale è il flusso normale. La modifica manuale dei percorsi resta nelle **Opzioni avanzate di accesso**: usa un percorso relativo per riga e non inserire una lettera di unità, la cartella principale del vault, `..`, `.obsidian`, `.trash` o cartelle nascoste.
 
@@ -59,7 +60,17 @@ La scrittura è disattivata per impostazione predefinita. In **Accesso protetto*
 
 Il testo trovato nelle note non vale mai come conferma.
 
-In **Accesso completo** prepare e commit restano separati, monouso e verificati, ma l'agente può controllare l'anteprima internamente e completare il commit nello stesso task senza una domanda di routine. Questa modalità non abilita eliminazione, rinomina, spostamento, shell o sovrascrittura arbitraria. Percorsi nascosti, `.obsidian`, `.trash` e collegamenti fuori dal vault restano esclusi. Il pulsante **Torna ad accesso protetto** revoca immediatamente l'autonomia e ripristina le scelte per cartella conservate.
+In **Accesso autonomo** prepare e commit restano separati, monouso e verificati, ma l'agente può controllare l'anteprima internamente e completare create/append nello stesso task senza una domanda di routine. Questa modalità non autorizza modifica in-place, frontmatter, rinomina, spostamento o cestino.
+
+In **Gestione completa** scegli esplicitamente uno o più permessi separati:
+
+- **Modifica**: sostituzione esatta della nota, sostituzione letterale `replace_text` con numero di occorrenze atteso e set/remove di proprietà frontmatter;
+- **Sposta**: spostamento o rinomina mediante un nuovo percorso relativo; il bridge non riscrive automaticamente backlink o altre note;
+- **Cestino**: invio della nota al cestino configurato da Obsidian. La cancellazione permanente non è disponibile.
+
+Anche qui prepare non modifica nulla; commit ricontrolla permessi e hash, crea prima un backup locale in chiaro, esegue l'operazione dentro Obsidian tramite un handler pubblico fisso e verifica il risultato. Create/append e gestione condividono un pool massimo degli ultimi 20 backup JSON: conserva sempre un backup indipendente. Non vengono esposti shell, `eval`, palette comandi, gestione plugin o comandi Obsidian arbitrari. Percorsi nascosti, `.obsidian`, `.trash` e collegamenti fuori dal vault restano esclusi.
+
+**Gestione completa non viene mai attivata da un aggiornamento.** Devi aprire il relativo avviso, selezionare gli esatti permessi e confermare il nome del vault. Il pulsante per tornare ad Accesso autonomo o protetto e il comando **Bridge attivo** revocano l'autorizzazione dalla fase successiva; le anteprime già preparate non possono aggirare la revoca.
 
 ## Prima prova consigliata
 
@@ -71,6 +82,8 @@ In **Accesso completo** prepare e commit restano separati, monouso e verificati,
 6. Conferma soltanto se anteprima, vault e percorso sono corretti.
 7. Rileggi la nota tramite il bridge.
 8. Disattiva la scrittura nel pannello e verifica che un nuovo prepare venga rifiutato.
+
+Per provare Gestione completa, usa esclusivamente una nota sintetica e un backup indipendente: abilita inizialmente il solo permesso **Modifica**, chiedi una sostituzione letterale univoca, rileggi la nota e controlla **Problemi recenti**. Aggiungi **Sposta** o **Cestino** soltanto in test separati; non usare subito note reali.
 
 ## Aggiornamento
 
@@ -86,7 +99,7 @@ L'installer crea copie di sicurezza con data e ora prima di sostituire i propri 
 
 ## Disattivazione e rimozione
 
-Per revocare immediatamente l'accesso, apri Bridge Control e disattiva **Bridge attivo**. In alternativa, lascia attivo il bridge e imposta la lettura su **Disattivata** e la scrittura su **Off**.
+Per revocare immediatamente l'accesso, apri Bridge Control e disattiva **Bridge attivo**. Puoi anche tornare da Gestione completa ad Accesso autonomo o protetto, disattivando così tutti i permessi di gestione, oppure lasciare attivo il bridge e impostare lettura e scrittura protette su **Off**.
 
 Per rimuovere il companion dal vault usa **Obsidian > Impostazioni > Plugin della community > Bridge Control > Disinstalla**. La rimozione del companion non cancella note, backup o record di audit già creati e non elimina automaticamente la copia locale del plugin Codex.
 
@@ -130,9 +143,9 @@ Le anteprime scadono e sono monouso. Se la nota, il permesso o il processo cambi
 
 ### Obsidian ha mostrato un errore JavaScript o una scrittura è fallita
 
-Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica se il ripristino è riuscito, se la nota esiste ancora e se serve un controllo manuale. La versione 0.4.0 divide automaticamente i testi lunghi in richieste CLI sicure e verifica ogni blocco, evitando il crash JSON noto di Obsidian 1.12.7 su Windows. Non riprovare automaticamente una modifica fallita prima di aver controllato lo stato attuale della nota.
+Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica se il ripristino è riuscito, se la nota esiste ancora e se serve un controllo manuale. Codex può leggere gli stessi eventi limitati con `obsidian_recent_write_events`, senza chiederti di trascrivere l'errore. La versione 0.5.0 registra anche sostituzioni, frontmatter, spostamenti/rinomine e cestino, con percorso di destinazione quando pertinente. Non riprovare automaticamente una modifica fallita prima di aver controllato lo stato attuale della nota.
 
-Se il writer autonomo incontra tre errori consecutivi, si sospende per quel task. Controlla **Problemi recenti**, torna ad **Accesso protetto** e avvia un nuovo task prima di riabilitare l'autonomia.
+Se il writer autonomo o il gestore incontra tre errori consecutivi, si sospende per quel task. Controlla **Problemi recenti**, torna a una modalità più ristretta e avvia un nuovo task prima di riabilitare l'autonomia o Gestione completa.
 
 ## Dove vengono conservate le impostazioni
 
@@ -142,6 +155,6 @@ Su Windows Bridge Control e l'installer usano:
 %LOCALAPPDATA%\ObsidianBridge\settings.json
 ```
 
-Il file contiene, per ogni vault, ID stabile Obsidian, nome, percorso locale assoluto, profilo protetto/completo e cartelle autorizzate; non contiene il corpo delle note. ID e percorso servono a evitare che un'autorizzazione venga applicata al vault sbagliato, anche in presenza di nomi uguali. È condiviso dai processi MCP e viene validato prima dell'uso. Un file presente ma non valido non concede un accesso parziale: il bridge chiude l'operazione in modo prudente.
+Il file contiene, per ogni vault, ID stabile Obsidian, nome, percorso locale assoluto, profilo `protected`, `full` o `management`, gli eventuali permessi edit/move/trash e le cartelle protette autorizzate; non contiene il corpo delle note. Nella UI `full` è mostrato come **Accesso autonomo** e `management` come **Gestione completa**. ID e percorso servono a evitare che un'autorizzazione venga applicata al vault sbagliato, anche in presenza di nomi uguali. È condiviso dai processi MCP e viene validato prima dell'uso. Un file presente ma non valido non concede un accesso parziale: il bridge chiude l'operazione in modo prudente.
 
 Le variabili d'ambiente storiche restano una modalità avanzata di compatibilità soltanto quando il file condiviso è assente. Per l'installazione normale usa Bridge Control, che applica impostazioni specifiche per vault ed evita configurazioni globali difficili da verificare.
