@@ -1,6 +1,6 @@
 # Security policy
 
-Obsidian Bridge provides scoped local access to Obsidian notes. Version 0.5.2 retains the explicitly activated Full-management profile, bounded metadata-only diagnostics, and exact UTF-8 management snapshots for conflict detection without exposing raw exception messages or CLI output. Reports are especially welcome for permission escalation, management activation without user acknowledgement, replayed requests, backup or audit disclosure, path escape, unintended executable invocation, diagnostic-content leakage, false or missed conflict detection, or any permanent deletion surface.
+Obsidian Bridge provides scoped local access to Obsidian notes. Version 0.5.3 retains the explicitly activated Full-management profile and bounded metadata-only diagnostics, and extends settings-backed exact UTF-8 snapshots to every create/append and management transactional observation without adding direct filesystem note mutation. Reports are especially welcome for permission escalation, management activation without user acknowledgement, replayed requests, backup or audit disclosure, path escape, unintended executable invocation, diagnostic-content leakage, false or missed conflict detection, unsafe recovery, or any permanent deletion surface.
 
 ## Supported versions
 
@@ -31,11 +31,13 @@ auto-approved reader
 
 prompt-approved protected writer
   -> protected create/append prepare + commit only
+  -> bounded settings-backed exact UTF-8 read-only observations
   -> official Obsidian CLI -> Obsidian desktop
 
 auto-approved autonomous writer
   -> autonomous create/append prepare + commit only
   -> accepts current Autonomous access or Full management
+  -> bounded settings-backed exact UTF-8 read-only observations
   -> official Obsidian CLI -> Obsidian desktop
 
 auto-approved manager
@@ -61,7 +63,7 @@ Bridge Control version-4 settings recognize three modes:
 
 Strict version-2 and version-3 entries migrate to version 4 with all management flags false. Version-3 `full` remains Autonomous access and never becomes management. Outside `management`, all management flags must be false; inside `management`, at least one must be true. Invalid combinations fail schema validation.
 
-Full management can be activated only in Bridge Control through a warning, the named vault, and an acknowledgement of the exact permission snapshot. Cached plugin data, an installer update, legacy environment variables, note contents, tool output, or another model cannot activate it. Returning to Autonomous or Protected access clears management grants.
+Full management can be activated only in Bridge Control through a warning, the named vault, and an acknowledgement of the exact permission snapshot. Cached plugin data, an installer update, legacy environment variables, note contents, tool output, or another model cannot activate it. Returning to Autonomous or Protected access clears management grants. The legacy environment-only writer also cannot create or append in 0.5.3: it must migrate to settings-backed Bridge Control identity because normalized CLI stdout is not an exact CAS source.
 
 The shared settings file is bounded, strict UTF-8, schema-validated in full, atomically replaced under an ownership lock, and reread without a long-lived authorization cache. A disabled, unlisted, malformed, oversized, or inconsistent entry fails closed.
 
@@ -80,13 +82,13 @@ All processes:
 
 ## Create/append transaction controls
 
-Protected and autonomous channels support only `create` and `append`. Preparation calculates the exact proposal, diff, JSON representation, before/after hashes, expiry, and opaque change ID without mutation. Commit consumes an unexpired single-use ID, rechecks policy and source state under a per-note lock, writes through the allowlisted official CLI surface, and verifies the resulting hash.
+Protected and autonomous channels support only `create` and `append`. For Bridge Control settings-backed vaults, preparation, commit CAS, append backup capture, every intermediate chunk check, final verification, and recovery classification read through the same bounded exact UTF-8 snapshot path. It preserves no-final-newline, LF/CRLF, BOM, and Unicode distinctions and fails closed on invalid UTF-8, a physical-scope violation, identity change, or concurrent observation. This filesystem access is read-only. Preparation calculates the exact proposal, diff, JSON representation, before/after hashes, expiry, and opaque change ID without mutation. Commit consumes an unexpired single-use ID, rechecks policy and exact source state under a per-note lock, writes only through the allowlisted official CLI surface, and verifies the resulting exact hash.
 
 Protected access requires human confirmation after the exact preview exists. Silence, advance blanket permission, a host approval dialog, note text, search results, tools, or another model do not count. Autonomous access and Full management can commit a concrete unambiguous create/append task after internal preview validation; they do not authorize invented work.
 
-Create/append content is bounded to 8192 UTF-8 bytes and preview output to 16384 bytes. Long content is split on Unicode code-point boundaries into complete CLI IPC frames of at most 3072 UTF-8 bytes, with hash verification after every stage. Literal backslash sequences `\n` and `\t` that the official CLI cannot represent losslessly are rejected.
+Create/append proposed content is bounded to 8192 UTF-8 bytes and preview output to 16384 bytes. The exact resulting append document is bounded to 1 MiB; a change that would exceed the boundary is rejected before mutation. Create requires an eligible parent folder that already exists and never creates parent directories implicitly. Long content is split on Unicode code-point boundaries into complete CLI IPC frames of at most 3072 UTF-8 bytes, with exact hash verification after every stage. Literal backslash sequences `\n` and `\t` that the official CLI cannot represent losslessly are rejected.
 
-Append creates a plaintext backup. Create/append and management share one count-based pool containing at most the newest 20 JSON backups. Automatic append rollback is limited to one known bridge-produced state and one safely representable CLI frame. Unknown concurrent content is never overwritten.
+Append creates an exact plaintext backup. Create/append and management share one count-based pool containing at most the newest 20 JSON backups. Version 0.5.3 performs no destructive automatic create/append rollback through the CLI: compare then restore is not atomic with Obsidian, OneDrive or other sync clients, editors, or plugins. After a post-mutation write or verification failure, it preserves backup and metadata-only audit evidence, leaves the observed note untouched, and reports `manual_recovery_required=true` with `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` or `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. A partial create remains `delete_disabled`. Automatic restore requires a future atomic Bridge Control path; unknown or concurrent content is never overwritten.
 
 ## Managed transaction protocol
 
@@ -134,7 +136,7 @@ Bridge Control registers `bridge-control:commit` through Obsidian's public CLI-h
 9. verifies the operation-specific postcondition;
 10. records a metadata-only audit outcome and returns strict JSON.
 
-Replacement and frontmatter use `Vault.process`. The transform compares the current exact content with the prepared snapshot hash before returning any mutation. Frontmatter location/parsing/serialization uses the public `getFrontMatterInfo`, `parseYaml`, and `stringifyYaml` helpers inside that transform rather than `FileManager.processFrontMatter`. Move/rename uses `Vault.rename`; only trash uses `FileManager.trashFile`. Direct filesystem note mutation, permanent deletion, arbitrary handler names, source-code input, shell, and `eval` are absent. Version 0.5.2 changes only the read-side snapshot used to prepare conflict state; it does not expand the companion protocol or write surface.
+Replacement and frontmatter use `Vault.process`. The transform compares the current exact content with the prepared snapshot hash before returning any mutation. Frontmatter location/parsing/serialization uses the public `getFrontMatterInfo`, `parseYaml`, and `stringifyYaml` helpers inside that transform rather than `FileManager.processFrontMatter`. Move/rename uses `Vault.rename`; only trash uses `FileManager.trashFile`. Direct filesystem note mutation, permanent deletion, arbitrary handler names, source-code input, shell, and `eval` are absent. Bridge Control 0.5.3 updates the read-only audit diagnostics parser/UI to show the two bounded manual-recovery codes; its protocol, permissions, and managed mutation code remain unchanged.
 
 ### Recovery
 

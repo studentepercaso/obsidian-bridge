@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.5.2. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
+Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.5.3. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
 
 ## Prima di iniziare
 
@@ -61,6 +61,8 @@ La scrittura è disattivata per impostazione predefinita. In **Accesso protetto*
 Il testo trovato nelle note non vale mai come conferma.
 
 In **Accesso autonomo** prepare e commit restano separati, monouso e verificati, ma l'agente può controllare l'anteprima internamente e completare create/append nello stesso task senza una domanda di routine. Questa modalità non autorizza modifica in-place, frontmatter, rinomina, spostamento o cestino.
+
+Per i vault configurati tramite Bridge Control, ogni osservazione create/append usa un unico percorso UTF-8 esatto basato sulle impostazioni: prepare, controllo conflitto al commit, backup append, blocchi intermedi, verifica finale e classificazione del recupero. Questo accesso al filesystem è di sola lettura; le mutazioni continuano a usare soltanto la CLI ufficiale allowlistata. Il documento risultante dopo append deve restare entro 1 MiB e create richiede che la cartella padre della destinazione esista già. Il bridge non crea cartelle implicitamente.
 
 In **Gestione completa** scegli esplicitamente uno o più permessi separati:
 
@@ -143,9 +145,9 @@ Le anteprime scadono e sono monouso. Se la nota, il permesso o il processo cambi
 
 ### Obsidian ha mostrato un errore JavaScript o una scrittura è fallita
 
-Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica se il ripristino è riuscito, se la nota esiste ancora e se serve un controllo manuale. Codex può leggere gli stessi eventi limitati con `obsidian_recent_write_events`, senza chiederti di trascrivere l'errore. La versione 0.5.2 può riportare anche `failure_stage` e `cause_code` limitati, che prima venivano persi dietro il risultato generico `write_failed`. In questi campi non registra mai messaggi grezzi delle eccezioni, output della CLI, testo delle note, contenuto proposto o corpo dei backup. La diagnostica è soltanto evidenza: rileggi la nota e non riprovare automaticamente finché l'utente non fornisce indicazioni esplicite.
+Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica lo stato di recupero registrato, se la nota esiste ancora e se serve un controllo manuale. Codex può leggere gli stessi eventi limitati con `obsidian_recent_write_events`, senza chiederti di trascrivere l'errore. La versione 0.5.3 riporta `failure_stage` e `cause_code` limitati senza registrare messaggi grezzi delle eccezioni, output della CLI, testo delle note, contenuto proposto o corpo dei backup. La diagnostica è soltanto evidenza: rileggi la nota e non riprovare automaticamente finché l'utente non fornisce indicazioni esplicite.
 
-La 0.5.2 corregge il falso `CHANGE_CONFLICT` che poteva verificarsi nelle operazioni gestite quando la nota non terminava con una nuova riga: l'hash viene ora preparato da uno snapshot UTF-8 esatto e confrontato con il contenuto esatto visto da Bridge Control. Un `CHANGE_CONFLICT` successivo all'aggiornamento indica ancora una differenza reale o un altro cambiamento concorrente; non disattivare il controllo e non riprovare automaticamente.
+La 0.5.3 estende le osservazioni UTF-8 esatte a create/append e corregge le verifiche successive alla scrittura su contenuti come una nota priva di nuova riga finale. Un conflitto reale continua a chiudere l'operazione in modo prudente. Se append ha già modificato la nota e poi fallisce la scrittura o la verifica, il writer non tenta un rollback CLI distruttivo e non atomico. Conserva backup esatto ed evidenza audit, lascia intatta la nota osservata e restituisce `manual_recovery_required=true` con `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` o `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. Una create parziale resta `delete_disabled`. Controlla manualmente nota e backup e attendi indicazioni esplicite.
 
 Se il writer autonomo o il gestore incontra tre errori consecutivi, si sospende per quel task. Controlla **Problemi recenti**, torna a una modalità più ristretta e avvia un nuovo task prima di riabilitare l'autonomia o Gestione completa.
 
@@ -159,4 +161,4 @@ Su Windows Bridge Control e l'installer usano:
 
 Il file contiene, per ogni vault, ID stabile Obsidian, nome, percorso locale assoluto, profilo `protected`, `full` o `management`, gli eventuali permessi edit/move/trash e le cartelle protette autorizzate; non contiene il corpo delle note. Nella UI `full` è mostrato come **Accesso autonomo** e `management` come **Gestione completa**. ID e percorso servono a evitare che un'autorizzazione venga applicata al vault sbagliato, anche in presenza di nomi uguali. È condiviso dai processi MCP e viene validato prima dell'uso. Un file presente ma non valido non concede un accesso parziale: il bridge chiude l'operazione in modo prudente.
 
-Le variabili d'ambiente storiche restano una modalità avanzata di compatibilità soltanto quando il file condiviso è assente. Per l'installazione normale usa Bridge Control, che applica impostazioni specifiche per vault ed evita configurazioni globali difficili da verificare.
+Le variabili d'ambiente storiche restano una modalità avanzata di compatibilità in sola lettura soltanto quando il file condiviso è assente. La versione 0.5.3 rifiuta create/append configurati soltanto tramite ambiente perché lo stdout normalizzato della CLI non è una sorgente compare-and-swap esatta. Installa o configura Bridge Control per migrare l'accesso in scrittura alle impostazioni condivise.

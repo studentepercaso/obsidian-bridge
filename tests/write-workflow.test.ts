@@ -1,13 +1,22 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_CLI_IPC_FRAME_BYTES,
   ObsidianCliError,
+  buildVaultArgs,
   cliIpcFrameBytes,
   encodeCliContent,
   type ObsidianCliRunner,
@@ -18,8 +27,10 @@ import {
   createWritablePathPolicy,
 } from "../src/path-policy.js";
 import type { VaultAccessResolver } from "../src/shared-settings.js";
+import type { ExactVaultDocument } from "../src/exact-vault-document.js";
 import {
   FileChangeStorage,
+  MAX_WRITE_OBSERVATION_BYTES,
   PreparedChangeStore,
   WriteToolInputSchemas,
   createWriteToolHandlers,
@@ -103,6 +114,105 @@ function createMemoryRunner(
   };
 }
 
+function createPhysicalWriterRunner(
+  vaultPath: string,
+  invocations: string[][],
+  afterWrite?: (input: {
+    readonly command: "create" | "append";
+    readonly filePath: string;
+    readonly content: string;
+  }) => Promise<void>,
+): ObsidianCliRunner {
+  return async (args) => {
+    invocations.push([...args]);
+    const command = args[1];
+    if (command === "vault") {
+      return { stdout: vaultPath, stderr: "", exitCode: 0 };
+    }
+
+    const notePath = parameter(args, "path");
+    if (notePath === undefined) throw new Error("path is required");
+    const filePath = join(vaultPath, ...notePath.split("/"));
+    if (command === "read") {
+      try {
+        const content = await readFile(filePath, "utf8");
+        return {
+          // Reproduce the official CLI normalization that caused the defect.
+          stdout: content.endsWith("\n") ? content : `${content}\n`,
+          stderr: "",
+          exitCode: 0,
+        };
+      } catch (error) {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "ENOENT"
+        ) {
+          throw new ObsidianCliError("NON_ZERO_EXIT", "Note not found", 2);
+        }
+        throw error;
+      }
+    }
+
+    const content = decodeCliContent(parameter(args, "content") ?? "");
+    if (command === "create") {
+      await mkdir(dirname(filePath), { recursive: true });
+      if (!args.includes("overwrite")) {
+        try {
+          await readFile(filePath);
+          throw new ObsidianCliError("NON_ZERO_EXIT", "Note already exists", 3);
+        } catch (error) {
+          if (
+            !(
+              typeof error === "object" &&
+              error !== null &&
+              "code" in error &&
+              error.code === "ENOENT"
+            )
+          ) {
+            throw error;
+          }
+        }
+      }
+      await writeFile(filePath, content, "utf8");
+      await afterWrite?.({ command, filePath, content });
+      return { stdout: notePath, stderr: "", exitCode: 0 };
+    }
+    if (command === "append") {
+      await appendFile(filePath, content, "utf8");
+      await afterWrite?.({ command, filePath, content });
+      return { stdout: notePath, stderr: "", exitCode: 0 };
+    }
+    throw new Error(`unexpected command ${command ?? "missing"}`);
+  };
+}
+
+function sharedWriterAccess(
+  vaultPath: string,
+  accessMode: "protected" | "full" | "management",
+): VaultAccessResolver {
+  const readPolicy = createPathPolicy({ allowedFolders: ["Projects"] });
+  const writablePolicy = createWritablePathPolicy({
+    allowedFolders: ["Projects/Editable"],
+  });
+  return async () => ({
+    readPolicy,
+    writablePolicy,
+    writeEnabled: true,
+    accessMode,
+    managementPermissions: {
+      edit: accessMode === "management",
+      move: false,
+      trash: false,
+    },
+    vaultSelector: "0123456789abcdef",
+    vaultName: "Test Vault",
+    vaultPath,
+    source: "settings",
+  });
+}
+
 function fixedStore(now: () => number = () => 1_000): PreparedChangeStore {
   let next = 0;
   return new PreparedChangeStore({
@@ -120,6 +230,8 @@ function runtime(
   options: {
     authorizationMode?: "protected" | "autonomous";
     dataDirectory?: string;
+    useProductionExactReader?: boolean;
+    exactDocumentReader?: () => Promise<ExactVaultDocument>;
   } = {},
 ) {
   return createWriteToolHandlers({
@@ -131,6 +243,45 @@ function runtime(
     }),
     store,
     storage,
+    ...(options.exactDocumentReader === undefined
+      ? {}
+      : { exactDocumentReader: options.exactDocumentReader }),
+    ...(options.useProductionExactReader === true
+      ? {}
+      : {
+          documentStateReaderForTests: async (
+            access: Awaited<ReturnType<VaultAccessResolver>>,
+            notePath: string,
+            readOptions: Parameters<ObsidianCliRunner>[1] = {},
+          ) => {
+            try {
+              const result = await runner(
+                buildVaultArgs(access.vaultSelector, "read", [
+                  `path=${notePath}`,
+                ]),
+                readOptions ?? {},
+              );
+              return {
+                exists: true,
+                content: result.stdout,
+                sha256: hashDocumentState(true, result.stdout),
+              };
+            } catch (error) {
+              if (
+                error instanceof ObsidianCliError &&
+                (error.code === "CLI_REPORTED_ERROR"
+                  ? error.message === `Error: File "${notePath}" not found.`
+                  : error.code === "NON_ZERO_EXIT" &&
+                    /(?:not found|does not exist|no (?:such )?file|cannot find|missing)/iu.test(
+                      error.message,
+                    ))
+              ) {
+                return { exists: false, sha256: hashDocumentState(false) };
+              }
+              throw error;
+            }
+          },
+        }),
     ...(resolveAccess === undefined ? {} : { resolveAccess }),
     ...(options.authorizationMode === undefined
       ? {}
@@ -424,6 +575,586 @@ describe("write workflow schemas and storage", () => {
     expect(appendIndex).toBeGreaterThan(1);
   });
 
+  it.each([
+    { authorizationMode: "protected" as const, accessMode: "protected" as const },
+    { authorizationMode: "autonomous" as const, accessMode: "full" as const },
+    {
+      authorizationMode: "autonomous" as const,
+      accessMode: "management" as const,
+    },
+  ])(
+    "verifies exact shared-settings creates in $authorizationMode mode without CLI read normalization",
+    async ({ authorizationMode, accessMode }) => {
+      const vaultPath = await temporaryDirectory();
+      await mkdir(join(vaultPath, "Projects", "Editable"), { recursive: true });
+      const invocations: string[][] = [];
+      const handlers = runtime(
+        createPhysicalWriterRunner(vaultPath, invocations),
+        {
+          async createBackup() {
+            throw new Error("create must not make a backup");
+          },
+          async appendAudit() {},
+        },
+        fixedStore(),
+        sharedWriterAccess(vaultPath, accessMode),
+        { authorizationMode, useProductionExactReader: true },
+      );
+      const cases = [
+        { name: "no-final-newline", input: "single line", expected: "single line" },
+        { name: "lf", input: "line\n", expected: "line\n" },
+        { name: "bom", input: "\uFEFFsingle line", expected: "\uFEFFsingle line" },
+        // The writer intentionally normalizes submitted line endings before
+        // preview; exact observation must verify that prepared byte sequence.
+        { name: "crlf-input", input: "one\r\ntwo\r\n", expected: "one\ntwo\n" },
+      ] as const;
+
+      for (const testCase of cases) {
+        const notePath = `Projects/Editable/Create ${testCase.name}.md`;
+        const prepared = resultJson(
+          await handlers.prepareChange({
+            vault: "Test Vault",
+            path: notePath,
+            operation: "create",
+            content: testCase.input,
+          }),
+        );
+        const committed = resultJson(
+          await handlers.commitChange({ change_id: String(prepared.change_id) }),
+        );
+
+        expect(committed).toMatchObject({ status: "committed", verified: true });
+        expect(await readFile(join(vaultPath, ...notePath.split("/")))).toEqual(
+          Buffer.from(testCase.expected, "utf8"),
+        );
+      }
+      expect(invocations.some((args) => args[1] === "read")).toBe(false);
+    },
+  );
+
+  it.each([
+    { authorizationMode: "protected" as const, accessMode: "protected" as const },
+    { authorizationMode: "autonomous" as const, accessMode: "full" as const },
+  ])(
+    "preserves no-final-newline, LF, CRLF, and BOM source bytes during exact $authorizationMode append verification",
+    async ({ authorizationMode, accessMode }) => {
+      const vaultPath = await temporaryDirectory();
+      const invocations: string[][] = [];
+      const backups: BackupInput[] = [];
+      const handlers = runtime(
+        createPhysicalWriterRunner(vaultPath, invocations),
+        {
+          async createBackup(input) {
+            backups.push(input);
+            return { backupId: "exact-append-backup" };
+          },
+          async appendAudit() {},
+        },
+        fixedStore(),
+        sharedWriterAccess(vaultPath, accessMode),
+        { authorizationMode, useProductionExactReader: true },
+      );
+      const sources = [
+        { name: "empty", content: "" },
+        { name: "no-final-newline", content: "alpha" },
+        { name: "lf", content: "alpha\n" },
+        { name: "crlf", content: "alpha\r\n" },
+        { name: "bom", content: "\uFEFFalpha" },
+      ] as const;
+
+      for (const source of sources) {
+        const notePath = `Projects/Editable/Append ${source.name}.md`;
+        const filePath = join(vaultPath, ...notePath.split("/"));
+        await mkdir(dirname(filePath), { recursive: true });
+        await writeFile(filePath, source.content, "utf8");
+        const prepared = resultJson(
+          await handlers.prepareChange({
+            vault: "Test Vault",
+            path: notePath,
+            operation: "append",
+            content: "|delta",
+          }),
+        );
+        const committed = resultJson(
+          await handlers.commitChange({ change_id: String(prepared.change_id) }),
+        );
+
+        expect(committed).toMatchObject({ status: "committed", verified: true });
+        expect(await readFile(filePath)).toEqual(
+          Buffer.from(`${source.content}|delta`, "utf8"),
+        );
+      }
+      expect(backups.map((backup) => backup.content)).toEqual(
+        sources.map((source) => source.content),
+      );
+      expect(invocations.some((args) => args[1] === "read")).toBe(false);
+    },
+  );
+
+  it("uses exact post-side-effect state and requires manual recovery without overwrite", async () => {
+    const vaultPath = await temporaryDirectory();
+    const notePath = "Projects/Editable/Exact rollback.md";
+    const filePath = join(vaultPath, ...notePath.split("/"));
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, "original", "utf8");
+    const invocations: string[][] = [];
+    let appendFailed = false;
+    const handlers = runtime(
+      createPhysicalWriterRunner(vaultPath, invocations, async ({ command }) => {
+        if (command === "append" && !appendFailed) {
+          appendFailed = true;
+          throw new ObsidianCliError(
+            "NON_ZERO_EXIT",
+            "write failed after side effect",
+            7,
+          );
+        }
+      }),
+      {
+        async createBackup() {
+          return { backupId: "exact-rollback-backup" };
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      sharedWriterAccess(vaultPath, "protected"),
+      { useProductionExactReader: true },
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "append",
+        content: "|delta",
+      }),
+    );
+
+    const result = resultJson(
+      await handlers.commitChange({ change_id: String(prepared.change_id) }),
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failure_stage: "write",
+      rollback_attempted: false,
+      rollback_succeeded: false,
+      rollback_reason: "manual_recovery_required",
+      manual_recovery_required: true,
+    });
+    expect(await readFile(filePath)).toEqual(
+      Buffer.from("original|delta", "utf8"),
+    );
+    expect(
+      invocations.some(
+        (args) => args[1] === "create" && args.includes("overwrite"),
+      ),
+    ).toBe(false);
+    expect(invocations.some((args) => args[1] === "read")).toBe(false);
+  });
+
+  it("still refuses rollback after an actual concurrent shared-settings change", async () => {
+    const vaultPath = await temporaryDirectory();
+    const notePath = "Projects/Editable/Exact concurrent.md";
+    const filePath = join(vaultPath, ...notePath.split("/"));
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, "original", "utf8");
+    const invocations: string[][] = [];
+    let changed = false;
+    const handlers = runtime(
+      createPhysicalWriterRunner(vaultPath, invocations, async ({ command }) => {
+        if (command === "append" && !changed) {
+          changed = true;
+          await appendFile(filePath, "|external", "utf8");
+        }
+      }),
+      {
+        async createBackup() {
+          return { backupId: "exact-concurrent-backup" };
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      sharedWriterAccess(vaultPath, "full"),
+      { authorizationMode: "autonomous", useProductionExactReader: true },
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "append",
+        content: "|bridge",
+      }),
+    );
+
+    const result = resultJson(
+      await handlers.commitChange({ change_id: String(prepared.change_id) }),
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      failure_stage: "verification",
+      rollback_attempted: false,
+      rollback_succeeded: false,
+      rollback_reason: "concurrent_change",
+    });
+    expect(await readFile(filePath)).toEqual(
+      Buffer.from("original|bridge|external", "utf8"),
+    );
+    expect(
+      invocations.some(
+        (args) => args[1] === "create" && args.includes("overwrite"),
+      ),
+    ).toBe(false);
+    expect(invocations.some((args) => args[1] === "read")).toBe(false);
+  });
+
+  it("rejects an append whose resulting document would exceed the exact observation cap", async () => {
+    const vaultPath = await temporaryDirectory();
+    const notePath = "Projects/Editable/Exact size boundary.md";
+    const filePath = join(vaultPath, ...notePath.split("/"));
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, "x".repeat(MAX_WRITE_OBSERVATION_BYTES), "utf8");
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createPhysicalWriterRunner(vaultPath, invocations),
+      {
+        async createBackup() {
+          throw new Error("oversized result must fail before backup");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      sharedWriterAccess(vaultPath, "protected"),
+      { useProductionExactReader: true },
+    );
+
+    await expect(
+      handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "append",
+        content: "y",
+      }),
+    ).rejects.toThrow(/resulting document.*1048576/iu);
+    expect(await readFile(filePath)).toHaveLength(MAX_WRITE_OBSERVATION_BYTES);
+    expect(
+      invocations.some((args) => args[1] === "create" || args[1] === "append"),
+    ).toBe(false);
+  });
+
+  it("fails closed when a settings-backed writer has no physical vault path", async () => {
+    const notePath = "Projects/Editable/Missing root.md";
+    const notes = { [notePath]: "original" };
+    const invocations: string[][] = [];
+    const policy = createPathPolicy({ allowedFolders: ["Projects"] });
+    const writablePolicy = createWritablePathPolicy({
+      allowedFolders: ["Projects/Editable"],
+    });
+    const handlers = runtime(
+      createMemoryRunner(notes, invocations),
+      {
+        async createBackup() {
+          throw new Error("missing physical root must fail before backup");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      async () => ({
+        readPolicy: policy,
+        writablePolicy,
+        writeEnabled: true,
+        accessMode: "protected",
+        managementPermissions: { edit: false, move: false, trash: false },
+        vaultSelector: "0123456789abcdef",
+        vaultName: "Test Vault",
+        source: "settings",
+      }),
+      { useProductionExactReader: true },
+    );
+
+    await expect(
+      handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "append",
+        content: "|delta",
+      }),
+    ).rejects.toThrow(/verified physical vault path/iu);
+    expect(invocations.some((args) => args[1] === "read")).toBe(false);
+  });
+
+  it("requires an existing parent directory before preparing a physical create", async () => {
+    const vaultPath = await temporaryDirectory();
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createPhysicalWriterRunner(vaultPath, invocations),
+      {
+        async createBackup() {
+          throw new Error("create must fail before backup");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      sharedWriterAccess(vaultPath, "protected"),
+      { useProductionExactReader: true },
+    );
+
+    await expect(
+      handlers.prepareChange({
+        vault: "Test Vault",
+        path: "Projects/Editable/Missing parent.md",
+        operation: "create",
+        content: "content",
+      }),
+    ).rejects.toThrow(/parent does not exist/iu);
+    expect(
+      invocations.some((args) => args[1] === "create" || args[1] === "append"),
+    ).toBe(false);
+  });
+
+  it("fails legacy environment-only writing closed before any observation or mutation", async () => {
+    const notes = { "Projects/Editable/Legacy.md": "A" };
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createMemoryRunner(notes, invocations),
+      {
+        async createBackup() {
+          throw new Error("legacy configuration must fail before backup");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      undefined,
+      { useProductionExactReader: true },
+    );
+
+    await expect(
+      handlers.prepareChange({
+        vault: "Test Vault",
+        path: "Projects/Editable/Legacy.md",
+        operation: "append",
+        content: "B",
+      }),
+    ).rejects.toThrow(/Bridge Control.*physical vault path|migrate/iu);
+    expect(invocations).toEqual([]);
+    expect(notes["Projects/Editable/Legacy.md"]).toBe("A");
+  });
+
+  it("detects the A to A-newline EOF collision between prepare and commit", async () => {
+    const vaultPath = await temporaryDirectory();
+    const notePath = "Projects/Editable/EOF collision.md";
+    const filePath = join(vaultPath, ...notePath.split("/"));
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, "A", "utf8");
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createPhysicalWriterRunner(vaultPath, invocations),
+      {
+        async createBackup() {
+          throw new Error("conflict must fail before backup");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      sharedWriterAccess(vaultPath, "protected"),
+      { useProductionExactReader: true },
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "append",
+        content: "B",
+      }),
+    );
+    await writeFile(filePath, "A\n", "utf8");
+
+    await expect(
+      handlers.commitChange({ change_id: String(prepared.change_id) }),
+    ).rejects.toThrow(/changed after preparation/iu);
+    expect(await readFile(filePath)).toEqual(Buffer.from("A\n", "utf8"));
+    expect(
+      invocations.some((args) => args[1] === "create" || args[1] === "append"),
+    ).toBe(false);
+  });
+
+  it("does not falsely verify when a create expected to end in LF lands without it", async () => {
+    const vaultPath = await temporaryDirectory();
+    const notePath = "Projects/Editable/Removed final LF.md";
+    const filePath = join(vaultPath, ...notePath.split("/"));
+    await mkdir(dirname(filePath), { recursive: true });
+    const invocations: string[][] = [];
+    let stripped = false;
+    const handlers = runtime(
+      createPhysicalWriterRunner(vaultPath, invocations, async ({ command }) => {
+        if (command === "create" && !stripped) {
+          stripped = true;
+          await writeFile(filePath, "A", "utf8");
+        }
+      }),
+      {
+        async createBackup() {
+          throw new Error("create must not make a backup");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      sharedWriterAccess(vaultPath, "protected"),
+      { useProductionExactReader: true },
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "create",
+        content: "A\n",
+      }),
+    );
+
+    const result = resultJson(
+      await handlers.commitChange({ change_id: String(prepared.change_id) }),
+    );
+    expect(result).toMatchObject({
+      status: "failed",
+      verified: false,
+      rollback_reason: "concurrent_change",
+    });
+    expect(await readFile(filePath)).toEqual(Buffer.from("A", "utf8"));
+  });
+
+  it("verifies every physical chunk while creating a long document without final LF", async () => {
+    const vaultPath = await temporaryDirectory();
+    const notePath = "Projects/Editable/Long exact no LF.md";
+    await mkdir(join(vaultPath, "Projects", "Editable"), { recursive: true });
+    const content = "chunk-without-newline-".repeat(360);
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createPhysicalWriterRunner(vaultPath, invocations),
+      {
+        async createBackup() {
+          throw new Error("create must not make a backup");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      sharedWriterAccess(vaultPath, "protected"),
+      { useProductionExactReader: true },
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "create",
+        content,
+      }),
+    );
+    const committed = resultJson(
+      await handlers.commitChange({ change_id: String(prepared.change_id) }),
+    );
+
+    expect(committed).toMatchObject({ status: "committed", verified: true });
+    expect(await readFile(join(vaultPath, ...notePath.split("/")))).toEqual(
+      Buffer.from(content, "utf8"),
+    );
+    expect(invocations.filter((args) => args[1] === "append").length).toBeGreaterThan(0);
+    expect(invocations.some((args) => args[1] === "read")).toBe(false);
+  });
+
+  it("reports a distinct manual-recovery audit code for a bridge-known verification failure", async () => {
+    const notePath = "Projects/Editable/Known intermediate.md";
+    const notes = { [notePath]: "original" };
+    const invocations: string[][] = [];
+    const memoryRunner = createMemoryRunner(notes, invocations);
+    let appendCount = 0;
+    let firstIntermediate = "";
+    const runner: ObsidianCliRunner = async (args, options) => {
+      const result = await memoryRunner(args, options);
+      if (args[1] === "append") {
+        appendCount += 1;
+        if (appendCount === 1) firstIntermediate = notes[notePath];
+        if (appendCount === 2) notes[notePath] = firstIntermediate;
+      }
+      return result;
+    };
+    const audits: AuditEvent[] = [];
+    const handlers = runtime(runner, {
+      async createBackup() {
+        return { backupId: "known-intermediate-backup" };
+      },
+      async appendAudit(event) {
+        audits.push(event);
+      },
+    });
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "append",
+        content: "multi-chunk-no-newline-".repeat(330),
+      }),
+    );
+
+    const result = resultJson(
+      await handlers.commitChange({ change_id: String(prepared.change_id) }),
+    );
+    expect(result).toMatchObject({
+      status: "failed",
+      failure_stage: "verification",
+      manual_recovery_required: true,
+      rollback_reason: "manual_recovery_required",
+    });
+    expect(audits.at(-1)).toMatchObject({
+      error_code: "VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED",
+      failure_stage: "verification",
+      rollback_attempted: false,
+      rollback_succeeded: false,
+    });
+    expect(
+      invocations.some(
+        (args) => args[1] === "create" && args.includes("overwrite"),
+      ),
+    ).toBe(false);
+  });
+
+  it("fails an exact-reader error before backup or mutation", async () => {
+    const vaultPath = await temporaryDirectory();
+    const notePath = "Projects/Editable/Exact reader failure.md";
+    const filePath = join(vaultPath, ...notePath.split("/"));
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, "original", "utf8");
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createPhysicalWriterRunner(vaultPath, invocations),
+      {
+        async createBackup() {
+          throw new Error("reader failure must happen before backup");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      sharedWriterAccess(vaultPath, "protected"),
+      {
+        useProductionExactReader: true,
+        exactDocumentReader: async () => {
+          throw new Error("injected exact reader failure");
+        },
+      },
+    );
+
+    await expect(
+      handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "append",
+        content: "delta",
+      }),
+    ).rejects.toThrow(/injected exact reader failure/iu);
+    expect(await readFile(filePath)).toEqual(Buffer.from("original", "utf8"));
+    expect(
+      invocations.some((args) => args[1] === "create" || args[1] === "append"),
+    ).toBe(false);
+  });
+
   it("creates a long note through verified IPC-safe create and append chunks", async () => {
     const notes: Record<string, string> = {};
     const invocations: string[][] = [];
@@ -512,7 +1243,7 @@ describe("write workflow schemas and storage", () => {
     expect(appends.every((args) => cliIpcFrameBytes(args) <= MAX_CLI_IPC_FRAME_BYTES)).toBe(true);
   });
 
-  it("recognizes a failed intermediate chunk and restores a small original", async () => {
+  it("recognizes a failed intermediate chunk and requires manual recovery", async () => {
     const notes = { "Projects/Editable/Chunk failure.md": "original\n" };
     const invocations: string[][] = [];
     const content = "Second-stage failure payload 😀.\n".repeat(180);
@@ -548,12 +1279,13 @@ describe("write workflow schemas and storage", () => {
       error: "write_failed",
       failure_stage: "write",
       cause_code: "CLI_NON_ZERO_EXIT",
-      rollback_attempted: true,
-      rollback_succeeded: true,
-      rollback_reason: "restored",
+      rollback_attempted: false,
+      rollback_succeeded: false,
+      rollback_reason: "manual_recovery_required",
+      manual_recovery_required: true,
       backup_id: "chunk-failure-backup",
     });
-    expect(notes["Projects/Editable/Chunk failure.md"]).toBe("original\n");
+    expect(notes["Projects/Editable/Chunk failure.md"]).toMatch(/^original\n.+/su);
     expect(invocations.filter((args) => args[1] === "append").length).toBe(2);
   });
 
@@ -690,20 +1422,21 @@ describe("write workflow schemas and storage", () => {
       ),
     );
 
-    expect(notes["Projects/Editable/Note.md"]).toBe("original\n");
+    expect(notes["Projects/Editable/Note.md"]).toBe("original\nproposed\n");
     expect(result).toMatchObject({
       status: "failed",
       failure_stage: "write",
       cause_code: "UNEXPECTED_ERROR",
-      rollback_attempted: true,
-      rollback_succeeded: true,
-      rollback_reason: "restored",
+      rollback_attempted: false,
+      rollback_succeeded: false,
+      rollback_reason: "manual_recovery_required",
+      manual_recovery_required: true,
     });
     expect(audits.at(-1)).toMatchObject({
       failure_stage: "write",
       cause_code: "UNEXPECTED_ERROR",
-      rollback_attempted: true,
-      rollback_succeeded: true,
+      rollback_attempted: false,
+      rollback_succeeded: false,
     });
   });
 
@@ -812,7 +1545,7 @@ describe("write workflow schemas and storage", () => {
     ).rejects.toThrow(/expired|unknown|consumed/iu);
   });
 
-  it("returns a structured failure and restores the backup after verification mismatch", async () => {
+  it("returns a structured failure and preserves the backup for manual recovery", async () => {
     const notes = { "Projects/Editable/Note.md": "original\n" };
     const invocations: string[][] = [];
     const audits: AuditEvent[] = [];
@@ -851,21 +1584,22 @@ describe("write workflow schemas and storage", () => {
       failure_stage: "write",
       cause_code: "CLI_NON_ZERO_EXIT",
       verified: false,
-      rollback_attempted: true,
-      rollback_succeeded: true,
-      rollback_reason: "restored",
+      rollback_attempted: false,
+      rollback_succeeded: false,
+      rollback_reason: "manual_recovery_required",
+      manual_recovery_required: true,
       backup_id: "rollback-backup",
     });
-    expect(notes["Projects/Editable/Note.md"]).toBe("original\n");
+    expect(notes["Projects/Editable/Note.md"]).toBe("original\nproposed\n");
     expect(invocations.some((args) => args[1] === "append")).toBe(true);
     expect(
       invocations.some(
         (args) => args[1] === "create" && args.includes("overwrite"),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(audits.at(-1)).toMatchObject({
       status: "failed",
-      error_code: "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+      error_code: "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED",
       failure_stage: "write",
       cause_code: "CLI_NON_ZERO_EXIT",
     });
@@ -875,21 +1609,17 @@ describe("write workflow schemas and storage", () => {
     {
       label: "an original containing a literal CLI escape",
       original: `${String.raw`original \\n marker`}\n`,
-      reason: "restore_unrepresentable",
     },
     {
       label: "an original containing CRLF line endings",
       original: "original\r\nline\r\n",
-      reason: "restore_unrepresentable",
     },
     {
       label: "an original too large for one lossless overwrite",
       original: "a\n".repeat(5_000),
-      reason: "restore_too_large",
     },
   ])("keeps the backup and avoids destructive multi-step rollback for $label", async ({
     original,
-    reason,
   }) => {
     const notes = { "Projects/Editable/Note.md": original };
     const invocations: string[][] = [];
@@ -924,7 +1654,8 @@ describe("write workflow schemas and storage", () => {
       status: "failed",
       rollback_attempted: false,
       rollback_succeeded: false,
-      rollback_reason: reason,
+      rollback_reason: "manual_recovery_required",
+      manual_recovery_required: true,
       backup_id: "manual-recovery-backup",
     });
     expect(notes["Projects/Editable/Note.md"]).toBe(`${original}safe addition\n`);
@@ -1060,7 +1791,7 @@ describe("write workflow schemas and storage", () => {
       managementPermissions: { edit: false, move: false, trash: false },
       vaultSelector: "Test Vault",
       vaultName: "Test Vault",
-      source: "settings",
+      source: "environment",
     });
     let releaseFirstBackup!: () => void;
     const firstBackupMayFinish = new Promise<void>((resolve) => {
@@ -1280,7 +2011,7 @@ describe("write workflow schemas and storage", () => {
         managementPermissions: { edit: false, move: false, trash: false },
         vaultSelector: "Test Vault",
         vaultName: "Test Vault",
-        source: "settings",
+        source: "environment",
       };
     };
     const handlers = runtime(
@@ -1311,7 +2042,7 @@ describe("write workflow schemas and storage", () => {
           change_id: prepared.change_id,
         }),
       ),
-    ).rejects.toThrow(/disabled|shared settings/iu);
+    ).rejects.toThrow(/disabled|shared settings|outside/iu);
     expect(notes["Projects/Editable/Note.md"]).toBe("original\n");
     expect(invocations.some((args) => args[1] === "append")).toBe(false);
   });
@@ -1333,7 +2064,7 @@ describe("write workflow schemas and storage", () => {
         managementPermissions: { edit: false, move: false, trash: false },
         vaultSelector: "0123456789abcdef",
         vaultName: "Test Vault",
-        source: "settings",
+        source: "environment",
       };
     };
     const audits: AuditEvent[] = [];
@@ -1399,7 +2130,7 @@ describe("write workflow schemas and storage", () => {
       managementPermissions: { edit: false, move: false, trash: false },
       vaultSelector: "0123456789abcdef",
       vaultName: "Test Vault",
-      source: "settings",
+      source: "environment",
     });
     const handlers = runtime(
       createMemoryRunner(notes, []),
@@ -1458,7 +2189,7 @@ describe("write workflow schemas and storage", () => {
       managementPermissions: { edit: false, move: false, trash: false },
       vaultSelector: "0123456789abcdef",
       vaultName: "Test Vault",
-      source: "settings",
+      source: "environment",
     });
     const handlers = runtime(
       createMemoryRunner(notes, []),
@@ -1524,7 +2255,7 @@ describe("write workflow schemas and storage", () => {
       managementPermissions: { edit: false, move: false, trash: false },
       vaultSelector: "0123456789abcdef",
       vaultName: "Test Vault",
-      source: "settings",
+      source: "environment",
     });
     const handlers = runtime(
       createMemoryRunner(notes, []),

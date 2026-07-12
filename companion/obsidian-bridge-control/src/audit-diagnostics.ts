@@ -21,10 +21,12 @@ const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/u;
 const WRITE_ERROR_CODES = new Set([
   "WRITE_FAILED_ROLLBACK_SUCCEEDED",
   "WRITE_FAILED_ROLLBACK_FAILED",
+  "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED",
 ]);
 const VERIFICATION_ERROR_CODES = new Set([
   "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED",
   "VERIFICATION_FAILED_ROLLBACK_FAILED",
+  "VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED",
 ]);
 const COMMIT_ERROR_CODES = new Set([
   "COMMIT_INVALID_LOCK_OPTIONS",
@@ -423,6 +425,15 @@ function classifyAuditRecord(record: ParsedAuditRecord): AuditDiagnosticRecord {
     recovery = "restored";
     summary = "Errore recuperato automaticamente.";
     guidance = "Il contenuto precedente risulta ripristinato; puoi riprovare.";
+  } else if (
+    errorCode === "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED" ||
+    errorCode === "VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED"
+  ) {
+    severity = "error";
+    recovery = "manual-review";
+    summary = "Recupero manuale necessario.";
+    guidance =
+      "Il bridge non ha sovrascritto automaticamente la nota: controlla il contenuto e usa il backup indicato prima di riprovare.";
   } else if (
     errorCode === "PRE_WRITE_FAILED" ||
     errorCode === "CHANGE_CONFLICT" ||

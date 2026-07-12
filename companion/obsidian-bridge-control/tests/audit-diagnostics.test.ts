@@ -123,10 +123,12 @@ describe("bounded companion audit diagnostics", () => {
       }),
       auditRecord(5, {
         status: "failed",
-        error_code: "WRITE_FAILED_ROLLBACK_FAILED",
-        rollback_attempted: true,
+        error_code: "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED",
+        failure_stage: "write",
+        cause_code: "CLI_NON_ZERO_EXIT",
+        rollback_attempted: false,
         rollback_succeeded: false,
-        rollback_reason: "restore_too_large",
+        rollback_reason: "manual_recovery_required",
       }),
       auditRecord(6, {
         status: "failed",
@@ -171,9 +173,10 @@ describe("bounded companion audit diagnostics", () => {
     expect(result.records[2]).toMatchObject({
       severity: "error",
       recovery: "manual-review",
-      rollbackAttempted: true,
+      rollbackAttempted: false,
       rollbackSucceeded: false,
-      rollbackReason: "restore_too_large",
+      rollbackReason: "manual_recovery_required",
+      summary: "Recupero manuale necessario.",
     });
     expect(result.records[3]).toMatchObject({
       severity: "warning",

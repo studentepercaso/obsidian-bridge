@@ -62,10 +62,12 @@ const COMMIT_ERROR_CODES = new Set([
 const WRITE_ERROR_CODES = new Set([
   "WRITE_FAILED_ROLLBACK_SUCCEEDED",
   "WRITE_FAILED_ROLLBACK_FAILED",
+  "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED",
 ]);
 const VERIFICATION_ERROR_CODES = new Set([
   "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED",
   "VERIFICATION_FAILED_ROLLBACK_FAILED",
+  "VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED",
 ]);
 
 const AuditLineSchema = z
@@ -143,6 +145,7 @@ const AuditLineSchema = z
         "move_reversed",
         "trash_requires_backup_restore",
         "rollback_failed",
+        "manual_recovery_required",
       ])
       .optional(),
   })

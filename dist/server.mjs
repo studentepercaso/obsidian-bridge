@@ -31764,11 +31764,13 @@ var COMMIT_ERROR_CODES = /* @__PURE__ */ new Set([
 ]);
 var WRITE_ERROR_CODES = /* @__PURE__ */ new Set([
   "WRITE_FAILED_ROLLBACK_SUCCEEDED",
-  "WRITE_FAILED_ROLLBACK_FAILED"
+  "WRITE_FAILED_ROLLBACK_FAILED",
+  "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED"
 ]);
 var VERIFICATION_ERROR_CODES = /* @__PURE__ */ new Set([
   "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED",
-  "VERIFICATION_FAILED_ROLLBACK_FAILED"
+  "VERIFICATION_FAILED_ROLLBACK_FAILED",
+  "VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED"
 ]);
 var AuditLineSchema = external_exports.object({
   timestamp: external_exports.string().min(1).max(64).refine(
@@ -31819,7 +31821,8 @@ var AuditLineSchema = external_exports.object({
     "verification_failed",
     "move_reversed",
     "trash_requires_backup_restore",
-    "rollback_failed"
+    "rollback_failed",
+    "manual_recovery_required"
   ]).optional()
 }).strict().superRefine((value, context) => {
   if (value.operation === "move" && value.target_path === void 0) {
@@ -32717,6 +32720,11 @@ async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
         if (!options.allowMissingLeaf) {
           throw new PhysicalScopeError("path does not exist", { cause: error51 });
         }
+        if (options.requireExistingParent === true && index !== segments.length - 1) {
+          throw new PhysicalScopeError("path parent does not exist", {
+            cause: error51
+          });
+        }
         return lexicalTarget;
       }
       throw new PhysicalScopeError("path cannot be inspected", {
@@ -32796,7 +32804,7 @@ function sameFileSnapshot(left, right) {
 function assertBoundedSize(stats, maxBytes) {
   if (stats.size > BigInt(maxBytes)) {
     throw new RangeError(
-      `managed document must not exceed ${maxBytes} UTF-8 bytes`
+      `vault document must not exceed ${maxBytes} UTF-8 bytes`
     );
   }
   return Number(stats.size);
@@ -33133,6 +33141,7 @@ import path7 from "node:path";
 var MAX_CHANGE_CONTENT_BYTES = 8192;
 var MAX_DOCUMENT_BYTES = 16384;
 var MAX_PREVIEW_BYTES = 16384;
+var MAX_WRITE_OBSERVATION_BYTES = 1048576;
 var DEFAULT_BACKUP_RETENTION = 20;
 var DEFAULT_MAX_PENDING_CHANGES = 100;
 var MAX_CONSECUTIVE_AUTONOMOUS_FAILURES = 3;
@@ -33463,38 +33472,20 @@ function assertDocumentSize(content) {
     );
   }
 }
+function assertWriteObservationSize(content) {
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes > MAX_WRITE_OBSERVATION_BYTES) {
+    throw new RangeError(
+      `resulting document must not exceed ${MAX_WRITE_OBSERVATION_BYTES} UTF-8 bytes`
+    );
+  }
+}
 function assertPreviewSize(diff) {
   const bytes = Buffer.byteLength(diff, "utf8");
   if (bytes > MAX_PREVIEW_BYTES) {
     throw new RangeError(
       `preview diff must not exceed ${MAX_PREVIEW_BYTES} UTF-8 bytes`
     );
-  }
-}
-function isMissingNoteError(error51, notePath) {
-  if (!(error51 instanceof ObsidianCliError)) return false;
-  if (error51.code === "CLI_REPORTED_ERROR") {
-    return error51.message === `Error: File "${notePath}" not found.`;
-  }
-  return error51.code === "NON_ZERO_EXIT" && /(?:not found|does not exist|no (?:such )?file|cannot find|missing)/iu.test(
-    error51.message
-  );
-}
-async function readDocument(runner, vault, notePath, options) {
-  try {
-    const result = await runner(
-      buildVaultArgs(vault, "read", [`path=${notePath}`]),
-      options
-    );
-    const content = result.stdout;
-    return {
-      exists: true,
-      content,
-      sha256: hashDocumentState(true, content)
-    };
-  } catch (error51) {
-    if (!isMissingNoteError(error51, notePath)) throw error51;
-    return { exists: false, sha256: hashDocumentState(false) };
   }
 }
 function assertSameState(expected, actual) {
@@ -33504,7 +33495,7 @@ function assertSameState(expected, actual) {
     );
   }
 }
-async function writePreparedChangeInChunks(runner, change, options, bridgeWrittenHashes, beforeChunk, onWriteAttempt) {
+async function writePreparedChangeInChunks(runner, change, options, bridgeWrittenHashes, beforeChunk, readCurrent, onWriteAttempt) {
   const content = change.operation === "create" ? change.afterContent : change.commandContent;
   const chunks = splitCliWriteContent(change.vault, change.notePath, content);
   let expectedContent = change.operation === "append" ? change.before.content : "";
@@ -33514,7 +33505,7 @@ async function writePreparedChangeInChunks(runner, change, options, bridgeWritte
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index];
     const firstCreate = change.operation === "create" && index === 0;
-    await beforeChunk(firstCreate);
+    const currentAccess = await beforeChunk(firstCreate);
     expectedContent = `${expectedContent}${chunk}`;
     const expectedHash = hashDocumentState(true, expectedContent);
     bridgeWrittenHashes.add(expectedHash);
@@ -33532,12 +33523,7 @@ async function writePreparedChangeInChunks(runner, change, options, bridgeWritte
     );
     let observed;
     try {
-      observed = await readDocument(
-        runner,
-        change.vault,
-        change.notePath,
-        options
-      );
+      observed = await readCurrent(currentAccess, options);
     } catch (error51) {
       throw new PostWriteVerificationError(
         "chunked CLI write could not be read back",
@@ -33556,7 +33542,7 @@ async function writePreparedChangeInChunks(runner, change, options, bridgeWritte
     );
   }
 }
-async function attemptRollback(runner, change, options, bridgeWrittenHashes, verifyRecoveryGrant) {
+async function attemptRollback(change, options, bridgeWrittenHashes, verifyRecoveryGrant, readCurrent) {
   try {
     await verifyRecoveryGrant(change.operation === "create");
   } catch {
@@ -33568,12 +33554,7 @@ async function attemptRollback(runner, change, options, bridgeWrittenHashes, ver
   }
   let current;
   try {
-    current = await readDocument(
-      runner,
-      change.vault,
-      change.notePath,
-      options
-    );
+    current = await readCurrent(options);
   } catch {
     return { attempted: false, succeeded: false, reason: "read_failed" };
   }
@@ -33590,66 +33571,11 @@ async function attemptRollback(runner, change, options, bridgeWrittenHashes, ver
   if (!change.before.exists || change.before.content === void 0) {
     return { attempted: false, succeeded: false, reason: "delete_disabled" };
   }
-  if (!isCliContentRepresentable(change.before.content) || change.before.content.includes("\r")) {
-    return {
-      attempted: false,
-      succeeded: false,
-      reason: "restore_unrepresentable"
-    };
-  }
-  let rollbackChunks;
-  try {
-    rollbackChunks = splitCliWriteContent(
-      change.vault,
-      change.notePath,
-      change.before.content
-    );
-  } catch {
-    return {
-      attempted: false,
-      succeeded: false,
-      reason: "restore_too_large"
-    };
-  }
-  if (rollbackChunks.length !== 1) {
-    return {
-      attempted: false,
-      succeeded: false,
-      reason: "restore_too_large"
-    };
-  }
-  try {
-    try {
-      await verifyRecoveryGrant(false);
-    } catch {
-      return {
-        attempted: false,
-        succeeded: false,
-        reason: "recovery_scope_changed"
-      };
-    }
-    await runner(
-      buildWriteVaultArgs(change.vault, "create", [
-        `path=${change.notePath}`,
-        `content=${encodeCliContent(rollbackChunks[0])}`,
-        "overwrite"
-      ]),
-      options
-    );
-    const restored = await readDocument(
-      runner,
-      change.vault,
-      change.notePath,
-      options
-    );
-    return {
-      attempted: true,
-      succeeded: restored.exists && restored.sha256 === change.before.sha256,
-      reason: restored.exists && restored.sha256 === change.before.sha256 ? "restored" : "restore_failed"
-    };
-  } catch {
-    return { attempted: true, succeeded: false, reason: "restore_failed" };
-  }
+  return {
+    attempted: false,
+    succeeded: false,
+    reason: "manual_recovery_required"
+  };
 }
 function annotateCommitLockResult(result, releaseError) {
   const first = result.content.length === 1 ? result.content[0] : void 0;
@@ -33672,6 +33598,7 @@ function annotateCommitLockResult(result, releaseError) {
 function createWriteToolHandlers(runtime) {
   const now = runtime.now ?? Date.now;
   const authorizationMode = runtime.authorizationMode ?? "protected";
+  const exactDocumentReader = runtime.exactDocumentReader ?? readExactVaultDocument;
   const commitLocks = /* @__PURE__ */ new Map();
   let consecutiveAutonomousFailures = 0;
   let autonomousWritesPaused = false;
@@ -33709,6 +33636,11 @@ function createWriteToolHandlers(runtime) {
   }
   async function assertChangeAllowed(vault, notePath) {
     const access = await effectiveAccess(vault);
+    if (access.source !== "settings" && runtime.documentStateReaderForTests === void 0) {
+      throw new Error(
+        "safe writing requires Bridge Control shared settings with a verified physical vault path; migrate the legacy environment-only writer configuration"
+      );
+    }
     const accessModeAllowed = authorizationMode === "autonomous" ? access.accessMode === "full" || access.accessMode === "management" : access.accessMode === "protected";
     if (!accessModeAllowed) {
       throw new Error(
@@ -33743,9 +33675,37 @@ function createWriteToolHandlers(runtime) {
     await assertVaultIdentity(runtime.runner, access, options);
     if (access.source === "settings" && access.vaultPath !== void 0) {
       await assertPhysicalVaultPath(access.vaultPath, notePath, {
-        allowMissingLeaf
+        allowMissingLeaf,
+        requireExistingParent: allowMissingLeaf
       });
     }
+  }
+  async function readAuthorizedDocument(access, notePath, options) {
+    if (runtime.documentStateReaderForTests !== void 0) {
+      return await runtime.documentStateReaderForTests(
+        access,
+        notePath,
+        options
+      );
+    }
+    if (access.source !== "settings" || access.vaultPath === void 0) {
+      throw new Error(
+        "safe writing requires Bridge Control shared settings with a verified physical vault path; migrate the legacy environment-only writer configuration"
+      );
+    }
+    const exact = await exactDocumentReader(access.vaultPath, notePath, {
+      allowMissing: true,
+      maxBytes: MAX_WRITE_OBSERVATION_BYTES,
+      ...options.signal === void 0 ? {} : { signal: options.signal }
+    });
+    if (!exact.exists) {
+      return { exists: false, sha256: hashDocumentState(false) };
+    }
+    return {
+      exists: true,
+      content: exact.content,
+      sha256: hashDocumentState(true, exact.content)
+    };
   }
   async function withCommitLock2(vault, notePath, caseSensitive, signal, operation) {
     const key = deriveCommitLockKey(vault, notePath, caseSensitive);
@@ -33800,9 +33760,8 @@ function createWriteToolHandlers(runtime) {
           options,
           input.operation === "create"
         );
-        const before = await readDocument(
-          runtime.runner,
-          initial.access.vaultSelector,
+        const before = await readAuthorizedDocument(
+          initial.access,
           notePath,
           options
         );
@@ -33829,6 +33788,7 @@ function createWriteToolHandlers(runtime) {
           }
           afterContent = `${before.content}${commandContent}`;
         }
+        assertWriteObservationSize(afterContent);
         if (input.operation === "create") {
           assertDocumentSize(afterContent);
           assertCliContentRepresentable(afterContent);
@@ -33915,6 +33875,17 @@ function createWriteToolHandlers(runtime) {
                 {},
                 allowMissingLeaf
               );
+              recoveryAccess = currentGrant.access;
+            };
+            const readRecoveryDocument = async (readOptions) => {
+              if (recoveryAccess === void 0) {
+                throw new Error("commit authorization was not established");
+              }
+              return await readAuthorizedDocument(
+                recoveryAccess,
+                change.notePath,
+                readOptions
+              );
             };
             try {
               const initial = await assertChangeAllowed(change.vault, change.notePath);
@@ -33925,9 +33896,8 @@ function createWriteToolHandlers(runtime) {
                 options,
                 change.operation === "create"
               );
-              const current = await readDocument(
-                runtime.runner,
-                initial.access.vaultSelector,
+              const current = await readAuthorizedDocument(
+                initial.access,
                 change.notePath,
                 options
               );
@@ -33941,9 +33911,8 @@ function createWriteToolHandlers(runtime) {
                   createdAt: now()
                 });
                 backupId = backup.backupId;
-                const afterBackup = await readDocument(
-                  runtime.runner,
-                  change.vault,
+                const afterBackup = await readAuthorizedDocument(
+                  initial.access,
                   change.notePath,
                   options
                 );
@@ -33951,6 +33920,7 @@ function createWriteToolHandlers(runtime) {
               }
               let chunkVerificationFailed = false;
               let verificationCauseCode;
+              let lastWriteAccess = initial.access;
               try {
                 await writePreparedChangeInChunks(
                   runtime.runner,
@@ -33969,7 +33939,14 @@ function createWriteToolHandlers(runtime) {
                       options,
                       allowMissingLeaf
                     );
+                    lastWriteAccess = currentGrant.access;
+                    return currentGrant.access;
                   },
+                  async (access, readOptions) => await readAuthorizedDocument(
+                    access,
+                    change.notePath,
+                    readOptions
+                  ),
                   () => {
                     writeAttempted = true;
                   }
@@ -33986,9 +33963,19 @@ function createWriteToolHandlers(runtime) {
                     "an intermediate chunk failed verification"
                   );
                 }
-                const verified = await readDocument(
-                  runtime.runner,
+                const verificationGrant = await assertChangeAllowed(
                   change.vault,
+                  change.notePath
+                );
+                assertSameVault(lastWriteAccess, verificationGrant.access);
+                await verifyPhysicalGrant(
+                  verificationGrant.access,
+                  change.notePath,
+                  options,
+                  false
+                );
+                const verified = await readAuthorizedDocument(
+                  verificationGrant.access,
                   change.notePath,
                   options
                 );
@@ -34003,11 +33990,11 @@ function createWriteToolHandlers(runtime) {
               if (!verificationSucceeded) {
                 const causeCode = verificationCauseCode ?? "POST_WRITE_VERIFICATION";
                 const rollback = await attemptRollback(
-                  runtime.runner,
                   change,
                   {},
                   bridgeWrittenHashes,
-                  verifyRecoveryGrant
+                  verifyRecoveryGrant,
+                  readRecoveryDocument
                 );
                 let auditRecorded2 = true;
                 try {
@@ -34022,7 +34009,7 @@ function createWriteToolHandlers(runtime) {
                     before_sha256: change.before.sha256,
                     after_sha256: change.afterSha256,
                     ...backupId === void 0 ? {} : { backup_id: backupId },
-                    error_code: rollback.succeeded ? "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED" : "VERIFICATION_FAILED_ROLLBACK_FAILED",
+                    error_code: rollback.reason === "manual_recovery_required" ? "VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED" : rollback.succeeded ? "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED" : "VERIFICATION_FAILED_ROLLBACK_FAILED",
                     failure_stage: "verification",
                     cause_code: causeCode,
                     rollback_attempted: rollback.attempted,
@@ -34046,6 +34033,7 @@ function createWriteToolHandlers(runtime) {
                   rollback_attempted: rollback.attempted,
                   rollback_succeeded: rollback.succeeded,
                   rollback_reason: rollback.reason,
+                  ...rollback.reason === "manual_recovery_required" ? { manual_recovery_required: true } : {},
                   ...backupId === void 0 ? {} : { backup_id: backupId },
                   audit_recorded: auditRecorded2
                 });
@@ -34085,11 +34073,11 @@ function createWriteToolHandlers(runtime) {
             } catch (error51) {
               if (writeAttempted) {
                 const rollback = await attemptRollback(
-                  runtime.runner,
                   change,
                   {},
                   bridgeWrittenHashes,
-                  verifyRecoveryGrant
+                  verifyRecoveryGrant,
+                  readRecoveryDocument
                 );
                 const causeCode = diagnosticCauseCode(error51);
                 let auditRecorded = true;
@@ -34105,7 +34093,7 @@ function createWriteToolHandlers(runtime) {
                     before_sha256: change.before.sha256,
                     after_sha256: change.afterSha256,
                     ...backupId === void 0 ? {} : { backup_id: backupId },
-                    error_code: rollback.succeeded ? "WRITE_FAILED_ROLLBACK_SUCCEEDED" : "WRITE_FAILED_ROLLBACK_FAILED",
+                    error_code: rollback.reason === "manual_recovery_required" ? "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED" : rollback.succeeded ? "WRITE_FAILED_ROLLBACK_SUCCEEDED" : "WRITE_FAILED_ROLLBACK_FAILED",
                     failure_stage: "write",
                     cause_code: causeCode,
                     rollback_attempted: rollback.attempted,
@@ -34129,6 +34117,7 @@ function createWriteToolHandlers(runtime) {
                   rollback_attempted: rollback.attempted,
                   rollback_succeeded: rollback.succeeded,
                   rollback_reason: rollback.reason,
+                  ...rollback.reason === "manual_recovery_required" ? { manual_recovery_required: true } : {},
                   ...backupId === void 0 ? {} : { backup_id: backupId },
                   audit_recorded: auditRecorded
                 });
@@ -35245,7 +35234,7 @@ function createConfigAccessResolver(config2) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.5.2";
+var SERVER_VERSION = "0.5.3";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
@@ -35698,6 +35687,7 @@ function createToolHandlers(runtime) {
             ...event.rollback_attempted === void 0 ? {} : { rollback_attempted: event.rollback_attempted },
             ...event.rollback_succeeded === void 0 ? {} : { rollback_succeeded: event.rollback_succeeded },
             ...event.rollback_reason === void 0 ? {} : { rollback_reason: event.rollback_reason },
+            ...event.rollback_reason === "manual_recovery_required" || event.error_code === "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED" || event.error_code === "VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED" ? { manual_recovery_required: true } : {},
             ...event.backup_id === void 0 ? {} : { backup_id: event.backup_id }
           });
         }

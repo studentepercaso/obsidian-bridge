@@ -2,7 +2,7 @@
 
 Effective date: 2026-07-12
 
-Obsidian Bridge is local, open-source software. Version 0.5.2 has no hosted service, account system, advertising, analytics, or project-operated telemetry. Bridge Control and the guided installer operate on local files and do not publish or upload a vault.
+Obsidian Bridge is local, open-source software. Version 0.5.3 has no hosted service, account system, advertising, analytics, or project-operated telemetry. Bridge Control and the guided installer operate on local files and do not publish or upload a vault.
 
 This notice covers the bridge itself. Obsidian, Obsidian Sync, the MCP host, ChatGPT/Codex, the selected model provider, and other community plugins have separate privacy terms and data flows.
 
@@ -59,10 +59,12 @@ User request
   -> model, when the host sends that data to a model service
 
 protected create/append:
-  displayed preview -> later human confirmation -> prompt-approved commit
+  exact local UTF-8 observations -> displayed preview
+  -> later human confirmation -> allowlisted CLI mutation -> exact verification
 
 autonomous create/append:
-  internally checked preview -> separately gated auto-approved commit
+  exact local UTF-8 observations -> internally checked preview
+  -> separately gated auto-approved allowlisted CLI mutation -> exact verification
 
 managed operation:
   exact local UTF-8 source snapshot -> internally checked preview
@@ -71,13 +73,13 @@ managed operation:
   -> fixed public Obsidian API surface -> verified note, isolated move, or trash result
 ```
 
-The project separates reader, protected writer, autonomous writer, and manager processes. The reader has no mutating tool. The manager has only managed prepare and commit and invokes only the fixed custom CLI handler. Version 0.5.2 reads the already authorized managed source as a bounded exact UTF-8 snapshot for conflict detection; this adds no direct note write, new persistent snapshot, permission, or network flow. This separation reduces accidental capability mixing but does not change what the MCP host or model provider may retain.
+The project separates reader, protected writer, autonomous writer, and manager processes. The reader has no mutating tool. The manager has only managed prepare and commit and invokes only the fixed custom CLI handler. Version 0.5.3 reads an already authorized settings-backed note as a bounded exact UTF-8 snapshot for every create/append and management transactional observation. This includes preparation, CAS, append backup capture, intermediate/final verification, and recovery classification. The snapshot is ephemeral and read-only: it adds no direct note write, new persistent snapshot, permission, or network flow. Create/append mutation still uses the allowlisted official CLI, while managed mutation remains in Bridge Control. This separation reduces accidental capability mixing but does not change what the MCP host or model provider may retain.
 
 The bridge does not upload data itself. The host decides whether tool inputs and outputs are sent to a model service, displayed, logged, retained, or included in diagnostics. Review those controls before exposing personal, regulated, client, or confidential notes.
 
 ## Network activity
 
-At runtime, version 0.5.2:
+At runtime, version 0.5.3:
 
 - opens no HTTP listener;
 - does not call OpenAI, Obsidian, analytics, or update endpoints;
@@ -120,9 +122,11 @@ Requests are bounded to 1 MiB, created with private-file permissions where suppo
 
 ## Backups, audit, and retention
 
-A successful write intentionally persists content in the selected vault. Before append, the writer stores a plaintext copy of the original.
+A successful write intentionally persists content in the selected vault. Before append, the writer stores an exact plaintext copy of the original settings-backed note. The resulting appended document must remain at or below 1 MiB; create requires an already existing parent folder.
 
 Before every managed replace, frontmatter, move/rename, or trash operation, Bridge Control creates a version-2 plaintext JSON backup bundle containing the original note body, path, hash, operation, and optional destination. Create/append and management bundles share one local count-based retention pool containing at most the newest 20 JSON backups. Retention is not archival storage or guaranteed secure erasure, and an older recovery bundle may already have been pruned. These files can reveal complete prior note contents.
+
+Version 0.5.3 does not automatically overwrite a note to roll back a failed create/append transaction. A CLI compare-and-restore sequence is not atomic with Obsidian, sync tools, editors, or other plugins. After a post-mutation append or verification failure, the writer preserves the exact backup and audit evidence, leaves the observed note untouched, and reports `manual_recovery_required=true` with the bounded cause `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` or `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. A partial create remains `delete_disabled`. Manual recovery can expose the same note and backup content to the person performing it.
 
 If managed verification fails, automatic recovery is deliberately bounded:
 
@@ -145,7 +149,7 @@ Obsidian, Sync, filesystem backup software, source control, other plugins, the o
 
 ## Access controls and revocation
 
-Protected access can be off, whole-vault, or folder-scoped for reading, with a separate default-off folder-scoped create/append grant. Autonomous access and Full management apply only to otherwise eligible non-hidden Markdown paths in the exact enabled vault. Legacy environment variables can never grant either profile.
+Protected access can be off, whole-vault, or folder-scoped for reading, with a separate default-off folder-scoped create/append grant. Autonomous access and Full management apply only to otherwise eligible non-hidden Markdown paths in the exact enabled vault. Legacy environment variables can never grant either profile; in 0.5.3 the environment-only legacy writer also fails closed for create/append because CLI stdout is not an exact CAS source. Migrate writing access to Bridge Control shared settings.
 
 Management requires `accessMode=management` and the exact operation grant:
 

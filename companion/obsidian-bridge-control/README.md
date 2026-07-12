@@ -2,7 +2,7 @@
 
 [English](README.md) · [Italiano](README.it.md)
 
-Bridge Control is the desktop-only Obsidian companion for Obsidian Bridge. Version 0.5.2 prevents false `CHANGE_CONFLICT` results when a managed note has no final newline, while preserving the explicit **Full management**, Protected, and Autonomous profiles.
+Bridge Control is the desktop-only Obsidian companion for Obsidian Bridge. Version 0.5.3 provides matching release metadata and documentation for the exact create/append observations in Obsidian Bridge 0.5.3 and recognizes its bounded manual-recovery diagnostics, while preserving the explicit **Full management**, Protected, and Autonomous profiles.
 
 ## Default behavior
 
@@ -33,15 +33,17 @@ Obsidian Bridge prepares a bounded preview and a short-lived, one-time request. 
 - `Vault.rename()` for rename/move without silently rewriting other notes or expanding the Move grant into Edit;
 - `FileManager.trashFile()` for recoverable deletion.
 
-The matching 0.5.2 bridge derives the prepared source hash from an exact UTF-8 snapshot instead of CLI-normalized read output. Bridge Control can therefore compare the same note representation even when the file has no terminal newline; a real concurrent change still fails closed. This patch does not add a command, permission, protocol field, or direct note-write path.
+The matching 0.5.3 bridge uses settings-backed bounded exact UTF-8 snapshots for every create/append and managed transactional observation, including prepare, CAS, backup capture, chunk/final verification, and recovery classification. The snapshot path is read-only; create/append mutation remains on the allowlisted official Obsidian CLI. Environment-only create/append now requires migration to Bridge Control, the resulting appended document must remain at or below 1 MiB, and create requires an existing parent folder. Bridge Control's read-only audit diagnostics recognize the two bounded manual-recovery codes; its command protocol and managed mutation code are unchanged.
 
 Before mutation, the handler stores a local recovery backup. It verifies the result, records metadata in the shared audit log, and attempts a bounded rollback when a partially applied operation does not meet its postcondition. Requests are serialized and consumed once.
+
+The external create/append writer does not attempt destructive automatic CLI rollback after a post-mutation failure. It keeps the exact backup and audit evidence, leaves the observed note untouched, and reports `manual_recovery_required=true`; a partial create remains `delete_disabled`. This is not an atomic rollback claim and does not change the companion handler.
 
 There is deliberately no permanent-delete operation, JavaScript evaluation, shell access, arbitrary Obsidian command execution, plugin management, or unrestricted filesystem API. Full management is not an `eval` or terminal capability.
 
 ## Shared settings
 
-Bridge Control 0.5.2 atomically maintains strict shared-settings version 4:
+Bridge Control 0.5.3 atomically maintains strict shared-settings version 4:
 
 - Windows: `%LOCALAPPDATA%\ObsidianBridge\settings.json`
 - macOS: `~/Library/Application Support/ObsidianBridge/settings.json`
@@ -79,6 +81,6 @@ For manual testing, copy `main.js`, `manifest.json`, and `styles.css` to:
 <vault>/.obsidian/plugins/bridge-control/
 ```
 
-Then reload Obsidian and enable **Bridge Control** under Community plugins. Managed operations require Obsidian 1.12.7 or later, the official CLI enabled, and the matching Obsidian Bridge 0.5.2 release.
+Then reload Obsidian and enable **Bridge Control** under Community plugins. Managed operations require Obsidian 1.12.7 or later, the official CLI enabled, and the matching Obsidian Bridge 0.5.3 release.
 
 This project is independent and is not affiliated with or endorsed by Obsidian.

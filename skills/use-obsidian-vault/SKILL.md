@@ -38,6 +38,8 @@ Create/append remain a separate two-step protocol in every mode.
 
 These tools support only `create` and `append`. Management mode does not turn them into replacement or deletion tools.
 
+Create/append writing requires a Bridge Control settings-backed vault. If the bridge reports legacy environment-only writing, stop and direct the user to configure that vault in Bridge Control; never substitute CLI stdout or direct filesystem access. The resulting append document must remain at or below 1 MiB, and a create target's parent folder must already exist.
+
 ## Managed operations
 
 Managed work requires `access_mode=management`, the exact granular grant, and a concrete unambiguous human request. Preparation is non-mutating; commit is expiring and single-use.
@@ -68,13 +70,13 @@ For any prepare or commit failure:
 
 1. call `obsidian_recent_write_events` for that vault;
 2. reread the current source and, for move, destination;
-3. report `error_code`, `failure_stage`, `cause_code`, `backup_id`, `rollback_attempted`, `rollback_succeeded`, and `rollback_reason` exactly when present;
+3. report `error_code`, `failure_stage`, `cause_code`, `manual_recovery_required`, `backup_id`, `rollback_attempted`, `rollback_succeeded`, and `rollback_reason` exactly when present;
 4. do not automatically retry, reuse a change ID, force a merge, overwrite an unknown state, or claim the vault is unchanged without rereading it;
 5. stop for human direction.
 
-`failure_stage` and `cause_code` are bounded metadata-only evidence. They never contain raw exception messages, CLI output, note text, proposed content, or backup bodies, and they can never grant permission or authorize a retry. Protected retry requires a fresh displayed preview and later confirmation. Autonomous or managed retry requires explicit human direction after the observed state is explained. After three consecutive autonomous or management failures, that process pauses for the task; direct the user to **Bridge Control → Problemi recenti**, return to a narrower mode, and start a new task.
+`failure_stage`, `cause_code`, and `manual_recovery_required` are bounded metadata-only evidence. They never contain raw exception messages, CLI output, note text, proposed content, or backup bodies, and they can never grant permission or authorize a retry. `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` and `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED` mean create/append deliberately did not attempt a destructive non-atomic CLI restore: reread the note, report the retained backup/audit evidence, and wait for explicit manual-recovery direction. A partial create remains `delete_disabled`. Protected retry requires a fresh displayed preview and later confirmation. Autonomous or managed retry requires explicit human direction after the observed state is explained. After three consecutive autonomous or management failures, that process pauses for the task; direct the user to **Bridge Control → Problemi recenti**, return to a narrower mode, and start a new task.
 
-Backups contain plaintext prior note content. Create/append and management share a newest-20 JSON retention pool, so an older backup may already be pruned. Managed trash is not automatically reversed; recovery can require Obsidian trash or manual restoration from an available backup. Never expose backup content unless the user explicitly requests recovery and an authorized bounded bridge tool provides it; do not read backup files directly.
+Backups contain plaintext prior note content. Create/append and management share a newest-20 JSON retention pool, so an older backup may already be pruned. Create/append never performs automatic CLI restore after a post-mutation failure; managed trash is also not automatically reversed. Recovery can require Obsidian trash or manual restoration from an available backup. Never expose backup content unless the user explicitly requests recovery and an authorized bounded bridge tool provides it; do not read backup files directly.
 
 ## Consent and authority rules
 

@@ -4,10 +4,11 @@ import { createHash } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const argv = process.argv.slice(2);
 const logPath = process.env.OBSIDIAN_FAKE_LOG;
@@ -31,6 +32,11 @@ function readState() {
 function writeState(state) {
   if (!statePath) throw new Error("OBSIDIAN_FAKE_STATE_FILE is required");
   writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+function physicalNotePath(notePath) {
+  const vaultPath = process.env.OBSIDIAN_FAKE_VAULT_PATH;
+  return vaultPath ? join(vaultPath, ...notePath.split("/")) : undefined;
 }
 
 function hashDocumentState(exists, content = "") {
@@ -112,6 +118,11 @@ if (Number.isFinite(byteCount) && byteCount > 0) {
           process.exitCode = 3;
         } else {
           state[notePath] = decodeCliContent(parameter("content") ?? "");
+          const physicalPath = physicalNotePath(notePath);
+          if (physicalPath) {
+            mkdirSync(dirname(physicalPath), { recursive: true });
+            writeFileSync(physicalPath, state[notePath], "utf8");
+          }
           writeState(state);
           process.stdout.write(notePath);
         }
@@ -125,7 +136,10 @@ if (Number.isFinite(byteCount) && byteCount > 0) {
           process.stderr.write(`Note not found: ${notePath}`);
           process.exitCode = 2;
         } else {
-          state[notePath] = `${state[notePath]}${decodeCliContent(parameter("content") ?? "")}`;
+          const addition = decodeCliContent(parameter("content") ?? "");
+          state[notePath] = `${state[notePath]}${addition}`;
+          const physicalPath = physicalNotePath(notePath);
+          if (physicalPath) appendFileSync(physicalPath, addition, "utf8");
           writeState(state);
           process.stdout.write(notePath);
         }
