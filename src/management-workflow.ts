@@ -23,6 +23,11 @@ import {
   withCommitLock as withFileCommitLock,
 } from "./commit-lock.js";
 import {
+  readExactVaultDocument,
+  type ExactVaultDocument,
+  type ExactVaultDocumentReadOptions,
+} from "./exact-vault-document.js";
+import {
   MANAGEMENT_PROTOCOL_VERSION,
   MAX_MANAGEMENT_REQUEST_BYTES,
   type FrontmatterValue,
@@ -44,7 +49,6 @@ import {
   ChangeNotFoundError,
   createPreviewDiff,
   hashDocumentState,
-  readDocument,
   type DocumentState,
 } from "./write-workflow.js";
 
@@ -308,6 +312,12 @@ export interface ManagementToolRuntime {
   readonly resolveAccess: VaultAccessResolver;
   readonly dataDirectory: string;
   readonly now?: () => number;
+  /** Test seam; production always uses readExactVaultDocument(). */
+  readonly exactDocumentReader?: (
+    vaultPath: string,
+    notePath: string,
+    options: ExactVaultDocumentReadOptions,
+  ) => Promise<ExactVaultDocument>;
 }
 
 function countOccurrences(content: string, needle: string): number {
@@ -471,8 +481,36 @@ async function withManagementLocks<T>(
 
 export function createManagementToolHandlers(runtime: ManagementToolRuntime) {
   const now = runtime.now ?? Date.now;
+  const exactDocumentReader =
+    runtime.exactDocumentReader ?? readExactVaultDocument;
   let consecutiveFailures = 0;
   let paused = false;
+
+  async function readManagedDocument(
+    access: VaultAccess,
+    notePath: string,
+    allowMissing: boolean,
+    options: CliInvocationOptions,
+  ): Promise<DocumentState> {
+    if (access.source !== "settings" || access.vaultPath === undefined) {
+      throw new Error(
+        "managed operations require a settings-backed verified physical vault path",
+      );
+    }
+    const exact = await exactDocumentReader(access.vaultPath, notePath, {
+      allowMissing,
+      maxBytes: MAX_MANAGED_DOCUMENT_BYTES,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (!exact.exists) {
+      return { exists: false, sha256: hashDocumentState(false) };
+    }
+    return {
+      exists: true,
+      content: exact.content,
+      sha256: hashDocumentState(true, exact.content),
+    };
+  }
 
   function assertCircuitOpen(): void {
     if (!paused) return;
@@ -521,10 +559,11 @@ export function createManagementToolHandlers(runtime: ManagementToolRuntime) {
     notePath: string,
     options: CliInvocationOptions,
     allowMissingLeaf: boolean,
+    requireExistingParent = false,
   ): Promise<void> {
     await assertVaultIdentity(runtime.runner, access, options);
     if (access.source === "settings" && access.vaultPath !== undefined) {
-      if (allowMissingLeaf) {
+      if (allowMissingLeaf && requireExistingParent) {
         const parent = path.posix.dirname(notePath);
         if (parent !== ".") {
           await assertPhysicalVaultPath(access.vaultPath, parent);
@@ -550,14 +589,20 @@ export function createManagementToolHandlers(runtime: ManagementToolRuntime) {
           capability,
           input.operation === "move" ? input.destination_path : undefined,
         );
-        await verifyPhysical(initial.access, initial.notePath, options, false);
+        await verifyPhysical(initial.access, initial.notePath, options, true);
         if (initial.targetPath !== undefined) {
-          await verifyPhysical(initial.access, initial.targetPath, options, true);
+          await verifyPhysical(
+            initial.access,
+            initial.targetPath,
+            options,
+            true,
+            true,
+          );
         }
-        const before = await readDocument(
-          runtime.runner,
-          initial.access.vaultSelector,
+        const before = await readManagedDocument(
+          initial.access,
           initial.notePath,
+          true,
           options,
         );
         if (!before.exists || before.content === undefined) {
@@ -637,10 +682,10 @@ export function createManagementToolHandlers(runtime: ManagementToolRuntime) {
               "move destination must differ from the source; case-only rename is not supported",
             );
           }
-          targetBefore = await readDocument(
-            runtime.runner,
-            initial.access.vaultSelector,
+          targetBefore = await readManagedDocument(
+            initial.access,
             initial.targetPath,
+            true,
             options,
           );
           if (targetBefore.exists) {
@@ -753,7 +798,7 @@ export function createManagementToolHandlers(runtime: ManagementToolRuntime) {
               currentGrant.access,
               change.notePath,
               options,
-              false,
+              true,
             );
             if (change.targetPath !== undefined) {
               await verifyPhysical(
@@ -761,12 +806,13 @@ export function createManagementToolHandlers(runtime: ManagementToolRuntime) {
                 change.targetPath,
                 options,
                 true,
+                true,
               );
             }
-            const current = await readDocument(
-              runtime.runner,
-              currentGrant.access.vaultSelector,
+            const current = await readManagedDocument(
+              currentGrant.access,
               change.notePath,
+              true,
               options,
             );
             if (
@@ -778,10 +824,10 @@ export function createManagementToolHandlers(runtime: ManagementToolRuntime) {
               );
             }
             if (change.targetPath !== undefined) {
-              const target = await readDocument(
-                runtime.runner,
-                currentGrant.access.vaultSelector,
+              const target = await readManagedDocument(
+                currentGrant.access,
                 change.targetPath,
+                true,
                 options,
               );
               if (

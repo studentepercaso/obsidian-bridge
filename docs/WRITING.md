@@ -1,6 +1,6 @@
 # Guarded writing and full management
 
-Version 0.5.1 provides three per-vault access profiles. Every profile is explicit, fail-closed, and reloads the current Bridge Control policy before a sensitive stage.
+Version 0.5.2 provides three per-vault access profiles. Every profile is explicit, fail-closed, and reloads the current Bridge Control policy before a sensitive stage.
 
 | UI profile | Stored mode | Scope | Supported mutations | Routine per-change confirmation |
 | --- | --- | --- | --- | --- |
@@ -72,7 +72,7 @@ Common fields are:
 }
 ```
 
-`replace` requires the `edit` grant and supplies the complete desired note. It is not an unrestricted filesystem overwrite: preparation reads the exact existing Markdown note, calculates before/after hashes and a bounded diff, and commit later rejects any source change.
+`replace` requires the `edit` grant and supplies the complete desired note. It is not an unrestricted filesystem overwrite: preparation reads a bounded exact UTF-8 snapshot of the existing Markdown note, calculates before/after hashes and a bounded diff, and commit later rejects any source change. The snapshot is not normalized through CLI output, so a missing final newline, LF/CRLF line endings, and a UTF-8 BOM remain part of the source state.
 
 ### Counted literal replacement
 
@@ -131,7 +131,7 @@ Common fields are:
 
 `trash` requires the `trash` grant and routes through Obsidian's configured trash behavior. There is no permanent-delete flag or tool. Direct access to `.trash` remains denied.
 
-Preparation does not mutate the vault. It validates the current policy, stable vault identity, physical containment, source existence and hash, relevant destination state, size limits, and operation-specific inputs. It returns `status=prepared`, `authorization_mode=management`, `approval_required=false`, an expiry, an opaque `change_id`, and a bounded operation-specific preview.
+Preparation does not mutate the vault. It validates the current policy, stable vault identity, physical containment, source existence and exact UTF-8 snapshot hash, relevant destination state, size limits, and operation-specific inputs. It returns `status=prepared`, `authorization_mode=management`, `approval_required=false`, an expiry, an opaque `change_id`, and a bounded operation-specific preview. Version 0.5.2 changes only this read-side source representation; it adds no permission, protocol field, or direct note-write path.
 
 Managed documents and request files are bounded to 1 MiB; displayed previews are bounded to 128 KiB. Prepared changes expire after five minutes by default, are held only in the manager process, and disappear when that process stops.
 
@@ -147,7 +147,7 @@ After internally validating the exact preview against the user's concrete reques
 
 `obsidian_commit_managed_change` consumes the ID before side effects. It then:
 
-1. rechecks management mode, the exact edit/move/trash grant, vault identity, physical scope, source hash, destination state, and expiry;
+1. rechecks management mode, the exact edit/move/trash grant, vault identity, physical scope, the exact snapshot source hash, destination state, and expiry;
 2. acquires the source lock and, for move, the destination lock;
 3. writes a bounded, expiring, token-bound request file in the private bridge data directory;
 4. invokes only the registered custom CLI handler `bridge-control:commit` with the request ID and one-time token;
@@ -187,6 +187,8 @@ Use only synthetic notes and inspect the vault after each case.
 | Manager used outside `management` mode | Rejected before request-file or vault mutation. |
 | Edit/move/trash grant missing | Matching operation rejected; other grants are not treated as equivalent. |
 | `replace_text` expected count differs | Prepare fails; note unchanged. |
+| Source without a final newline | Prepare and immediate commit compare the same exact snapshot; no false `CHANGE_CONFLICT`. |
+| LF, CRLF, or UTF-8 BOM source | Exact source representation is preserved for preview and conflict hashing. |
 | Source edited after prepare | Commit consumes ID and rejects the hash conflict. |
 | Frontmatter set/remove | Requested semantic properties verified; unrelated note body preserved by Obsidian API. |
 | Move destination exists | Prepare or commit rejects; source unchanged. |

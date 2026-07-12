@@ -1,6 +1,6 @@
 # Security policy
 
-Obsidian Bridge provides scoped local access to Obsidian notes. Version 0.5.1 retains the explicitly activated Full-management profile and adds bounded, metadata-only failure-stage and cause diagnostics without exposing raw exception messages or CLI output. Reports are especially welcome for permission escalation, management activation without user acknowledgement, replayed requests, backup or audit disclosure, path escape, unintended executable invocation, diagnostic-content leakage, or any permanent deletion surface.
+Obsidian Bridge provides scoped local access to Obsidian notes. Version 0.5.2 retains the explicitly activated Full-management profile, bounded metadata-only diagnostics, and exact UTF-8 management snapshots for conflict detection without exposing raw exception messages or CLI output. Reports are especially welcome for permission escalation, management activation without user acknowledgement, replayed requests, backup or audit disclosure, path escape, unintended executable invocation, diagnostic-content leakage, false or missed conflict detection, or any permanent deletion surface.
 
 ## Supported versions
 
@@ -41,6 +41,7 @@ auto-approved autonomous writer
 auto-approved manager
   -> managed prepare + commit only
   -> requires current Full management and exact granular grant
+  -> bounded exact UTF-8 read-only snapshot for prepare/CAS
   -> fixed bridge-control:commit handler -> public Obsidian API
 ```
 
@@ -91,7 +92,7 @@ Append creates a plaintext backup. Create/append and management share one count-
 
 ### Preparation
 
-Managed preparation requires current `accessMode=management` and the exact operation grant. It validates a vault-relative existing `.md` source, stable identity, physical containment, size, source hash, and—when moving—an absent eligible destination. It returns a bounded operation-specific preview, expiry, and opaque change ID without changing the vault.
+Managed preparation requires current `accessMode=management` and the exact operation grant. It validates a vault-relative existing `.md` source, stable identity, physical containment, size, source hash, and—when moving—an absent eligible destination. The source hash is derived from a bounded exact UTF-8 snapshot, not from CLI-normalized text, so terminal-newline, LF/CRLF, and BOM distinctions remain part of the compare-and-swap state. This direct access is read-only: the manager opens one already authorized regular file without following links, checks file identity and metadata around the bounded read, and fails closed on invalid UTF-8 or a concurrent file/path change. It returns a bounded operation-specific preview, expiry, and opaque change ID without changing the vault.
 
 Supported public operations are exactly:
 
@@ -133,7 +134,7 @@ Bridge Control registers `bridge-control:commit` through Obsidian's public CLI-h
 9. verifies the operation-specific postcondition;
 10. records a metadata-only audit outcome and returns strict JSON.
 
-Replacement and frontmatter use `Vault.process`. The transform compares the current content with the prepared before-hash before returning any mutation. Frontmatter location/parsing/serialization uses the public `getFrontMatterInfo`, `parseYaml`, and `stringifyYaml` helpers inside that transform rather than `FileManager.processFrontMatter`. Move/rename uses `Vault.rename`; only trash uses `FileManager.trashFile`. Direct filesystem note mutation, permanent deletion, arbitrary handler names, source-code input, shell, and `eval` are absent.
+Replacement and frontmatter use `Vault.process`. The transform compares the current exact content with the prepared snapshot hash before returning any mutation. Frontmatter location/parsing/serialization uses the public `getFrontMatterInfo`, `parseYaml`, and `stringifyYaml` helpers inside that transform rather than `FileManager.processFrontMatter`. Move/rename uses `Vault.rename`; only trash uses `FileManager.trashFile`. Direct filesystem note mutation, permanent deletion, arbitrary handler names, source-code input, shell, and `eval` are absent. Version 0.5.2 changes only the read-side snapshot used to prepare conflict state; it does not expand the companion protocol or write surface.
 
 ### Recovery
 
@@ -200,7 +201,7 @@ The Windows installer runs without elevation, validates the selected vault, reje
 4. Verify protected post-preview consent, expiry, replay rejection, source conflicts, and immediate revocation.
 5. Activate Autonomous access and verify only vault-wide read/create/append becomes available.
 6. Activate Full management yourself, one granular grant at a time; verify edit cannot move or trash, move cannot edit, and trash cannot permanently delete.
-7. Test exact replace, occurrence-counted `replace_text`, frontmatter, rename, cross-folder move, and trash on separate synthetic notes.
+7. Test exact replace, occurrence-counted `replace_text`, frontmatter, rename, cross-folder move, and trash on separate synthetic notes, including no-final-newline, LF, CRLF, and BOM fixtures.
 8. Revoke a granular grant after prepare and verify both manager and handler reject commit before mutation.
 9. Inspect request cleanup, backup contents/permissions, audit redaction, optional move target, and bounded event filtering.
 10. Force backup failure, postcondition failure, source/destination races, replay, malformed request, token mismatch, and three-failure circuit breaking.
