@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 - 2026-07-12
+
+- Add a prominent per-vault **Accesso completo** mode with one explicit acknowledgement and immediate return to protected access.
+- Keep the prompt-approved protected writer and add a distinct auto-approved autonomous writer that refuses every vault without a current full-access panel grant.
+- Preserve the two-step, expiring, single-use preview/commit protocol in both channels; full access reviews the preview internally instead of asking a routine confirmation.
+- Migrate strict version-2 shared settings to version 3 as protected access only, while preserving existing folder choices for later restoration.
+- Allow full access to read/create/append eligible Markdown notes at the vault root and in non-hidden folders while continuing to deny hidden paths, `.obsidian`, `.trash`, redirected paths, delete, rename, move, arbitrary overwrite, shell, plugin management, and `eval`.
+- Add a filesystem-backed SHA-256-keyed commit lock shared by protected and autonomous MCP processes, with bounded wait, abort, ownership verification, and conservative stale recovery.
+- Pause an autonomous writer process after three consecutive failures in one task.
+- Add **Problemi recenti** to Bridge Control: a bounded, read-only audit-tail view that classifies recovery, checks whether the target note exists, and never reads note or backup bodies.
+- Add `obsidian_recent_write_events` to the read server so Codex can inspect at most 20 currently permitted metadata-only audit outcomes before autonomous work and after an error, without asking for screenshots.
+- Authorize protected-to-full transitions under the shared-settings lock and verify the written policy before release. Failed increases restore the previous policy; failed revocations reassert the narrower target or quarantine the shared file instead of restoring full access.
+- Retain failed diagnostics independently from later successes, serialize companion data updates, and use one deterministic default audit directory across Codex and Obsidian.
+- Record authorization mode and structured rollback metadata in write audit events.
+- Retain the 0.3.4 Unicode-safe CLI chunking and 3072-byte full-frame cap that prevents the Obsidian 1.12.7 Windows JSON crash.
+
 ## 0.3.4 - 2026-07-12
 
 - Cap every complete Obsidian CLI IPC request at 3072 UTF-8 bytes to avoid the Windows main-process JSON framing crash observed with long `content=` arguments.

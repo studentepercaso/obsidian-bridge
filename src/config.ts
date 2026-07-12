@@ -84,14 +84,6 @@ export function validateVault(value: string): string {
 }
 
 function defaultDataDirectory(env: NodeJS.ProcessEnv): string {
-  const pluginData = env.PLUGIN_DATA?.trim();
-  if (pluginData !== undefined && pluginData.length > 0) {
-    if (!path.isAbsolute(pluginData)) {
-      throw new Error("PLUGIN_DATA must be an absolute path");
-    }
-    return path.join(pluginData, "obsidian-bridge");
-  }
-
   if (process.platform === "win32") {
     const localAppData = env.LOCALAPPDATA?.trim();
     if (localAppData !== undefined && localAppData.length > 0) {

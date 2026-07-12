@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:BridgePluginId = 'bridge-control'
 $script:CodexPluginId = 'obsidian-bridge'
-$script:ExpectedCodexPluginVersion = '0.3.4'
+$script:ExpectedCodexPluginVersion = '0.4.0'
 $script:BridgePluginRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:PayloadRoot = Join-Path $script:BridgePluginRoot 'companion\obsidian-bridge-control'
 $localApplicationData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -36,6 +36,7 @@ $script:SharedSettingsMaxBytes = 64 * 1024
 $script:VaultRegistryMaxBytes = 1024 * 1024
 $script:SharedLockTimeoutMilliseconds = 5000
 $script:VaultIdPattern = '^[0-9a-f]{16}$'
+$script:ChangeIdPattern = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
 function Get-PropertyValue {
     param(
@@ -1144,8 +1145,8 @@ function Assert-SharedSettingsSchema {
         throw "Le impostazioni condivise devono essere un oggetto JSON. Il file non verra sovrascritto: $Path"
     }
     Assert-ExactDictionaryKeys -Value $Value -Expected @('version', 'updatedAt', 'vaults') -Description 'Le impostazioni condivise'
-    if (-not ($Value['version'] -is [int]) -or $Value['version'] -ne 2) {
-        throw "Le impostazioni condivise non usano lo schema esatto versione 2; versioni 1 o sconosciute non vengono migrate automaticamente: $Path"
+    if (-not ($Value['version'] -is [int]) -or @([int]2, [int]3) -notcontains $Value['version']) {
+        throw "Le impostazioni condivise non usano uno schema supportato (versione 2 o 3): $Path"
     }
     if (-not ($Value['updatedAt'] -is [string]) -or
         [string]::IsNullOrWhiteSpace($Value['updatedAt']) -or
@@ -1174,9 +1175,13 @@ function Assert-SharedSettingsSchema {
         if (-not ($entry -is [System.Collections.Generic.Dictionary[string, object]])) {
             throw "Configurazione non valida per il vault $vaultId."
         }
-        Assert-ExactDictionaryKeys -Value $entry -Expected @(
+        $expectedEntryKeys = @(
             'vaultName', 'vaultPath', 'enabled', 'readMode', 'readFolders', 'writeEnabled', 'writeFolders'
-        ) -Description "La configurazione del vault $vaultId"
+        )
+        if ($Value['version'] -eq 3) {
+            $expectedEntryKeys += 'accessMode'
+        }
+        Assert-ExactDictionaryKeys -Value $entry -Expected $expectedEntryKeys -Description "La configurazione del vault $vaultId"
         $vaultName = $entry['vaultName']
         if (-not ($vaultName -is [string]) -or [string]::IsNullOrWhiteSpace($vaultName) -or
             $vaultName.Length -gt 256 -or
@@ -1194,6 +1199,10 @@ function Assert-SharedSettingsSchema {
         }
         if (-not ($entry['readMode'] -is [string]) -or @('off', 'all', 'folders') -notcontains $entry['readMode']) {
             throw "Modalita di lettura non valida per il vault $vaultId."
+        }
+        if ($Value['version'] -eq 3 -and
+            (-not ($entry['accessMode'] -is [string]) -or @('protected', 'full') -notcontains $entry['accessMode'])) {
+            throw "Modalita di accesso non valida per il vault $vaultId."
         }
         Assert-SharedFolderArray -Value $entry['readFolders'] -Description "Cartelle leggibili del vault $vaultId"
         Assert-SharedFolderArray -Value $entry['writeFolders'] -Description "Cartelle scrivibili del vault $vaultId"
@@ -1221,7 +1230,7 @@ function Assert-PluginDataObject {
     if (-not ($Value -is [System.Collections.Generic.Dictionary[string, object]]) -or
         -not $Value.ContainsKey('version') -or
         -not ($Value['version'] -is [int]) -or
-        @([int]1, [int]2) -notcontains $Value['version']) {
+        @([int]1, [int]2, [int]3) -notcontains $Value['version']) {
         throw "I dati locali del plugin hanno uno schema sconosciuto e non verranno sovrascritti: $Path"
     }
 }
@@ -1266,6 +1275,7 @@ function New-VaultSettingsEntry {
     $entry = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $entry.Add('vaultName', $VaultName)
     $entry.Add('vaultPath', $VaultPath)
+    $entry.Add('accessMode', 'protected')
     $entry.Add('enabled', $true)
     # Nessuna cartella iniziale significa accesso disattivato. La selezione visuale
     # nel companion evita che un campo vuoto conceda accidentalmente l'intero vault.
@@ -1294,6 +1304,7 @@ function New-InstallerVaultSettingsEntry {
     $entry = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $entry.Add('vaultName', $VaultName)
     $entry.Add('vaultPath', $VaultPath)
+    $entry.Add('accessMode', $(if ($existing.ContainsKey('accessMode')) { [string]$existing['accessMode'] } else { 'protected' }))
     $entry.Add('enabled', [bool]$existing['enabled'])
     $entry.Add('readMode', [string]$existing['readMode'])
     $entry.Add('readFolders', [object[]]@($existing['readFolders']))
@@ -1311,12 +1322,18 @@ function Merge-SharedSettings {
 
     if ($null -eq $Existing) {
         $Existing = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
-        $Existing.Add('version', 2)
+        $Existing.Add('version', 3)
         $Existing.Add('updatedAt', [DateTime]::UtcNow.ToString('o'))
         $Existing.Add('vaults', [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal))
     }
 
     Assert-SharedSettingsSchema -Value $Existing -Path $script:SharedSettingsPath
+    if ($Existing['version'] -eq 2) {
+        foreach ($legacyEntry in $Existing['vaults'].Values) {
+            $legacyEntry.Add('accessMode', 'protected')
+        }
+        $Existing['version'] = 3
+    }
 
     $vaults = $Existing['vaults']
     if (-not $vaults.ContainsKey($VaultId) -and $vaults.Count -ge 256) {
@@ -1339,15 +1356,34 @@ function Merge-PluginData {
 
     Assert-PluginDataObject -Value $Existing -Path '(data.json)'
     $result = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
-    $result.Add('version', 2)
+    $result.Add('version', 3)
     $result.Add('vaultId', $VaultId)
     $result.Add('vaultName', $VaultName)
     $result.Add('vaultPath', $VaultPath)
+    $result.Add('accessMode', $Entry['accessMode'])
     $result.Add('enabled', $Entry['enabled'])
     $result.Add('readMode', $Entry['readMode'])
     $result.Add('readFolders', $Entry['readFolders'])
     $result.Add('writeEnabled', $Entry['writeEnabled'])
     $result.Add('writeFolders', $Entry['writeFolders'])
+    $reviewedAuditChangeIds = New-Object System.Collections.ArrayList
+    $seenReviewedAuditChangeIds = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    if ($null -ne $Existing -and
+        $Existing.ContainsKey('reviewedAuditChangeIds') -and
+        $Existing['reviewedAuditChangeIds'] -is [System.Array]) {
+        foreach ($changeIdValue in $Existing['reviewedAuditChangeIds']) {
+            if ($changeIdValue -is [string] -and
+                $changeIdValue -match $script:ChangeIdPattern -and
+                $seenReviewedAuditChangeIds.Add($changeIdValue)) {
+                [void]$reviewedAuditChangeIds.Add([string]$changeIdValue)
+            }
+        }
+    }
+    $reviewedValues = [object[]]$reviewedAuditChangeIds.ToArray()
+    if ($reviewedValues.Count -gt 100) {
+        $reviewedValues = [object[]]$reviewedValues[($reviewedValues.Count - 100)..($reviewedValues.Count - 1)]
+    }
+    $result.Add('reviewedAuditChangeIds', $reviewedValues)
     $result.Add('openPanelOnNextLoad', $true)
     return $result
 }
@@ -1643,10 +1679,36 @@ function Invoke-InstallerSelfTest {
     # shared settings object read before the merge.
     $preserved['readFolders'][0] = 'Modificata nel risultato'
     $arraysAreIndependent = [string]$existingEntry['readFolders'][0] -eq 'Studio'
+    $migrated = Merge-SharedSettings -Existing $settings -VaultId $vaultId -Entry $preserved
+
+    $fullVaultId = 'fedcba9876543210'
+    $fullEntry = New-VaultSettingsEntry -VaultName 'Vault completo' -VaultPath 'C:\Vault completo' -ReadFolders @('Studio') -WriteEnabled $true -WriteFolders @('Studio')
+    $fullEntry['accessMode'] = 'full'
+    $fullVaults = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $fullVaults.Add($fullVaultId, $fullEntry)
+    $fullSettings = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $fullSettings.Add('version', 3)
+    $fullSettings.Add('updatedAt', [DateTime]::UtcNow.ToString('o'))
+    $fullSettings.Add('vaults', $fullVaults)
+    $preservedFull = New-InstallerVaultSettingsEntry -ExistingSharedSettings $fullSettings -VaultId $fullVaultId -VaultName 'Vault completo aggiornato' -VaultPath 'C:\Vault completo aggiornato'
+    $mergedFull = Merge-SharedSettings -Existing $fullSettings -VaultId $fullVaultId -Entry $preservedFull
+
+    $reviewedInput = New-Object System.Collections.ArrayList
+    foreach ($index in 1..102) {
+        [void]$reviewedInput.Add(('00000000-0000-4000-8000-{0:000000000000}' -f $index))
+    }
+    [void]$reviewedInput.Add('non-un-uuid')
+    [void]$reviewedInput.Add('00000000-0000-4000-8000-000000000102')
+    $existingPluginData = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $existingPluginData.Add('version', 3)
+    $existingPluginData.Add('reviewedAuditChangeIds', [object[]]$reviewedInput.ToArray())
+    $mergedPluginData = Merge-PluginData -Existing $existingPluginData -VaultId $fullVaultId -VaultName 'Vault completo aggiornato' -VaultPath 'C:\Vault completo aggiornato' -Entry $preservedFull
+    $preservedReviewedIds = [object[]]@($mergedPluginData['reviewedAuditChangeIds'])
 
     $report = [ordered]@{
         selfTest = $true
         fresh = [ordered]@{
+            accessMode = [string]$fresh['accessMode']
             enabled = [bool]$fresh['enabled']
             readMode = [string]$fresh['readMode']
             readFolders = [object[]]@($fresh['readFolders'])
@@ -1656,6 +1718,7 @@ function Invoke-InstallerSelfTest {
         preserved = [ordered]@{
             vaultName = [string]$preserved['vaultName']
             vaultPath = [string]$preserved['vaultPath']
+            accessMode = [string]$preserved['accessMode']
             enabled = [bool]$preserved['enabled']
             readMode = [string]$preserved['readMode']
             readFolders = $preservedReadFolders
@@ -1663,6 +1726,20 @@ function Invoke-InstallerSelfTest {
             writeFolders = $preservedWriteFolders
         }
         arraysAreIndependent = $arraysAreIndependent
+        migratedVersion = [int]$migrated['version']
+        migratedAccessMode = [string]$migrated['vaults'][$vaultId]['accessMode']
+        preservedFull = [ordered]@{
+            version = [int]$mergedFull['version']
+            accessMode = [string]$mergedFull['vaults'][$fullVaultId]['accessMode']
+            vaultName = [string]$mergedFull['vaults'][$fullVaultId]['vaultName']
+            vaultPath = [string]$mergedFull['vaults'][$fullVaultId]['vaultPath']
+        }
+        reviewedAuditChangeIds = [ordered]@{
+            count = [int]$preservedReviewedIds.Count
+            first = [string]$preservedReviewedIds[0]
+            last = [string]$preservedReviewedIds[$preservedReviewedIds.Count - 1]
+            invalidRejected = -not ($preservedReviewedIds -contains 'non-un-uuid')
+        }
     }
     Write-Output (ConvertTo-Json -InputObject $report -Depth 10)
 }
@@ -1689,6 +1766,7 @@ function Invoke-DryRun {
         vaultPath = $context.VaultPath
         pluginDestination = $context.DestinationPluginDirectory
         sharedSettingsPath = $script:SharedSettingsPath
+        accessMode = $context.VaultSettingsEntry['accessMode']
         readMode = $context.VaultSettingsEntry['readMode']
         readFolders = [object[]]@($context.VaultSettingsEntry['readFolders'])
         writeEnabled = [bool]$context.VaultSettingsEntry['writeEnabled']
@@ -1723,7 +1801,7 @@ function Show-Installer {
     [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Installa Obsidian Bridge'
+    $form.Text = 'Installa Obsidian Bridge 0.4.0'
     $form.StartPosition = 'CenterScreen'
     $form.Size = New-Object System.Drawing.Size(780, 650)
     $form.MinimumSize = New-Object System.Drawing.Size(780, 650)
@@ -1738,7 +1816,7 @@ function Show-Installer {
     $form.Controls.Add($header)
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = 'Collega Obsidian a ChatGPT'
+    $title.Text = 'Collega Obsidian a ChatGPT - Bridge 0.4.0'
     $title.ForeColor = [System.Drawing.Color]::White
     $title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 20)
     $title.AutoSize = $true
@@ -1801,7 +1879,7 @@ function Show-Installer {
     $content.Controls.Add($accessCard)
 
     $accessText = New-Object System.Windows.Forms.Label
-    $accessText.Text = "L'installer non concede accesso alle note. Dopo l'installazione, Bridge Control mostrera le cartelle reali del vault: spunta Leggi e Scrivi e salva."
+    $accessText.Text = "Un nuovo vault parte in Accesso protetto senza cartelle. In Bridge Control scegli le cartelle oppure attiva Accesso completo confermando l'avviso. L'installer non attiva mai l'accesso completo."
     $accessText.ForeColor = [System.Drawing.Color]::FromArgb(55, 48, 90)
     $accessText.Location = New-Object System.Drawing.Point(12, 11)
     $accessText.Size = New-Object System.Drawing.Size(662, 52)
@@ -1866,41 +1944,41 @@ function Show-Installer {
     $completion.Controls.Add($doneTitle)
 
     $doneText = New-Object System.Windows.Forms.Label
-    $doneText.Text = "Bridge Control e installato nel vault.`r`nApri Obsidian > Impostazioni > Bridge Control e premi Scegli cartelle.`r`nNessuna API key richiesta: il collegamento usa la CLI locale ufficiale di Obsidian."
+    $doneText.Text = "Bridge Control e installato nel vault.`r`nApri Obsidian > Impostazioni > Bridge Control: usa Accesso protetto per scegliere le cartelle, oppure Accesso completo solo dopo l'avviso esplicito.`r`nL'installer non attiva Accesso completo. In Problemi recenti puoi controllare errori, recupero e note coinvolte.`r`nNessuna API key richiesta: il collegamento usa la CLI locale ufficiale di Obsidian."
     $doneText.Font = New-Object System.Drawing.Font('Segoe UI', 11)
     $doneText.Location = New-Object System.Drawing.Point(38, 174)
-    $doneText.Size = New-Object System.Drawing.Size(690, 100)
+    $doneText.Size = New-Object System.Drawing.Size(690, 128)
     $completion.Controls.Add($doneText)
 
     $openObsidianButton = New-Object System.Windows.Forms.Button
     $openObsidianButton.Text = 'Apri Obsidian'
-    $openObsidianButton.Location = New-Object System.Drawing.Point(40, 278)
+    $openObsidianButton.Location = New-Object System.Drawing.Point(40, 316)
     $openObsidianButton.Size = New-Object System.Drawing.Size(190, 42)
     $completion.Controls.Add($openObsidianButton)
 
     $openCodexButton = New-Object System.Windows.Forms.Button
     $openCodexButton.Text = 'Apri plugin in Codex'
-    $openCodexButton.Location = New-Object System.Drawing.Point(244, 278)
+    $openCodexButton.Location = New-Object System.Drawing.Point(244, 316)
     $openCodexButton.Size = New-Object System.Drawing.Size(210, 42)
     $completion.Controls.Add($openCodexButton)
 
     $codexFallbackLabel = New-Object System.Windows.Forms.Label
     $codexFallbackLabel.Text = 'Se il link Codex non si apre, il percorso stabile verra mostrato qui.'
     $codexFallbackLabel.ForeColor = [System.Drawing.Color]::DimGray
-    $codexFallbackLabel.Location = New-Object System.Drawing.Point(40, 335)
+    $codexFallbackLabel.Location = New-Object System.Drawing.Point(40, 371)
     $codexFallbackLabel.Size = New-Object System.Drawing.Size(680, 62)
     $completion.Controls.Add($codexFallbackLabel)
 
     $closeButton = New-Object System.Windows.Forms.Button
     $closeButton.Text = 'Chiudi'
-    $closeButton.Location = New-Object System.Drawing.Point(468, 278)
+    $closeButton.Location = New-Object System.Drawing.Point(468, 316)
     $closeButton.Size = New-Object System.Drawing.Size(120, 42)
     $completion.Controls.Add($closeButton)
 
     $uninstallLabel = New-Object System.Windows.Forms.Label
     $uninstallLabel.Text = 'Per rimuoverlo in futuro usa Impostazioni > Plugin della community > Bridge Control > Disinstalla. L installer non elimina automaticamente file o note.'
     $uninstallLabel.ForeColor = [System.Drawing.Color]::DimGray
-    $uninstallLabel.Location = New-Object System.Drawing.Point(40, 410)
+    $uninstallLabel.Location = New-Object System.Drawing.Point(40, 442)
     $uninstallLabel.Size = New-Object System.Drawing.Size(670, 60)
     $completion.Controls.Add($uninstallLabel)
 

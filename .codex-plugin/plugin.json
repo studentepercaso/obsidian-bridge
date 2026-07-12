@@ -1,6 +1,6 @@
 {
   "name": "obsidian-bridge",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Install with a guided wizard, then safely read, create, and append within GUI-scoped local Obsidian vaults.",
   "author": {
     "name": "studentepercaso",
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Obsidian Bridge",
     "shortDescription": "Guided setup for safe Obsidian access",
-    "longDescription": "Run the bundled Windows installer once, then manage vault and folder permissions from the Bridge Control panel inside Obsidian. Codex uses separate reader and writer MCP servers, previews every create or append, and commits only after explicit approval.",
+    "longDescription": "Run the bundled Windows installer once, then choose protected folder access or explicitly authorize full-vault autonomous create and append from Bridge Control. Separate MCP writers preserve prompt approval for protected vaults and automatic execution only for vaults set to full access.",
     "developerName": "studentepercaso",
     "category": "Productivity",
     "capabilities": [

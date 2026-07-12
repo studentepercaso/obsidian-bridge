@@ -95,6 +95,28 @@ async function commit(client: Client, changeId: string): Promise<unknown> {
   });
 }
 
+async function prepareAutonomous(
+  client: Client,
+  input: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const result = await client.callTool({
+    name: "obsidian_prepare_autonomous_change",
+    arguments: input,
+  });
+  expect(result.isError).not.toBe(true);
+  return parseTextPayload(result);
+}
+
+async function commitAutonomous(
+  client: Client,
+  changeId: string,
+): Promise<unknown> {
+  return await client.callTool({
+    name: "obsidian_commit_autonomous_change",
+    arguments: { change_id: changeId },
+  });
+}
+
 describe("guarded MCP write workflow", () => {
   const temporaryDirectories: string[] = [];
 
@@ -139,6 +161,141 @@ describe("guarded MCP write workflow", () => {
         idempotentHint: false,
         openWorldHint: false,
       });
+    } finally {
+      await client.close();
+    }
+  }, 20_000);
+
+  it("exposes a separate honest autonomous writer and gates it to full access", async () => {
+    const { directory, statePath } = await stateFixture({});
+    const settingsPath = join(directory, "settings.json");
+    const writeSettings = (accessMode: "protected" | "full") => {
+      writeFileSync(
+        settingsPath,
+        `${JSON.stringify({
+          version: 3,
+          updatedAt: new Date().toISOString(),
+          vaults: {
+            "0123456789abcdef": {
+              vaultName: "Test Vault",
+              vaultPath: directory,
+              enabled: true,
+              readMode: "folders",
+              readFolders: ["Projects"],
+              writeEnabled: true,
+              writeFolders: ["Projects"],
+              accessMode,
+            },
+          },
+        })}\n`,
+        "utf8",
+      );
+    };
+    writeSettings("full");
+    const { client } = await startClient(statePath, {
+      OBSIDIAN_BRIDGE_MODE: "autonomous",
+      OBSIDIAN_BRIDGE_SETTINGS_PATH: settingsPath,
+    });
+
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toEqual([
+        "obsidian_prepare_autonomous_change",
+        "obsidian_commit_autonomous_change",
+      ]);
+      expect(listed.tools[0]?.annotations).toMatchObject({
+        readOnlyHint: true,
+        destructiveHint: false,
+      });
+      expect(listed.tools[1]?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+      });
+
+      const preview = await prepareAutonomous(client, {
+        vault: "Test Vault",
+        path: "Root autonomous.md",
+        operation: "create",
+        content: "created autonomously\n",
+      });
+      expect(preview).toMatchObject({
+        authorization_mode: "autonomous",
+        approval_required: false,
+        path: "Root autonomous.md",
+      });
+      const committed = await commitAutonomous(
+        client,
+        String(preview.change_id),
+      );
+      expect((committed as { isError?: boolean }).isError).not.toBe(true);
+      expect(readState(statePath)["Root autonomous.md"]).toBe(
+        "created autonomously\n",
+      );
+
+      writeSettings("protected");
+      const denied = await client.callTool({
+        name: "obsidian_prepare_autonomous_change",
+        arguments: {
+          vault: "Test Vault",
+          path: "Denied autonomous.md",
+          operation: "create",
+          content: "must not land",
+        },
+      });
+      expect(denied.isError).toBe(true);
+      expect(JSON.stringify(denied.content)).toMatch(/Accesso completo/iu);
+      expect(readState(statePath)["Denied autonomous.md"]).toBeUndefined();
+    } finally {
+      await client.close();
+    }
+  }, 20_000);
+
+  it("revokes a prepared autonomous change before commit", async () => {
+    const { directory, statePath } = await stateFixture({});
+    const settingsPath = join(directory, "settings.json");
+    const writeSettings = (accessMode: "protected" | "full") => {
+      writeFileSync(
+        settingsPath,
+        `${JSON.stringify({
+          version: 3,
+          updatedAt: new Date().toISOString(),
+          vaults: {
+            "0123456789abcdef": {
+              vaultName: "Test Vault",
+              vaultPath: directory,
+              enabled: true,
+              readMode: "all",
+              readFolders: [],
+              writeEnabled: false,
+              writeFolders: [],
+              accessMode,
+            },
+          },
+        })}\n`,
+        "utf8",
+      );
+    };
+    writeSettings("full");
+    const { client } = await startClient(statePath, {
+      OBSIDIAN_BRIDGE_MODE: "autonomous",
+      OBSIDIAN_BRIDGE_SETTINGS_PATH: settingsPath,
+    });
+
+    try {
+      const preview = await prepareAutonomous(client, {
+        vault: "Test Vault",
+        path: "Revoked autonomous.md",
+        operation: "create",
+        content: "preview only",
+      });
+      writeSettings("protected");
+      const result = await commitAutonomous(client, String(preview.change_id));
+      expect((result as { isError?: boolean }).isError).toBe(true);
+      expect(JSON.stringify((result as { content?: unknown }).content)).toMatch(
+        /Accesso completo/iu,
+      );
+      expect(readState(statePath)).toEqual({});
     } finally {
       await client.close();
     }

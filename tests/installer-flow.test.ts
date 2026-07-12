@@ -27,6 +27,7 @@ describe("guided installer permission flow", () => {
   it("preserves saved permission fields when reinstalling", () => {
     for (const field of [
       "enabled",
+      "accessMode",
       "readMode",
       "readFolders",
       "writeEnabled",
@@ -41,6 +42,22 @@ describe("guided installer permission flow", () => {
 
   it("does not persist an externally writable settings path in vault plugin data", () => {
     expect(installer).not.toContain("$result.Add('sharedSettingsPath'");
+  });
+
+  it("preserves only bounded valid reviewed audit change IDs", () => {
+    expect(installer).toContain(
+      "$Existing.ContainsKey('reviewedAuditChangeIds')",
+    );
+    expect(installer).toContain("$reviewedValues.Count -gt 100");
+    expect(installer).toContain(
+      "$result.Add('reviewedAuditChangeIds', $reviewedValues)",
+    );
+  });
+
+  it("reports the retained access mode during a dry run", () => {
+    expect(installer).toContain(
+      "accessMode = $context.VaultSettingsEntry['accessMode']",
+    );
   });
 
   it.skipIf(process.platform !== "win32")(
@@ -64,6 +81,7 @@ describe("guided installer permission flow", () => {
       const report = JSON.parse(result.stdout) as {
         selfTest: boolean;
         fresh: {
+          accessMode: string;
           enabled: boolean;
           readMode: string;
           readFolders: string[];
@@ -73,6 +91,7 @@ describe("guided installer permission flow", () => {
         preserved: {
           vaultName: string;
           vaultPath: string;
+          accessMode: string;
           enabled: boolean;
           readMode: string;
           readFolders: string[];
@@ -80,11 +99,26 @@ describe("guided installer permission flow", () => {
           writeFolders: string[];
         };
         arraysAreIndependent: boolean;
+        migratedVersion: number;
+        migratedAccessMode: string;
+        preservedFull: {
+          version: number;
+          accessMode: string;
+          vaultName: string;
+          vaultPath: string;
+        };
+        reviewedAuditChangeIds: {
+          count: number;
+          first: string;
+          last: string;
+          invalidRejected: boolean;
+        };
       };
 
       expect(report).toMatchObject({
         selfTest: true,
         fresh: {
+          accessMode: "protected",
           enabled: true,
           readMode: "off",
           readFolders: [],
@@ -94,6 +128,7 @@ describe("guided installer permission flow", () => {
         preserved: {
           vaultName: "Vault aggiornato",
           vaultPath: "C:\\Vault aggiornato",
+          accessMode: "protected",
           enabled: true,
           readMode: "folders",
           readFolders: ["Studio"],
@@ -101,6 +136,20 @@ describe("guided installer permission flow", () => {
           writeFolders: ["Studio/Appunti"],
         },
         arraysAreIndependent: true,
+        migratedVersion: 3,
+        migratedAccessMode: "protected",
+        preservedFull: {
+          version: 3,
+          accessMode: "full",
+          vaultName: "Vault completo aggiornato",
+          vaultPath: "C:\\Vault completo aggiornato",
+        },
+        reviewedAuditChangeIds: {
+          count: 100,
+          first: "00000000-0000-4000-8000-000000000003",
+          last: "00000000-0000-4000-8000-000000000102",
+          invalidRejected: true,
+        },
       });
     },
   );

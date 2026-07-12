@@ -16,9 +16,9 @@ describe("public release metadata", () => {
       "companion/obsidian-bridge-control/manifest.json",
     );
 
-    expect(packageJson.version).toBe("0.3.4");
-    expect(plugin.version).toBe("0.3.4");
-    expect(companion.version).toBe("0.3.4");
+    expect(packageJson.version).toBe("0.4.0");
+    expect(plugin.version).toBe("0.4.0");
+    expect(companion.version).toBe("0.4.0");
   });
 
   it("publishes a pinned Git-backed Codex marketplace entry", () => {
@@ -39,7 +39,7 @@ describe("public release metadata", () => {
         source: {
           source: "url",
           url: "https://github.com/studentepercaso/obsidian-bridge.git",
-          ref: "0.3.4",
+          ref: "0.4.0",
         },
         policy: {
           installation: "AVAILABLE",
@@ -57,5 +57,39 @@ describe("public release metadata", () => {
     expect(
       readFileSync(new URL("../README.it.md", import.meta.url), "utf8"),
     ).toContain("[English](README.md)");
+  });
+
+  it("keeps protected and autonomous writers in separate approval domains", () => {
+    const mcp = readJson(".mcp.json") as {
+      mcpServers: Record<
+        string,
+        {
+          args: string[];
+          default_tools_approval_mode: string;
+          env_vars: string[];
+        }
+      >;
+    };
+
+    expect(Object.keys(mcp.mcpServers)).toEqual([
+      "obsidian",
+      "obsidian-writer",
+      "obsidian-autonomous-writer",
+    ]);
+    expect(mcp.mcpServers.obsidian).toMatchObject({
+      args: ["./dist/server.mjs", "--mode=read"],
+      default_tools_approval_mode: "auto",
+    });
+    expect(mcp.mcpServers.obsidian?.env_vars).toContain(
+      "OBSIDIAN_BRIDGE_DATA_DIR",
+    );
+    expect(mcp.mcpServers["obsidian-writer"]).toMatchObject({
+      args: ["./dist/server.mjs", "--mode=write"],
+      default_tools_approval_mode: "prompt",
+    });
+    expect(mcp.mcpServers["obsidian-autonomous-writer"]).toMatchObject({
+      args: ["./dist/server.mjs", "--mode=autonomous"],
+      default_tools_approval_mode: "auto",
+    });
   });
 });

@@ -3,7 +3,7 @@
 [English](README.md) · [Italiano](README.it.md)
 
 [![CI](https://github.com/studentepercaso/obsidian-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/studentepercaso/obsidian-bridge/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/studentepercaso/obsidian-bridge?display_name=tag)](https://github.com/studentepercaso/obsidian-bridge/releases/latest)
+[![Release](https://img.shields.io/github/v/release/studentepercaso/obsidian-bridge?display_name=tag)](https://github.com/studentepercaso/obsidian-bridge/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/installer-Windows-0078D4.svg)](#requirements)
 
@@ -18,28 +18,28 @@ Obsidian Bridge connects Codex and compatible ChatGPT desktop plugin hosts to lo
 ## What it provides
 
 - A guided Windows installer with vault discovery and no administrator privileges.
-- A visual Obsidian settings panel for separate read and write folder selection.
-- Eight bounded, non-mutating read tools for search, excerpts, outlines, links, tags, backlinks, and recent notes.
-- A separate writer process limited to **create** and **append**.
-- A two-step write protocol: preview first, then an explicit confirmation and commit.
+- A visual Obsidian panel with folder-scoped **Protected access** or an explicit **Full access** mode for autonomous work across the vault.
+- Nine bounded, non-mutating read tools for search, excerpts, outlines, links, tags, backlinks, recent notes, and metadata-only write diagnostics.
+- Separate protected and autonomous writer processes, both limited to **create** and **append**; the autonomous process is gated to vaults explicitly set to full access.
+- A two-step single-use preview/commit protocol; per-change confirmation remains mandatory in protected access.
 - Default-deny access, per-vault settings, hidden-folder rejection, path containment, timeouts, and output limits.
-- Local recovery backups for append and content-free write audit metadata.
+- Cross-process commit locks, local append recovery backups, content-free audit metadata, a **Recent problems** panel, and direct bounded audit diagnostics for Codex after an error.
 
 ## Quick start on Windows
 
-1. Download **Obsidian-Bridge-Setup-0.3.4.zip** from the [latest release](https://github.com/studentepercaso/obsidian-bridge/releases/latest).
+1. Download **Obsidian-Bridge-Setup-0.4.0.zip** from the [releases page](https://github.com/studentepercaso/obsidian-bridge/releases).
 2. Extract the ZIP completely. Do not run the installer from inside the archive preview.
 3. Double-click **INSTALLA-OBSIDIAN-BRIDGE.cmd**.
 4. Select a vault and complete the guided installation.
 5. In Obsidian, open **Settings → Community plugins → Bridge Control**.
-6. Select **Choose folders**, enable **Read** and optionally **Write**, then save access.
+6. Keep **Protected access** and choose folders, or explicitly enable **Full access** once if you want autonomous read/create/append across the vault.
 7. Start a new Codex task and test a synthetic note.
 
 The installer keeps new vaults deny-by-default and preserves existing Bridge Control permissions during an update. The full walkthrough is in [docs/INSTALLATION.en.md](docs/INSTALLATION.en.md).
 
-Use the asset whose name starts with **Obsidian-Bridge-Setup**. GitHub's automatically generated **Source code** archives are development snapshots, not the guided installer. SHA-256 values are published beside every release in **SHA256-0.3.4.txt**.
+Use the asset whose name starts with **Obsidian-Bridge-Setup**. GitHub's automatically generated **Source code** archives are development snapshots, not the guided installer. SHA-256 values are published beside every release in **SHA256-0.4.0.txt**.
 
-The 0.3.4 installer and Bridge Control interface are currently in Italian; the English guide maps each step.
+The 0.4.0 installer and Bridge Control interface are currently in Italian; the English guide maps each step.
 
 If diagnostics report that the Obsidian CLI is unavailable, enable it under **Obsidian → Settings → General → Command line interface**. The bridge uses the official local CLI and does not emulate vault access through an HTTP service.
 
@@ -48,7 +48,7 @@ If diagnostics report that the Obsidian CLI is unavailable, enable it under **Ob
 Advanced users can add this public repository as a Codex marketplace:
 
 ```powershell
-codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.3.4
+codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.4.0
 codex plugin add obsidian-bridge@obsidian-bridge-community
 ```
 
@@ -56,14 +56,14 @@ The marketplace installs the Codex plugin component. The release installer remai
 
 ## Permission and write model
 
-Reading can be disabled, limited to selected folders, or extended to the eligible vault. Writing has a separate switch and separate folder list and is disabled by default.
+Each vault has two profiles. **Protected access** uses the saved read/write folder scopes and requires confirmation for every change. **Full access**, enabled through a one-time warning and acknowledgement in Bridge Control, permits autonomous read/create/append across the eligible vault. Returning to protected access is immediate and preserves the earlier folder choices.
 
 Every write uses two calls:
 
 1. **Prepare** validates the vault, path, permission, source state, and proposed content. It returns a bounded preview without changing the note.
-2. **Commit** accepts only that unexpired, single-use preview after explicit confirmation and rechecks permissions and source state.
+2. **Commit** accepts only that unexpired, single-use preview and rechecks permissions and source state. Protected access requires explicit confirmation; full access may commit immediately after the agent internally validates the preview in the same task.
 
-The writer cannot delete, rename, move, overwrite arbitrary files, execute shell commands, manage plugins, or invoke arbitrary Obsidian commands. Read and write tools run in separate MCP processes with different approval policies.
+Full access does not add destructive capabilities. The bridge still cannot delete, rename, move, overwrite arbitrary files, execute shell commands, manage plugins, or invoke arbitrary Obsidian commands. Hidden paths, `.obsidian`, `.trash`, and physical redirects outside the vault remain denied. Reading, protected writing, and autonomous writing run in distinct MCP processes with different approval policies.
 
 ## Requirements
 
@@ -99,6 +99,6 @@ Automated tests use a simulated CLI and synthetic data. A release also requires 
 
 ## Project status
 
-Version 0.3.4 is a public community preview distributed from GitHub. The **Bridge Control** companion is also published in its own review-ready repository for submission to the official Obsidian Community Plugins directory. The local stdio MCP architecture is not the same as a hosted MCP endpoint and is not currently submitted to the universal OpenAI Plugins Directory.
+Version 0.4.0 is a public community preview distributed from GitHub. The **Bridge Control** companion is also published in its own review-ready repository for submission to the official Obsidian Community Plugins directory. The local stdio MCP architecture is not the same as a hosted MCP endpoint and is not currently submitted to the universal OpenAI Plugins Directory.
 
 Obsidian is a trademark of Dynalist Inc. ChatGPT, Codex, and OpenAI are trademarks of OpenAI. This independent project is not affiliated with or endorsed by either company.

@@ -10,6 +10,7 @@ import {
   PluginSettingTab,
   SearchComponent,
   Setting,
+  TFile,
   TextAreaComponent,
   ToggleComponent,
 } from "obsidian";
@@ -33,10 +34,16 @@ import {
   folderIsInside,
   hiddenFolder,
 } from "./folder-selection";
+import {
+  AuditDiagnosticsResult,
+  readAuditDiagnostics,
+} from "./audit-diagnostics";
+import { coerceProtectedLocalSettings } from "./local-settings";
 
-const PLUGIN_DATA_VERSION = 2;
+const PLUGIN_DATA_VERSION = 3;
 
 const DEFAULT_SETTINGS: VaultBridgeSettings = {
+  accessMode: "protected",
   enabled: true,
   readMode: "off",
   readFolders: [],
@@ -64,6 +71,7 @@ function currentPlatform(): DesktopPlatform {
 
 function copySettings(settings: VaultBridgeSettings): VaultBridgeSettings {
   return {
+    accessMode: settings.accessMode,
     enabled: settings.enabled,
     readMode: settings.readMode,
     readFolders: [...settings.readFolders],
@@ -76,64 +84,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function normalizeLoadedFolders(
-  value: unknown,
-  fallback: string[],
-): { folders: string[]; valid: boolean } {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
-    return { folders: [...fallback], valid: false };
-  }
-  const parsed = parseFolderList(value.join("\n"));
-  return parsed.errors.length === 0
-    ? { folders: parsed.folders, valid: true }
-    : { folders: [...fallback], valid: false };
-}
-
-function coerceSettings(value: unknown): VaultBridgeSettings {
-  if (!isRecord(value)) return copySettings(DEFAULT_SETTINGS);
-  const readMode: ReadMode =
-    value.readMode === "off" || value.readMode === "all" || value.readMode === "folders"
-      ? value.readMode
-      : DEFAULT_SETTINGS.readMode;
-  const loadedReadFolders = normalizeLoadedFolders(value.readFolders, DEFAULT_SETTINGS.readFolders);
-  const readFolders =
-    readMode === "folders" && loadedReadFolders.folders.length === 0
-      ? [...DEFAULT_SETTINGS.readFolders]
-      : loadedReadFolders.folders;
-  const loadedWriteFolders = normalizeLoadedFolders(value.writeFolders, DEFAULT_SETTINGS.writeFolders);
-  const requestedWriteEnabled =
-    typeof value.writeEnabled === "boolean" ? value.writeEnabled : DEFAULT_SETTINGS.writeEnabled;
-
-  return {
-    enabled: typeof value.enabled === "boolean" ? value.enabled : DEFAULT_SETTINGS.enabled,
-    readMode,
-    readFolders,
-    writeEnabled:
-      requestedWriteEnabled && loadedWriteFolders.valid && loadedWriteFolders.folders.length > 0,
-    writeFolders: loadedWriteFolders.folders,
-  };
-}
-
-function sameSettings(left: VaultBridgeSettings | undefined, right: VaultBridgeSettings): boolean {
-  if (!left) return false;
-  return (
-    left.enabled === right.enabled &&
-    left.readMode === right.readMode &&
-    left.writeEnabled === right.writeEnabled &&
-    left.readFolders.length === right.readFolders.length &&
-    left.readFolders.every((folder, index) => folder === right.readFolders[index]) &&
-    left.writeFolders.length === right.writeFolders.length &&
-    left.writeFolders.every((folder, index) => folder === right.writeFolders[index])
-  );
+function reviewedChangeIds(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.reviewedAuditChangeIds)) return [];
+  return value.reviewedAuditChangeIds
+    .filter(
+      (item): item is string =>
+        typeof item === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(
+          item,
+        ),
+    )
+    .slice(-100);
 }
 
 function describeReading(settings: VaultBridgeSettings): string {
+  if (settings.enabled && settings.accessMode === "full") return "Tutto il vault";
   if (!settings.enabled || settings.readMode === "off") return "Disattivata";
   if (settings.readMode === "all") return "Tutto il vault";
   return settings.readFolders.length > 0 ? settings.readFolders.join(", ") : "Nessuna cartella";
 }
 
 function describeWriting(settings: VaultBridgeSettings): string {
+  if (settings.enabled && settings.accessMode === "full") {
+    return "Tutto il vault · automatica";
+  }
   if (!settings.enabled || !settings.writeEnabled) return "Disattivata";
   return settings.writeFolders.length > 0 ? settings.writeFolders.join(", ") : "Nessuna cartella";
 }
@@ -282,13 +256,103 @@ class FolderAccessModal extends Modal {
   }
 }
 
+class FullAccessConfirmationModal extends Modal {
+  constructor(
+    app: App,
+    private readonly vaultName: string,
+    private readonly onConfirm: () => Promise<void>,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("bridge-control-confirm-modal");
+    this.contentEl.empty();
+    this.contentEl.createEl("h2", { text: "Attiva accesso completo" });
+    this.contentEl.createEl("p", {
+      text: `Nel vault “${this.vaultName}” ChatGPT potrà leggere tutte le note visibili, creare note e aggiungere testo senza chiedere conferma ogni volta.`,
+    });
+    const warning = this.contentEl.createDiv({
+      cls: "bridge-control__warning bridge-control__full-warning",
+    });
+    warning.createEl("strong", { text: "Autorizzazione permanente per questo vault" });
+    warning.createEl("p", {
+      text: "Restano attivi controllo dei percorsi, backup, hash, verifica e registro attività. Eliminazione, rinomina, spostamento, shell e sovrascrittura arbitraria restano vietati.",
+    });
+
+    const acknowledgement = this.contentEl.createEl("label", {
+      cls: "bridge-control__acknowledgement",
+    });
+    const checkbox = acknowledgement.createEl("input");
+    checkbox.type = "checkbox";
+    acknowledgement.createSpan({
+      text: "Ho capito e autorizzo l'accesso completo a questo vault.",
+    });
+
+    const actions = this.contentEl.createDiv({
+      cls: "bridge-control__action-buttons bridge-control__confirm-actions",
+    });
+    const cancel = actions.createEl("button", { text: "Annulla" });
+    cancel.addEventListener("click", () => this.close());
+    const confirm = actions.createEl("button", {
+      text: "Attiva accesso completo",
+      cls: "mod-warning",
+    });
+    confirm.disabled = true;
+    checkbox.addEventListener("change", () => {
+      confirm.disabled = !checkbox.checked;
+    });
+    confirm.addEventListener("click", async () => {
+      confirm.disabled = true;
+      cancel.disabled = true;
+      confirm.setText("Attivazione…");
+      try {
+        await this.onConfirm();
+        this.close();
+      } catch (error) {
+        new Notice(
+          `Attivazione non riuscita: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        cancel.disabled = false;
+        confirm.disabled = !checkbox.checked;
+        confirm.setText("Attiva accesso completo");
+      }
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 export default class BridgeControlPlugin extends Plugin {
   settings: VaultBridgeSettings = copySettings(DEFAULT_SETTINGS);
   sharedPath = "";
   verification: VerificationState | undefined;
   cliDiagnostic: CliDiagnostic | undefined;
+  auditDiagnostics: AuditDiagnosticsResult | undefined;
   identity: VaultIdentity | undefined;
+  private reviewedAuditChangeIds = new Set<string>();
+  private localDataWriteQueue: Promise<unknown> = Promise.resolve();
+  private settingsSaveQueue: Promise<unknown> = Promise.resolve();
   private firstRun = false;
+
+  private updateLocalData<T>(
+    build: (loaded: unknown) => {
+      readonly data?: unknown;
+      readonly result: T;
+      readonly skip?: boolean;
+    },
+  ): Promise<T> {
+    const operation = this.localDataWriteQueue.then(async () => {
+      const loaded: unknown = await this.loadData();
+      const update = build(loaded);
+      if (update.skip !== true) await this.saveData(update.data);
+      return update.result;
+    });
+    this.localDataWriteQueue = operation.catch(() => undefined);
+    return operation;
+  }
 
   async onload(): Promise<void> {
     this.sharedPath = sharedSettingsPath(currentPlatform());
@@ -314,11 +378,12 @@ export default class BridgeControlPlugin extends Plugin {
 
   private async loadSettings(): Promise<boolean> {
     const loaded: unknown = await this.loadData();
+    this.reviewedAuditChangeIds = new Set(reviewedChangeIds(loaded));
     const shouldOpenPanel =
       loaded === null ||
       loaded === undefined ||
       (isRecord(loaded) && loaded.openPanelOnNextLoad === true);
-    const localSettings = coerceSettings(loaded);
+    const localSettings = coerceProtectedLocalSettings(loaded, DEFAULT_SETTINGS);
     try {
       this.identity = await resolveVaultIdentity(
         currentPlatform(),
@@ -355,10 +420,12 @@ export default class BridgeControlPlugin extends Plugin {
 
   private async markPanelOpened(): Promise<void> {
     try {
-      const loaded: unknown = await this.loadData();
-      if (isRecord(loaded) && loaded.openPanelOnNextLoad === true) {
-        await this.saveData({ ...loaded, openPanelOnNextLoad: false });
-      }
+      await this.updateLocalData((loaded) => ({
+        ...(isRecord(loaded) && loaded.openPanelOnNextLoad === true
+          ? { data: { ...loaded, openPanelOnNextLoad: false } }
+          : { skip: true }),
+        result: undefined,
+      }));
     } catch {
       // This acknowledgement never changes the authoritative shared policy.
     }
@@ -372,7 +439,30 @@ export default class BridgeControlPlugin extends Plugin {
     return adapter.getBasePath();
   }
 
-  async saveAndVerify(nextSettings: VaultBridgeSettings): Promise<void> {
+  async saveAndVerify(
+    nextSettings: VaultBridgeSettings,
+    options: { readonly fullAccessConfirmed?: boolean } = {},
+  ): Promise<void> {
+    const operation = this.settingsSaveQueue.then(async () => {
+      try {
+        await this.performSaveAndVerify(nextSettings, options);
+      } catch (error) {
+        this.verification = {
+          ok: false,
+          at: new Date().toISOString(),
+          message: error instanceof Error ? error.message : String(error),
+        };
+        throw error;
+      }
+    });
+    this.settingsSaveQueue = operation.catch(() => undefined);
+    return operation;
+  }
+
+  private async performSaveAndVerify(
+    nextSettings: VaultBridgeSettings,
+    options: { readonly fullAccessConfirmed?: boolean },
+  ): Promise<void> {
     const normalized = copySettings(nextSettings);
     const identity = await resolveVaultIdentity(
       currentPlatform(),
@@ -380,44 +470,102 @@ export default class BridgeControlPlugin extends Plugin {
       this.vaultBasePath(),
     );
 
-    await mergeVaultSettings(
+    const merged = await mergeVaultSettings(
       this.sharedPath,
       identity.id,
       identity.name,
       identity.path,
       normalized,
+      options,
     );
 
-    await this.saveData({
-      version: PLUGIN_DATA_VERSION,
-      vaultId: identity.id,
-      vaultName: identity.name,
-      vaultPath: identity.path,
-      enabled: normalized.enabled,
-      readMode: normalized.readMode,
-      readFolders: normalized.readFolders,
-      writeEnabled: normalized.writeEnabled,
-      writeFolders: normalized.writeFolders,
-      openPanelOnNextLoad: false,
-    });
-    this.settings = normalized;
+    // Shared settings are authoritative. A failure of Obsidian's optional
+    // per-vault cache must not make the UI claim activation or revocation failed.
+    this.settings = copySettings(merged.settings);
     this.identity = identity;
-
-    const stored = await readVaultSettings(this.sharedPath, identity.id);
-    if (!sameSettings(stored, normalized)) {
-      throw new Error("Verifica del file condiviso non riuscita: i dati riletti sono diversi.");
-    }
-
     this.verification = {
       ok: true,
       at: new Date().toISOString(),
-      message: "Configurazione salvata e riletta correttamente.",
+      message:
+        merged.warning ?? "Configurazione salvata e riletta correttamente sotto lock.",
     };
+
+    try {
+      const storedReviewed = await this.updateLocalData((loaded) => {
+        const ids = [
+          ...new Set([
+            ...reviewedChangeIds(loaded),
+            ...this.reviewedAuditChangeIds,
+          ]),
+        ].slice(-100);
+        return {
+          data: {
+            version: PLUGIN_DATA_VERSION,
+            vaultId: identity.id,
+            vaultName: identity.name,
+            vaultPath: identity.path,
+            accessMode: normalized.accessMode,
+            enabled: normalized.enabled,
+            readMode: normalized.readMode,
+            readFolders: normalized.readFolders,
+            writeEnabled: normalized.writeEnabled,
+            writeFolders: normalized.writeFolders,
+            reviewedAuditChangeIds: ids,
+            openPanelOnNextLoad: false,
+          },
+          result: ids,
+        };
+      });
+      this.reviewedAuditChangeIds = new Set(storedReviewed);
+    } catch (error) {
+      this.verification = {
+        ok: true,
+        at: new Date().toISOString(),
+        message: `Accesso condiviso attivo e verificato; cache locale non aggiornata: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
   }
 
   async refreshCliDiagnostic(): Promise<CliDiagnostic> {
     this.cliDiagnostic = await diagnoseCli(currentPlatform());
     return this.cliDiagnostic;
+  }
+
+  async refreshAuditDiagnostics(): Promise<AuditDiagnosticsResult> {
+    if (this.identity === undefined) {
+      throw new Error("Identità stabile del vault non disponibile.");
+    }
+    this.auditDiagnostics = await readAuditDiagnostics(this.identity.id, {
+      platform: currentPlatform(),
+      limit: 10,
+    });
+    return this.auditDiagnostics;
+  }
+
+  isAuditReviewed(changeId: string): boolean {
+    return this.reviewedAuditChangeIds.has(changeId);
+  }
+
+  async markAuditReviewed(changeId: string): Promise<void> {
+    const storedReviewed = await this.updateLocalData((loaded) => {
+      const ids = [
+        ...new Set([
+          ...reviewedChangeIds(loaded),
+          ...this.reviewedAuditChangeIds,
+          changeId,
+        ]),
+      ].slice(-100);
+      return {
+        data: {
+          ...(isRecord(loaded) ? loaded : {}),
+          reviewedAuditChangeIds: ids,
+        },
+        result: ids,
+      };
+    });
+    this.reviewedAuditChangeIds = new Set(storedReviewed);
   }
 }
 
@@ -493,19 +641,35 @@ function renderControlPanel(
 
     errors.push(...readFolders.errors.map((error) => `Lettura: ${error}`));
     errors.push(...writeFolders.errors.map((error) => `Scrittura: ${error}`));
-    if (draft.readMode === "folders" && readFolders.folders.length === 0) {
+    if (
+      draft.accessMode === "protected" &&
+      draft.readMode === "folders" &&
+      readFolders.folders.length === 0
+    ) {
       errors.push("Indica almeno una cartella leggibile oppure scegli un'altra modalità di lettura.");
     }
-    if (draft.writeEnabled && writeFolders.folders.length === 0) {
+    if (
+      draft.accessMode === "protected" &&
+      draft.writeEnabled &&
+      writeFolders.folders.length === 0
+    ) {
       errors.push("Indica almeno una cartella scrivibile prima di abilitare la scrittura.");
     }
     if (readFolders.folders.length > 256 || writeFolders.folders.length > 256) {
       errors.push("Puoi configurare al massimo 256 cartelle per elenco.");
     }
-    if (draft.writeEnabled && draft.readMode === "off") {
+    if (
+      draft.accessMode === "protected" &&
+      draft.writeEnabled &&
+      draft.readMode === "off"
+    ) {
       errors.push("Per usare la scrittura devi abilitare anche la lettura, necessaria per anteprima e verifica.");
     }
-    if (draft.writeEnabled && draft.readMode === "folders") {
+    if (
+      draft.accessMode === "protected" &&
+      draft.writeEnabled &&
+      draft.readMode === "folders"
+    ) {
       for (const writeFolder of writeFolders.folders) {
         if (!readFolders.folders.some((readFolder) => folderIsInside(writeFolder, readFolder))) {
           errors.push(`La cartella scrivibile “${writeFolder}” deve trovarsi dentro una cartella leggibile.`);
@@ -515,12 +679,18 @@ function renderControlPanel(
     if (!draft.enabled) {
       warnings.push("Il bridge è disattivato per questo vault; le altre scelte restano salvate.");
     }
+    if (draft.enabled && draft.accessMode === "full") {
+      warnings.push(
+        "Accesso completo attivo: lettura e scrittura dell'intero vault senza conferma per ogni modifica.",
+      );
+    }
 
     if (errors.length > 0) return { errors, warnings };
     return {
       errors,
       warnings,
       settings: {
+        accessMode: draft.accessMode,
         enabled: draft.enabled,
         readMode: draft.readMode,
         readFolders: readFolders.folders,
@@ -548,6 +718,15 @@ function renderControlPanel(
       ...draft,
       writeFolders: parseFolderList(writeFoldersRaw).folders,
     }));
+    addStatusItem(
+      grid,
+      "Modalità",
+      draft.accessMode === "full"
+        ? draft.enabled
+          ? "Accesso completo · autonomo"
+          : "Accesso completo configurato · bridge disattivato"
+        : "Accesso protetto",
+    );
     addStatusItem(grid, "Stato", dirty ? "Modifiche da salvare" : plugin.verification?.message ?? "In attesa");
 
     const technicalDetails = statusCard.createEl("details", { cls: "bridge-control__technical" });
@@ -555,7 +734,7 @@ function renderControlPanel(
     technicalDetails.createEl("small", { text: "File condiviso usato dal bridge:" });
     technicalDetails.createEl("code", { text: plugin.sharedPath, cls: "bridge-control__path" });
 
-    if (plugin.verification && !plugin.verification.ok && !dirty) {
+    if (plugin.verification && !plugin.verification.ok) {
       statusCard.createEl("p", {
         text: plugin.verification.message,
         cls: "bridge-control__error",
@@ -589,13 +768,16 @@ function renderControlPanel(
   let writeFoldersComponent!: TextAreaComponent;
 
   const syncControls = (): void => {
+    const protectedMode = draft.accessMode === "protected";
     activeToggleComponent.setValue(draft.enabled);
     readModeComponent.setValue(draft.readMode);
+    readModeComponent.selectEl.disabled = !protectedMode;
     readFoldersComponent.setValue(readFoldersRaw);
-    readFoldersComponent.inputEl.disabled = draft.readMode !== "folders";
+    readFoldersComponent.inputEl.disabled = !protectedMode || draft.readMode !== "folders";
     writeToggleComponent.setValue(draft.writeEnabled);
+    writeToggleComponent.setDisabled(!protectedMode);
     writeFoldersComponent.setValue(writeFoldersRaw);
-    writeFoldersComponent.inputEl.disabled = !draft.writeEnabled;
+    writeFoldersComponent.inputEl.disabled = !protectedMode || !draft.writeEnabled;
   };
 
   const applyFolderSelection = (selection: FolderAccessSelection): void => {
@@ -643,18 +825,9 @@ function renderControlPanel(
     button.setButtonText("Verifica in corso…");
     try {
       await plugin.saveAndVerify(validation.settings);
-      draft.enabled = validation.settings.enabled;
-      draft.readMode = validation.settings.readMode;
-      draft.readFolders = [...validation.settings.readFolders];
-      draft.writeEnabled = validation.settings.writeEnabled;
-      draft.writeFolders = [...validation.settings.writeFolders];
-      readFoldersRaw = validation.settings.readFolders.join("\n");
-      writeFoldersRaw = validation.settings.writeFolders.join("\n");
-      syncControls();
       dirty = false;
-      renderStatus();
-      renderValidation();
       new Notice("Accesso del bridge salvato e verificato.");
+      renderControlPanel(containerEl, plugin, firstRun);
     } catch (error) {
       plugin.verification = {
         ok: false,
@@ -682,6 +855,90 @@ function renderControlPanel(
       });
     });
 
+  const modeCard = containerEl.createDiv({
+    cls: `bridge-control__card bridge-control__mode-card ${
+      draft.accessMode === "full" ? "is-full" : "is-protected"
+    }`,
+  });
+  const modeTitle = modeCard.createDiv({ cls: "bridge-control__card-title" });
+  modeTitle.createEl("h3", {
+    text:
+      draft.accessMode === "full"
+        ? "Accesso completo"
+        : "Accesso protetto",
+  });
+  modeTitle.createSpan({
+    text:
+      draft.accessMode === "full"
+        ? draft.enabled
+          ? "Autonomo"
+          : "Configurato · bridge spento"
+        : "Consigliato",
+    cls: `bridge-control__badge ${draft.accessMode === "full" ? "is-warn" : "is-ok"}`,
+  });
+  modeCard.createEl("p", {
+    text:
+      draft.accessMode === "full"
+        ? draft.enabled
+          ? "ChatGPT può leggere e scrivere in tutto il vault senza una conferma per ogni modifica. Le operazioni distruttive restano disabilitate."
+          : "L'accesso completo è configurato ma inattivo perché il bridge è spento. Riattivando il bridge tornerà operativo."
+        : "ChatGPT usa soltanto le cartelle scelte e richiede conferma prima di ogni scrittura.",
+  });
+  const modeButton = modeCard.createEl("button", {
+    text:
+      draft.accessMode === "full"
+        ? "Torna ad accesso protetto"
+        : "Attiva accesso completo…",
+    cls: draft.accessMode === "full" ? "" : "mod-warning",
+  });
+  modeButton.addEventListener("click", () => {
+    if (dirty) {
+      new Notice("Prima salva oppure annulla le modifiche ancora in sospeso.");
+      return;
+    }
+    if (draft.accessMode === "full") {
+      modeButton.disabled = true;
+      void plugin
+        .saveAndVerify({
+          ...copySettings(plugin.settings),
+          accessMode: "protected",
+        })
+        .then(() => {
+          new Notice("Accesso protetto ripristinato immediatamente.");
+          renderControlPanel(containerEl, plugin, firstRun);
+        })
+        .catch((error: unknown) => {
+          renderControlPanel(containerEl, plugin, firstRun);
+          new Notice(
+            `Ripristino non riuscito: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      return;
+    }
+
+    new FullAccessConfirmationModal(
+      plugin.app,
+      plugin.app.vault.getName(),
+      async () => {
+        try {
+          await plugin.saveAndVerify(
+            {
+              ...copySettings(plugin.settings),
+              enabled: true,
+              accessMode: "full",
+            },
+            { fullAccessConfirmed: true },
+          );
+        } catch (error) {
+          renderControlPanel(containerEl, plugin, firstRun);
+          throw error;
+        }
+        new Notice("Accesso completo attivato e verificato.");
+        renderControlPanel(containerEl, plugin, firstRun);
+      },
+    ).open();
+  });
+
   const pickerCard = containerEl.createDiv({ cls: "bridge-control__card bridge-control__picker-card" });
   pickerCard.createEl("h3", { text: "Scegli le cartelle" });
   pickerCard.createEl("p", {
@@ -692,8 +949,12 @@ function renderControlPanel(
     cls: "mod-cta bridge-control__picker-button",
   });
   pickerButton.addEventListener("click", openFolderPicker);
+  pickerButton.disabled = draft.accessMode === "full";
   pickerCard.createEl("small", {
-    text: "La scrittura resta controllata: ogni modifica richiede anteprima e conferma in chat.",
+    text:
+      draft.accessMode === "full"
+        ? "Le scelte per cartella restano memorizzate e torneranno attive quando ripristini l'accesso protetto."
+        : "La scrittura resta controllata: ogni modifica richiede anteprima e conferma in chat.",
   });
 
   const actionBar = containerEl.createDiv({
@@ -711,10 +972,198 @@ function renderControlPanel(
   const saveButton = new ButtonComponent(actionButtons).setButtonText("Salva accesso").setCta();
   saveButton.onClick(() => saveDraft(saveButton));
 
+  const problemsCard = containerEl.createDiv({
+    cls: "bridge-control__card bridge-control__problems",
+  });
+  const problemsContent = problemsCard.createDiv({
+    cls: "bridge-control__problems-content",
+  });
+  const renderProblems = (
+    diagnostic: AuditDiagnosticsResult | undefined,
+    checking = false,
+  ): void => {
+    problemsContent.empty();
+    const title = problemsContent.createDiv({ cls: "bridge-control__card-title" });
+    title.createEl("h3", { text: "Problemi recenti" });
+    const allFailures = diagnostic?.failedRecords ?? [];
+    const failures = allFailures.filter(
+      (record) => !plugin.isAuditReviewed(record.changeId),
+    );
+    const diagnosticUnavailable =
+      diagnostic !== undefined &&
+      diagnostic.state !== "ready" &&
+      diagnostic.state !== "missing";
+    const diagnosticPartial =
+      diagnostic?.state === "ready" && diagnostic.malformedLines > 0;
+    title.createSpan({
+      text: checking
+        ? "Controllo…"
+        : diagnostic === undefined
+          ? "Da controllare"
+          : diagnosticUnavailable
+            ? "Controllo non riuscito"
+            : diagnosticPartial
+              ? "Registro parziale"
+              : diagnostic.state === "missing"
+                ? "Nessun registro"
+                : failures.length === 0
+                  ? "Nessun problema"
+                  : `${failures.length} ${failures.length === 1 ? "problema" : "problemi"}`,
+      cls: `bridge-control__badge ${
+        diagnosticUnavailable || diagnosticPartial
+          ? "is-warn"
+          : failures.length === 0 ? "is-ok" : "is-warn"
+      }`,
+    });
+
+    if (checking) {
+      problemsContent.createEl("p", {
+        text: "Leggo soltanto i metadati locali delle operazioni, senza il contenuto delle note…",
+      });
+      return;
+    }
+
+    if (diagnostic === undefined) {
+      problemsContent.createEl("p", {
+        text: "Controllo non ancora eseguito.",
+      });
+      return;
+    }
+    if (diagnostic.state === "missing") {
+      problemsContent.createEl("p", {
+        text: "Nessuna operazione di scrittura registrata finora.",
+      });
+      return;
+    }
+    if (diagnostic.state !== "ready") {
+      problemsContent.createEl("p", {
+        text: diagnostic.detail,
+        cls: "bridge-control__error",
+      });
+      return;
+    }
+    if (failures.length === 0) {
+      problemsContent.createEl("p", {
+        text:
+          allFailures.length === 0
+            ? "Nelle operazioni recenti registrate non risultano errori di scrittura."
+            : "Tutti i problemi recenti sono stati segnati come controllati.",
+      });
+    } else {
+      const list = problemsContent.createDiv({ cls: "bridge-control__problem-list" });
+      for (const record of failures) {
+        const item = list.createDiv({
+          cls: `bridge-control__problem is-${record.severity}`,
+        });
+        const heading = item.createDiv({ cls: "bridge-control__problem-heading" });
+        heading.createEl("strong", { text: record.summary });
+        heading.createEl("time", {
+          text: new Date(record.timestamp).toLocaleString("it-IT"),
+          attr: { datetime: record.timestamp },
+        });
+        item.createEl("code", { text: record.path });
+        item.createEl("p", { text: record.guidance });
+
+        const existing = plugin.app.vault.getAbstractFileByPath(record.path);
+        item.createEl("small", {
+          text:
+            existing instanceof TFile
+              ? "Stato attuale: la nota esiste nel vault."
+              : "Stato attuale: la nota non esiste; non risulta un file parziale da aprire.",
+        });
+        if (existing instanceof TFile) {
+          const openButton = item.createEl("button", { text: "Apri nota" });
+          openButton.addEventListener("click", () => {
+            void plugin.app.workspace
+              .getLeaf(false)
+              .openFile(existing)
+              .catch((error: unknown) => {
+                new Notice(
+                  `Apertura non riuscita: ${error instanceof Error ? error.message : String(error)}`,
+                );
+              });
+          });
+        }
+        const reviewedButton = item.createEl("button", {
+          text: "Segna come controllato",
+        });
+        reviewedButton.addEventListener("click", () => {
+          reviewedButton.disabled = true;
+          void plugin
+            .markAuditReviewed(record.changeId)
+            .then(() => renderProblems(diagnostic))
+            .catch((error: unknown) => {
+              reviewedButton.disabled = false;
+              new Notice(
+                `Salvataggio non riuscito: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            });
+        });
+
+        const technical = item.createEl("details");
+        technical.createEl("summary", { text: "Dettagli tecnici" });
+        technical.createEl("code", {
+          text: [
+            record.errorCode ? `Errore: ${record.errorCode}` : undefined,
+            record.rollbackReason
+              ? `Recupero: ${record.rollbackReason}`
+              : undefined,
+            record.backupId ? `Backup: ${record.backupId}` : undefined,
+            `Modalità: ${record.authorizationMode}`,
+          ]
+            .filter((value): value is string => value !== undefined)
+            .join("\n"),
+          cls: "bridge-control__path",
+        });
+      }
+    }
+    if (diagnostic.malformedLines > 0) {
+      problemsContent.createEl("small", {
+        text: `${diagnostic.malformedLines} righe di registro non valide sono state ignorate in sicurezza.`,
+        cls: "bridge-control__warning",
+      });
+    }
+    if (diagnostic.truncated) {
+      problemsContent.createEl("small", {
+        text: "Per sicurezza viene mostrata soltanto la parte più recente del registro.",
+      });
+    }
+  };
+
+  const refreshProblems = async (): Promise<void> => {
+    renderProblems(undefined, true);
+    try {
+      renderProblems(await plugin.refreshAuditDiagnostics());
+    } catch (error) {
+      problemsContent.empty();
+      problemsContent.createEl("p", {
+        text: `Controllo non riuscito: ${error instanceof Error ? error.message : String(error)}`,
+        cls: "bridge-control__error",
+      });
+    }
+  };
+
+  renderProblems(plugin.auditDiagnostics);
+  const problemsActions = problemsCard.createDiv({
+    cls: "bridge-control__problem-actions",
+  });
+  const refreshProblemsButton = problemsActions.createEl("button", {
+    text: "Aggiorna controllo",
+  });
+  refreshProblemsButton.addEventListener("click", () => {
+    void refreshProblems();
+  });
+  if (plugin.auditDiagnostics === undefined && plugin.identity !== undefined) {
+    void refreshProblems();
+  }
+
   const advanced = containerEl.createEl("details", { cls: "bridge-control__advanced" });
   advanced.createEl("summary", { text: "Opzioni avanzate di accesso" });
   advanced.createEl("p", {
-    text: "Qui puoi usare modalità speciali o modificare manualmente i percorsi relativi al vault.",
+    text:
+      draft.accessMode === "full"
+        ? "Le scelte per cartella sono conservate ma modificabili solo in Accesso protetto."
+        : "Qui puoi usare modalità speciali o modificare manualmente i percorsi relativi al vault.",
     cls: "bridge-control__advanced-intro",
   });
 
@@ -730,9 +1179,11 @@ function renderControlPanel(
         .setValue(draft.readMode)
         .onChange((value) => {
           draft.readMode = value as ReadMode;
-          readFoldersComponent.inputEl.disabled = draft.readMode !== "folders";
+          readFoldersComponent.inputEl.disabled =
+            draft.accessMode === "full" || draft.readMode !== "folders";
           markDirty();
         });
+      dropdown.selectEl.disabled = draft.accessMode === "full";
     });
   readModeSetting.settingEl.addClass("bridge-control__setting");
 
@@ -748,10 +1199,15 @@ function renderControlPanel(
           readFoldersRaw = value;
           markDirty();
         });
-      text.inputEl.disabled = draft.readMode !== "folders";
+      text.inputEl.disabled = draft.accessMode === "full" || draft.readMode !== "folders";
       text.inputEl.rows = 2;
     })
-    .addButton((button) => button.setButtonText("Scegli…").onClick(openFolderPicker));
+    .addButton((button) =>
+      button
+        .setButtonText("Scegli…")
+        .setDisabled(draft.accessMode === "full")
+        .onClick(openFolderPicker),
+    );
   readFoldersSetting.settingEl.addClass("bridge-control__setting bridge-control__setting--stacked");
 
   const writeToggleSetting = new Setting(advanced)
@@ -760,10 +1216,12 @@ function renderControlPanel(
     .addToggle((toggle) => {
       writeToggleComponent = toggle;
       toggle.setValue(draft.writeEnabled).onChange((value) => {
-        draft.writeEnabled = value;
-        writeFoldersComponent.inputEl.disabled = !draft.writeEnabled;
-        markDirty();
-      });
+          draft.writeEnabled = value;
+          writeFoldersComponent.inputEl.disabled =
+            draft.accessMode === "full" || !draft.writeEnabled;
+          markDirty();
+        });
+      toggle.setDisabled(draft.accessMode === "full");
     });
   writeToggleSetting.settingEl.addClass("bridge-control__setting");
 
@@ -779,10 +1237,15 @@ function renderControlPanel(
           writeFoldersRaw = value;
           markDirty();
         });
-      text.inputEl.disabled = !draft.writeEnabled;
+      text.inputEl.disabled = draft.accessMode === "full" || !draft.writeEnabled;
       text.inputEl.rows = 2;
     })
-    .addButton((button) => button.setButtonText("Scegli…").onClick(openFolderPicker));
+    .addButton((button) =>
+      button
+        .setButtonText("Scegli…")
+        .setDisabled(draft.accessMode === "full")
+        .onClick(openFolderPicker),
+    );
   writeFoldersSetting.settingEl.addClass("bridge-control__setting bridge-control__setting--stacked");
 
   renderValidation();

@@ -117,17 +117,18 @@ async function inspectPanelSettings() {
       throw new Error("settings file is not a regular file of at most 64 KiB");
     }
     const parsed = JSON.parse(await readFile(settingsPath, "utf8"));
-    if (parsed?.version !== 2 || parsed.vaults === null || typeof parsed.vaults !== "object") {
-      throw new Error("settings file does not match schema version 2");
+    if (![2, 3].includes(parsed?.version) || parsed.vaults === null || typeof parsed.vaults !== "object") {
+      throw new Error("settings file does not match schema version 2 or 3");
     }
     const vaults = Object.entries(parsed.vaults);
     console.log(`Bridge Control settings: ${settingsPath}`);
     console.log(`Configured vaults: ${vaults.length}`);
     for (const [id, value] of vaults) {
       const entry = value && typeof value === "object" ? value : {};
+      const full = parsed.version === 3 && entry.accessMode === "full";
       console.log(
-        `- ${entry.vaultName || "unnamed"} (${id}): ${entry.enabled === true ? `read=${entry.readMode}` : "disabled"}, ` +
-        `write=${entry.enabled === true && entry.writeEnabled === true ? "enabled" : "disabled"}`,
+        `- ${entry.vaultName || "unnamed"} (${id}): ${entry.enabled === true ? `read=${full ? "all" : entry.readMode}` : "disabled"}, ` +
+        `write=${entry.enabled === true && (full || entry.writeEnabled === true) ? (full ? "full-autonomous" : "protected") : "disabled"}`,
       );
     }
     return true;

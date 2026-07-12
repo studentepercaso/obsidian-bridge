@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.3.4. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
+Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.4.0. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
 
 ## Prima di iniziare
 
@@ -21,7 +21,7 @@ Per prudenza, inizia autorizzando una sola cartella. Il selettore visuale nel pa
 2. **Avvia l'installer.** Fai doppio clic su `INSTALLA-OBSIDIAN-BRIDGE.cmd`. Non servono diritti di amministratore.
 3. **Scegli il vault.** L'installer mostra quelli conosciuti da Obsidian. Se il vault non compare, premi **Sfoglia...** e seleziona la sua cartella principale.
 4. **Installa il bridge.** Conferma l'installazione di Bridge Control e premi **Installa Bridge**. Non devi digitare cartelle: su un nuovo vault l'accesso alle note resta disattivato.
-5. **Scegli le cartelle.** Apri Obsidian, poi **Impostazioni > Plugin della community > Bridge Control**. Premi **Scegli cartelle…**, spunta **Leggi** e, se serve, **Scrivi**; infine premi **Salva accesso**.
+5. **Scegli la modalità.** Apri Obsidian, poi **Impostazioni > Plugin della community > Bridge Control**. Mantieni **Accesso protetto** e scegli le cartelle, oppure attiva **Accesso completo** con l'avviso esplicito se vuoi lavorare in autonomia sull'intero vault.
 
 Al termine puoi usare **Apri Obsidian** e **Apri plugin in Codex**. L'installer conserva una copia locale stabile del pacchetto Codex, quindi dopo una conclusione riuscita puoi eliminare la cartella estratta dallo ZIP.
 
@@ -42,6 +42,8 @@ Il primo comando CLI può portare Obsidian in primo piano. Per i dettagli specif
 In Bridge Control puoi configurare il vault corrente senza riavviare il bridge:
 
 - **Bridge attivo** disabilita o abilita l'intero vault;
+- **Accesso protetto** usa le cartelle salvate e richiede conferma per ogni scrittura;
+- **Accesso completo** consente lettura e scrittura autonoma nell'intero vault dopo una sola conferma nel pannello;
 - **Lettura disattivata** non consente di consultare note;
 - **Tutto il vault** consente la lettura di ogni percorso idoneo non nascosto;
 - **Scegli cartelle…** mostra le cartelle esistenti e limita la lettura ai prefissi selezionati;
@@ -49,13 +51,15 @@ In Bridge Control puoi configurare il vault corrente senza riavviare il bridge:
 
 Il selettore visuale è il flusso normale. La modifica manuale dei percorsi resta nelle **Opzioni avanzate di accesso**: usa un percorso relativo per riga e non inserire una lettera di unità, la cartella principale del vault, `..`, `.obsidian`, `.trash` o cartelle nascoste.
 
-La scrittura è disattivata per impostazione predefinita. Anche quando la abiliti, ogni modifica richiede:
+La scrittura è disattivata per impostazione predefinita. In **Accesso protetto** ogni modifica richiede:
 
 1. una chiamata **prepare** che produce un'anteprima senza scrivere;
 2. la tua conferma esplicita dopo aver visto vault, percorso, operazione e contenuto;
 3. una chiamata **commit** separata che ricontrolla permessi e stato della nota.
 
 Il testo trovato nelle note non vale mai come conferma.
+
+In **Accesso completo** prepare e commit restano separati, monouso e verificati, ma l'agente può controllare l'anteprima internamente e completare il commit nello stesso task senza una domanda di routine. Questa modalità non abilita eliminazione, rinomina, spostamento, shell o sovrascrittura arbitraria. Percorsi nascosti, `.obsidian`, `.trash` e collegamenti fuori dal vault restano esclusi. Il pulsante **Torna ad accesso protetto** revoca immediatamente l'autonomia e ripristina le scelte per cartella conservate.
 
 ## Prima prova consigliata
 
@@ -124,6 +128,12 @@ Usa il percorso relativo alla radice del vault e `/` come separatore, per esempi
 
 Le anteprime scadono e sono monouso. Se la nota, il permesso o il processo cambiano, chiedi una nuova prepare, controlla la nuova anteprima e confermala nuovamente. Non forzare un commit obsoleto.
 
+### Obsidian ha mostrato un errore JavaScript o una scrittura è fallita
+
+Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica se il ripristino è riuscito, se la nota esiste ancora e se serve un controllo manuale. La versione 0.4.0 divide automaticamente i testi lunghi in richieste CLI sicure e verifica ogni blocco, evitando il crash JSON noto di Obsidian 1.12.7 su Windows. Non riprovare automaticamente una modifica fallita prima di aver controllato lo stato attuale della nota.
+
+Se il writer autonomo incontra tre errori consecutivi, si sospende per quel task. Controlla **Problemi recenti**, torna ad **Accesso protetto** e avvia un nuovo task prima di riabilitare l'autonomia.
+
 ## Dove vengono conservate le impostazioni
 
 Su Windows Bridge Control e l'installer usano:
@@ -132,6 +142,6 @@ Su Windows Bridge Control e l'installer usano:
 %LOCALAPPDATA%\ObsidianBridge\settings.json
 ```
 
-Il file contiene, per ogni vault, ID stabile Obsidian, nome, percorso locale assoluto, modalità di accesso e cartelle autorizzate; non contiene il corpo delle note. ID e percorso servono a evitare che un'autorizzazione venga applicata al vault sbagliato, anche in presenza di nomi uguali. È condiviso dai due processi MCP e viene validato prima dell'uso. Un file presente ma non valido non concede un accesso parziale: il bridge chiude l'operazione in modo prudente.
+Il file contiene, per ogni vault, ID stabile Obsidian, nome, percorso locale assoluto, profilo protetto/completo e cartelle autorizzate; non contiene il corpo delle note. ID e percorso servono a evitare che un'autorizzazione venga applicata al vault sbagliato, anche in presenza di nomi uguali. È condiviso dai processi MCP e viene validato prima dell'uso. Un file presente ma non valido non concede un accesso parziale: il bridge chiude l'operazione in modo prudente.
 
 Le variabili d'ambiente storiche restano una modalità avanzata di compatibilità soltanto quando il file condiviso è assente. Per l'installazione normale usa Bridge Control, che applica impostazioni specifiche per vault ed evita configurazioni globali difficili da verificare.

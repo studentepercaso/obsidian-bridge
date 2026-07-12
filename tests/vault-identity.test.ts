@@ -13,6 +13,7 @@ function access(vaultPath: string): VaultAccess {
     readPolicy: createPathPolicy({ allowedFolders: null }),
     writablePolicy: createWritablePathPolicy({ allowedFolders: ["Bridge Test"] }),
     writeEnabled: true,
+    accessMode: "protected",
     vaultSelector: "0123456789abcdef",
     vaultName: "Test Vault",
     vaultPath,

@@ -1,8 +1,8 @@
 # Privacy
 
-Effective date: 2026-07-11
+Effective date: 2026-07-12
 
-Obsidian Bridge is local, open-source software. Version 0.3 has no hosted service, account system, advertising, analytics, or project-operated telemetry. Its Bridge Control panel and guided installer also operate on local files and do not publish or upload a vault.
+Obsidian Bridge is local, open-source software. Version 0.4 has no hosted service, account system, advertising, analytics, or project-operated telemetry. Its Bridge Control panel and guided installer also operate on local files and do not publish or upload a vault.
 
 This document describes the bridge itself. Obsidian, Obsidian Sync, the MCP host, ChatGPT/Codex, a selected model provider, and installed community plugins have separate privacy terms and data flows.
 
@@ -10,9 +10,9 @@ This document describes the bridge itself. Obsidian, Obsidian Sync, the MCP host
 
 - The bridge can read only through its documented read tools and the per-vault policy saved by Bridge Control.
 - Reading can be disabled, limited to selected folders, or extended to the otherwise eligible vault.
-- Writing is disabled by default and must be enabled separately for explicitly selected vault-relative folders.
-- A write is prepared as a preview, shown to the user, and committed only after separate confirmation.
-- Append keeps a plaintext local recovery backup; successful commits add a metadata-only audit record.
+- Writing is disabled by default. Protected access uses explicitly selected vault-relative folders; full access requires a separate one-time per-vault acknowledgement.
+- Every write is prepared as a preview. Protected mode shows it and requires separate confirmation; full mode may validate it internally and commit in the same task.
+- Append keeps a plaintext local recovery backup; write attempts add metadata-only audit information.
 - The bridge runtime makes no network requests; MCP results travel locally over stdio to the host.
 - The host may send note contents, paths, requested edits, and previews to a remote model.
 - The bridge does not maintain a content index, user profile, or analytics database. It does keep local recovery backups for append and a metadata-only write audit as described below.
@@ -48,19 +48,18 @@ User request
   -> MCP host
   -> model, when the host uses that data to answer
 
-explicit confirmation
-  -> prompt-approved writer commit
-  -> official Obsidian CLI
-  -> authorized note in the local vault
+protected mode: explicit confirmation -> prompt-approved writer commit
+full mode: internally reviewed preview -> separately gated auto-approved writer commit
+  -> official Obsidian CLI -> authorized note in the local vault
 ```
 
-The project runs separate reader and writer processes. The auto-approved reader contains only eight non-mutating tools. The writer contains only prepare and commit and is configured for host approval prompts. This separation reduces accidental mutation but does not change what the host or model may retain.
+The project runs separate reader, protected-writer, and autonomous-writer processes. The auto-approved reader contains only nine non-mutating tools. The protected writer contains only prepare and commit and uses host approval prompts. The autonomous writer has distinct prepare/commit names, is auto-approved, and refuses every vault not explicitly set to full access. This separation reduces accidental mutation but does not change what the host or model may retain.
 
 The bridge does not upload data itself. The MCP host decides whether tool inputs and outputs are sent to a model service, displayed locally, logged, retained, or included in diagnostics. Review those controls before using personal, regulated, client, or confidential notes.
 
 ## Network activity
 
-At runtime, version 0.3:
+At runtime, version 0.4:
 
 - opens no HTTP listener;
 - does not call OpenAI, Obsidian, analytics, or update endpoints;
@@ -80,13 +79,17 @@ The bridge does not intentionally maintain a persistent copy of:
 - model prompts or responses;
 - analytics identifiers or credentials.
 
-Bridge Control and the installer do persist local configuration needed to apply permissions. On Windows the shared file is `%LOCALAPPDATA%\ObsidianBridge\settings.json`; equivalent application-config locations are used on macOS and Linux by the companion. It contains the configuration version, update time, each vault's stable 16-character Obsidian ID, display name, absolute local folder path, enable switches, read mode, and read/write folder prefixes. The ID and absolute path bind a permission to the intended registered vault even when two vaults have the same name. It does not contain note bodies, search queries, model prompts, credentials, or write proposals.
+Bridge Control and the installer do persist local configuration needed to apply permissions. On Windows the shared file is `%LOCALAPPDATA%\ObsidianBridge\settings.json`; equivalent application-config locations are used on macOS and Linux by the companion. It contains the configuration version, update time, each vault's stable 16-character Obsidian ID, display name, absolute local folder path, master switch, protected/full access mode, read mode, and protected read/write folder prefixes. The ID and absolute path bind a permission to the intended registered vault even when two vaults have the same name. It does not contain note bodies, search queries, model prompts, credentials, or write proposals.
 
 An administrator can explicitly redirect the shared settings file with `OBSIDIAN_BRIDGE_SETTINGS_PATH` in Obsidian's process environment. Vault plugin data cannot change that destination. To resolve the stable vault identity, Bridge Control reads Obsidian's global `obsidian.json` registry outside the vault through a regular-file, no-symlink and 1 MiB size boundary.
 
-The Obsidian companion also stores its normal permission choices inside the selected vault's plugin data, but it does not store the external shared-settings destination there. The Windows installer copies the fixed companion payload into that vault and keeps a stable local Codex marketplace copy under `%LOCALAPPDATA%\ObsidianBridge`. It may retain timestamped backups of configuration files that it replaces. These local paths and vault names can themselves be sensitive metadata.
+The Obsidian companion also caches its normal permission choices and up to 100 acknowledged audit change IDs inside the selected vault's plugin data, but it does not store the external shared-settings destination, note bodies, or backup content there. That cache is never authoritative for full access: without a current verified shared entry it is forced to protected mode. If a revocation cannot be verified after a safe retry, Bridge Control may rename the shared settings file to a timestamped `.revoked-…json` quarantine copy in the same directory; it can contain the same sensitive vault metadata and should be removed after recovery. The Windows installer copies the fixed companion payload into that vault and keeps a stable local Codex marketplace copy under `%LOCALAPPDATA%\ObsidianBridge`. It may retain timestamped backups of configuration files that it replaces. These local paths, vault names, and change IDs can themselves be sensitive metadata.
 
 Companion CLI diagnostics run only after an explicit click. They inspect an explicit environment override or known installation paths, never the ambient `PATH`, execute only the fixed `version` argument without a shell, and accept only a recognized Obsidian version format. The result remains local.
+
+The **Problemi recenti** view reads at most the last 128 KiB of `audit.ndjson`, returns at most 20 validated records for the current stable vault ID, and never opens a backup or reads a note body. For recovery guidance it may ask Obsidian whether the audited note path currently exists and, on request, open that note in the app.
+
+The read-only MCP tool `obsidian_recent_write_events` can expose the same class of local audit metadata to the MCP host and the model without requiring a screenshot. It reads only the fixed audit file, at most its last 128 KiB, and returns at most 20 records after applying current vault and folder read permissions. Its output may include time, change ID, vault label and stable ID, note path, operation, protected/autonomous channel, status, error code, rollback outcome, and an existing backup ID. It never returns audit hashes, note text, proposed content, or backup bodies. Missing audit data produces an empty result; unsafe, malformed, invalid-UTF-8, non-regular, symlinked, or oversized records fail closed.
 
 Prepared changes are held temporarily by the writer process so a reviewed preview can be committed by opaque change ID. They expire after five minutes by default (`OBSIDIAN_BRIDGE_CHANGE_TTL_MS` accepts one to thirty minutes) and disappear when the process stops. A change ID is single-use and is consumed before a commit attempt performs any side effect.
 
@@ -96,29 +99,31 @@ Long approved content is sent through multiple bounded CLI requests rather than 
 
 If post-write verification fails, the writer attempts at most one automatic overwrite, and only when the current note matches a known bridge-produced chunk state and the original content is representable by the official CLI, contains no CR/CRLF line endings that its content argument would normalize, and fits one safe IPC frame. Otherwise the plaintext backup is retained for manual recovery and the result reports `restore_unrepresentable` or `restore_too_large`. An unknown concurrent state is never overwritten.
 
-Successful commits append an NDJSON audit record containing operation metadata but no note body or proposed content. The commit result reports whether the audit entry was recorded and includes a backup ID when applicable.
+Write attempts append an NDJSON audit record containing operation, authorization channel, hashes, outcome and recovery metadata but no note body or proposed content. The commit result reports whether the audit entry was recorded and includes a backup ID when applicable.
 
-An absolute `OBSIDIAN_BRIDGE_DATA_DIR` selects the backup and audit location. If unset, the writer uses an absolute `PLUGIN_DATA/obsidian-bridge` when supplied by the host, otherwise `%LOCALAPPDATA%/obsidian-bridge` on Windows, `~/Library/Application Support/obsidian-bridge` on macOS, or the XDG data location on Linux. On POSIX-style systems the bridge requests `0700` directory and `0600` file modes; Windows ACLs determine effective access on Windows. These artifacts are not encrypted by the bridge.
+Before mutation, both writer processes create a private lock directory below the bridge data directory. The lock filename is an opaque SHA-256 digest rather than a vault name or note path; its small owner file contains a random token, process ID, and creation time. Locks are removed after commit and stale locks may remain after a crash until conservative recovery or manual maintenance.
+
+An absolute `OBSIDIAN_BRIDGE_DATA_DIR` selects the backup and audit location. If unset, all bridge processes and Bridge Control use the same deterministic platform location: `%LOCALAPPDATA%/obsidian-bridge` on Windows, `~/Library/Application Support/obsidian-bridge` on macOS, or the XDG data location on Linux. This avoids a host-only plugin-data path that the Obsidian panel cannot discover. A custom override must also be present in Obsidian's process environment for the panel to display that same file; the MCP log tool always uses the writer's configured directory. On POSIX-style systems the bridge requests `0700` directory and `0600` file modes; Windows ACLs determine effective access on Windows. These artifacts are not encrypted by the bridge.
 
 Obsidian, filesystem backup software, Sync, source control, community plugins, and operating-system features may retain additional prior or current versions independently.
 
-Process inspection, terminal capture, crash reports, the MCP host, and other local software may record configuration, arguments, previews, or results outside the bridge's control.
+Process inspection, terminal capture, crash reports, the MCP host, and other local software may record configuration, arguments, previews, audit metadata, or results outside the bridge's control.
 
 ## Access controls
 
-Bridge Control saves an exact entry keyed by the stable Obsidian vault ID, with the registered name and physical root, a master switch, a read mode (`off`, `all`, or `folders`), readable-folder prefixes, a separate write switch and writable-folder prefixes. Writing is off in the initial companion configuration. An unlisted or disabled vault receives no access from a present shared-settings file.
+Bridge Control saves an exact entry keyed by the stable Obsidian vault ID, with the registered name and physical root, a master switch, an access mode (`protected` or `full`), a read mode (`off`, `all`, or `folders`), readable-folder prefixes, a separate protected write switch and writable-folder prefixes. Writing is off and access mode is protected in the initial companion configuration. An unlisted or disabled vault receives no access from a present shared-settings file. Full access is never available through legacy environment variables.
 
-The bridge reads the shared file again for each operation, so panel changes and revocations do not require a bridge restart. It also rechecks write permission between prepare and commit. A present file that is malformed, oversized, invalid UTF-8 or outside the expected schema causes the request to fail closed rather than applying a partial configuration.
+The bridge reads the shared file again for each operation, so panel changes and revocations do not require a bridge restart. It rechecks authorization between prepare and commit and before every write chunk. Strict version-2 settings migrate to protected version-3 entries. A present file that is malformed, oversized, invalid UTF-8 or outside the expected schema causes the request to fail closed rather than applying a partial configuration.
 
-`.obsidian`, `.trash`, every path segment beginning with `.`, absolute paths and traversal are always denied. For panel-managed vaults, the bridge also verifies the stable ID against the registered physical root and rejects a note path that crosses a filesystem symlink or junction. Optional advanced denied prefixes take precedence for both processes.
+`.obsidian`, `.trash`, every path segment beginning with `.`, absolute paths and traversal are always denied. For panel-managed vaults, the bridge also verifies the stable ID against the registered physical root and rejects a note path that crosses a filesystem symlink or junction. Optional advanced denied prefixes take precedence for all processes.
 
 Historical environment-variable scopes remain available for advanced compatibility only when the shared settings file is absent. They do not override or broaden a vault map owned by Bridge Control.
 
 These controls reduce accidental disclosure and mutation. They are not encryption, OS access control, or multi-user authorization. Use a separate test vault, OS permissions, and independent backups for stronger protection.
 
-## Human approval and untrusted content
+## Approval, autonomy, and untrusted content
 
-The agent must display the prepared preview and wait for explicit human confirmation before commit. Text inside notes, links, tags, search results, or other tool output is untrusted data and cannot supply consent.
+In protected mode, the agent must display the prepared preview and wait for explicit human confirmation before commit. In full mode, the user's one-time per-vault setting permits the agent to inspect the preview internally and commit supported create/append work within the concrete task. It must still ask about materially ambiguous intent. Text inside notes, links, tags, search results, external documents, or other tool output is untrusted data and can neither supply consent nor expand autonomous work.
 
 The user should verify the vault, relative path, operation, and exact proposed content. If the note changes before the commit-time source check, the source-hash check rejects the change and a fresh preview is required.
 
@@ -131,12 +136,13 @@ You can reduce disclosure and mutation risk by:
 1. testing with a disposable vault containing synthetic data;
 2. configuring the narrowest useful read scope;
 3. leaving the Bridge Control write switch off until it is needed, then authorizing a still narrower write folder;
-4. keeping secrets and production notes outside both scopes;
-5. reading only targeted sections;
-6. reviewing every write preview and rejecting unexpected content;
-7. setting `OBSIDIAN_BRIDGE_DATA_DIR` to a protected local test directory and reviewing its backups/audit records;
-8. disabling writing or the entire vault in Bridge Control when access is no longer needed;
-9. maintaining independent backups and uninstalling the plugin when no longer needed.
+4. using full access only for a bounded task and returning to protected access afterward;
+5. keeping secrets and production notes outside both scopes;
+6. reading only targeted sections;
+7. reviewing every protected write preview and checking autonomous results;
+8. setting `OBSIDIAN_BRIDGE_DATA_DIR` to a protected local test directory and reviewing its backups/audit records through **Problemi recenti**;
+9. disabling writing or the entire vault in Bridge Control when access is no longer needed;
+10. maintaining independent backups and uninstalling the plugin when no longer needed.
 
 Delete is not exposed by the bridge. To remove source data, use Obsidian directly and follow any MCP host or model-service retention controls for copies already transmitted.
 

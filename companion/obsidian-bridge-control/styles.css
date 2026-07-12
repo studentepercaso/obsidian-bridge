@@ -46,6 +46,86 @@
   margin-bottom: 4px;
 }
 
+.bridge-control__mode-card {
+  margin: 12px 0;
+}
+
+.bridge-control__mode-card.is-full {
+  border-inline-start: 4px solid var(--text-warning);
+  background: var(--background-modifier-hover);
+}
+
+.bridge-control__mode-card p,
+.bridge-control__full-warning p {
+  margin: 8px 0 12px;
+}
+
+.bridge-control__acknowledgement {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 16px 0;
+  font-weight: 600;
+}
+
+.bridge-control__acknowledgement input {
+  margin-top: 3px;
+}
+
+.bridge-control__confirm-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.bridge-control__problems {
+  margin-top: 14px;
+}
+
+.bridge-control__problem-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.bridge-control__problem {
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-inline-start: 4px solid var(--text-warning);
+  border-radius: var(--radius-s);
+}
+
+.bridge-control__problem.is-error {
+  border-inline-start-color: var(--text-error);
+}
+
+.bridge-control__problem-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.bridge-control__problem-heading time,
+.bridge-control__problem small {
+  color: var(--text-muted);
+}
+
+.bridge-control__problem > code {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.bridge-control__problem > p {
+  margin: 8px 0;
+}
+
+.bridge-control__problem-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 .bridge-control__card-title {
   display: flex;
   align-items: center;
