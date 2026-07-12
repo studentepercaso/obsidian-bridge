@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.4.0 - READ THIS FIRST
+OBSIDIAN BRIDGE 0.4.1 - READ THIS FIRST
 
 1. Extract the complete ZIP to a normal folder.
 2. Double-click INSTALLA-OBSIDIAN-BRIDGE.cmd.
@@ -6,7 +6,7 @@ OBSIDIAN BRIDGE 0.4.0 - READ THIS FIRST
 4. Open Obsidian > Settings > Community plugins > Bridge Control.
 5. Keep protected access and choose folders, or explicitly enable full access.
 
-The user interface of the 0.4.0 installer and Bridge Control panel is currently
+The user interface of the 0.4.1 installer and Bridge Control panel is currently
 in Italian. No administrator rights or OpenAI API key are required.
 
 New vaults start with protected mode and no note access. Folder-scoped writing

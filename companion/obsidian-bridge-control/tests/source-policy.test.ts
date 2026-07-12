@@ -27,4 +27,10 @@ describe("security policy guardrails", () => {
   it("uses scoped CSS classes instead of inline style mutation", () => {
     expect(mainSource).not.toContain(".style.setProperty");
   });
+
+  it("passes one CSS token at a time to HTMLElement.addClass", () => {
+    expect(mainSource).not.toMatch(
+      /\.addClass\(\s*["'][^"']*\s+[^"']*["']\s*\)/u,
+    );
+  });
 });

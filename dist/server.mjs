@@ -34009,7 +34009,7 @@ function createWriteToolHandlers(runtime) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.4.0";
+var SERVER_VERSION = "0.4.1";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,

@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:BridgePluginId = 'bridge-control'
 $script:CodexPluginId = 'obsidian-bridge'
-$script:ExpectedCodexPluginVersion = '0.4.0'
+$script:ExpectedCodexPluginVersion = '0.4.1'
 $script:BridgePluginRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:PayloadRoot = Join-Path $script:BridgePluginRoot 'companion\obsidian-bridge-control'
 $localApplicationData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -1801,7 +1801,7 @@ function Show-Installer {
     [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Installa Obsidian Bridge 0.4.0'
+    $form.Text = 'Installa Obsidian Bridge 0.4.1'
     $form.StartPosition = 'CenterScreen'
     $form.Size = New-Object System.Drawing.Size(780, 650)
     $form.MinimumSize = New-Object System.Drawing.Size(780, 650)
@@ -1816,7 +1816,7 @@ function Show-Installer {
     $form.Controls.Add($header)
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = 'Collega Obsidian a ChatGPT - Bridge 0.4.0'
+    $title.Text = 'Collega Obsidian a ChatGPT - Bridge 0.4.1'
     $title.ForeColor = [System.Drawing.Color]::White
     $title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 20)
     $title.AutoSize = $true

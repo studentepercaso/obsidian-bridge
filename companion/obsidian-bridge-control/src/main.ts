@@ -39,6 +39,7 @@ import {
   readAuditDiagnostics,
 } from "./audit-diagnostics";
 import { coerceProtectedLocalSettings } from "./local-settings";
+import { runConfirmedActivation } from "./activation-flow";
 
 const PLUGIN_DATA_VERSION = 3;
 
@@ -261,6 +262,7 @@ class FullAccessConfirmationModal extends Modal {
     app: App,
     private readonly vaultName: string,
     private readonly onConfirm: () => Promise<void>,
+    private readonly onConfirmed: () => void,
   ) {
     super(app);
   }
@@ -306,16 +308,23 @@ class FullAccessConfirmationModal extends Modal {
       confirm.disabled = true;
       cancel.disabled = true;
       confirm.setText("Attivazione…");
-      try {
-        await this.onConfirm();
+      const outcome = await runConfirmedActivation(this.onConfirm, () => {
         this.close();
-      } catch (error) {
+        this.onConfirmed();
+      });
+      if (!outcome.activated) {
         new Notice(
-          `Attivazione non riuscita: ${error instanceof Error ? error.message : String(error)}`,
+          `Attivazione non riuscita: ${outcome.activationError instanceof Error ? outcome.activationError.message : String(outcome.activationError)}`,
         );
         cancel.disabled = false;
         confirm.disabled = !checkbox.checked;
         confirm.setText("Attiva accesso completo");
+        return;
+      }
+      if (outcome.uiError !== undefined) {
+        new Notice(
+          `Accesso completo attivato e verificato, ma il pannello non è stato aggiornato. Chiudi e riapri le impostazioni. Dettaglio: ${outcome.uiError instanceof Error ? outcome.uiError.message : String(outcome.uiError)}`,
+        );
       }
     });
   }
@@ -920,21 +929,18 @@ function renderControlPanel(
       plugin.app,
       plugin.app.vault.getName(),
       async () => {
-        try {
-          await plugin.saveAndVerify(
-            {
-              ...copySettings(plugin.settings),
-              enabled: true,
-              accessMode: "full",
-            },
-            { fullAccessConfirmed: true },
-          );
-        } catch (error) {
-          renderControlPanel(containerEl, plugin, firstRun);
-          throw error;
-        }
-        new Notice("Accesso completo attivato e verificato.");
+        await plugin.saveAndVerify(
+          {
+            ...copySettings(plugin.settings),
+            enabled: true,
+            accessMode: "full",
+          },
+          { fullAccessConfirmed: true },
+        );
+      },
+      () => {
         renderControlPanel(containerEl, plugin, firstRun);
+        new Notice("Accesso completo attivato e verificato.");
       },
     ).open();
   });
@@ -1208,7 +1214,10 @@ function renderControlPanel(
         .setDisabled(draft.accessMode === "full")
         .onClick(openFolderPicker),
     );
-  readFoldersSetting.settingEl.addClass("bridge-control__setting bridge-control__setting--stacked");
+  readFoldersSetting.settingEl.addClasses([
+    "bridge-control__setting",
+    "bridge-control__setting--stacked",
+  ]);
 
   const writeToggleSetting = new Setting(advanced)
     .setName("Consenti scrittura")
@@ -1246,7 +1255,10 @@ function renderControlPanel(
         .setDisabled(draft.accessMode === "full")
         .onClick(openFolderPicker),
     );
-  writeFoldersSetting.settingEl.addClass("bridge-control__setting bridge-control__setting--stacked");
+  writeFoldersSetting.settingEl.addClasses([
+    "bridge-control__setting",
+    "bridge-control__setting--stacked",
+  ]);
 
   renderValidation();
 

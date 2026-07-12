@@ -77,7 +77,7 @@ describe("MCP stdio integration", () => {
 
       expect(client.getServerVersion()).toMatchObject({
         name: "obsidian-bridge",
-        version: "0.4.0",
+        version: "0.4.1",
       });
       expect(client.getInstructions()).toContain("Read-only access");
 

@@ -27,7 +27,7 @@ Obsidian Bridge collega Codex e gli host plugin desktop ChatGPT compatibili ai v
 
 ## Installazione rapida su Windows
 
-1. Scarica **Obsidian-Bridge-Setup-0.4.0.zip** dalla [pagina delle release](https://github.com/studentepercaso/obsidian-bridge/releases).
+1. Scarica **Obsidian-Bridge-Setup-0.4.1.zip** dalla [pagina delle release](https://github.com/studentepercaso/obsidian-bridge/releases).
 2. Estrai completamente lo ZIP. Non eseguire l'installer dall'anteprima dell'archivio.
 3. Fai doppio clic su **INSTALLA-OBSIDIAN-BRIDGE.cmd**.
 4. Scegli un vault e completa l'installazione guidata.
@@ -37,7 +37,7 @@ Obsidian Bridge collega Codex e gli host plugin desktop ChatGPT compatibili ai v
 
 L'installer lascia i nuovi vault senza accesso finché non scegli le cartelle e conserva le autorizzazioni Bridge Control esistenti durante un aggiornamento. La procedura completa è in [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
-Usa l'asset il cui nome inizia con **Obsidian-Bridge-Setup**. Gli archivi **Source code** generati automaticamente da GitHub sono copie per sviluppatori, non l'installer guidato. I valori SHA-256 sono pubblicati accanto a ogni release in **SHA256-0.4.0.txt**.
+Usa l'asset il cui nome inizia con **Obsidian-Bridge-Setup**. Gli archivi **Source code** generati automaticamente da GitHub sono copie per sviluppatori, non l'installer guidato. I valori SHA-256 sono pubblicati accanto a ogni release in **SHA256-0.4.1.txt**.
 
 Se la diagnostica segnala che la CLI di Obsidian non è disponibile, abilitala in **Obsidian → Impostazioni → Generale → Interfaccia a riga di comando**. Il bridge usa la CLI locale ufficiale e non simula l'accesso al vault tramite un servizio HTTP.
 
@@ -46,7 +46,7 @@ Se la diagnostica segnala che la CLI di Obsidian non è disponibile, abilitala i
 Gli utenti avanzati possono aggiungere questo repository pubblico come marketplace Codex:
 
 ```powershell
-codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.4.0
+codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.4.1
 codex plugin add obsidian-bridge@obsidian-bridge-community
 ```
 
@@ -97,6 +97,6 @@ I test automatici usano una CLI simulata e dati sintetici. Una release richiede 
 
 ## Stato del progetto
 
-La versione 0.4.0 è un'anteprima pubblica distribuita dalla community tramite GitHub. Il companion **Bridge Control** è pubblicato anche in un repository autonomo pronto per la candidatura alla directory ufficiale dei Community Plugin di Obsidian. L'architettura MCP locale stdio non equivale a un endpoint MCP ospitato e al momento non è stata inviata alla directory universale dei plugin OpenAI.
+La versione 0.4.1 è un'anteprima pubblica distribuita dalla community tramite GitHub. Il companion **Bridge Control** è pubblicato anche in un repository autonomo pronto per la candidatura alla directory ufficiale dei Community Plugin di Obsidian. L'architettura MCP locale stdio non equivale a un endpoint MCP ospitato e al momento non è stata inviata alla directory universale dei plugin OpenAI.
 
 Obsidian è un marchio di Dynalist Inc. ChatGPT, Codex e OpenAI sono marchi di OpenAI. Questo progetto indipendente non è affiliato né approvato da tali aziende.
