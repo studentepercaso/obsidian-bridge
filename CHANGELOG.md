@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 - 2026-07-12
+
+- Fix the Bridge Control rerender crash that appeared immediately after successfully enabling Full access.
+- Pass each CSS class as a valid individual DOM token and add a regression test for multi-token `addClass` calls.
+- Keep a verified activation successful when only the post-save UI refresh fails, and report the rendering problem separately.
+- Preserve the already verified version-3 Full-access policy; this patch changes no vault permissions or note data.
+
 ## 0.4.0 - 2026-07-12
 
 - Add a prominent per-vault **Accesso completo** mode with one explicit acknowledgement and immediate return to protected access.

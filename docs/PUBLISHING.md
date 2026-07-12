@@ -1,6 +1,6 @@
 # Publishing paths
 
-Obsidian Bridge 0.4.0 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
+Obsidian Bridge 0.4.1 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
 
 ## GitHub community distribution
 

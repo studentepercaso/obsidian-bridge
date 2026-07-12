@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.4.0 - INSTALLER WINDOWS
+OBSIDIAN BRIDGE 0.4.1 - INSTALLER WINDOWS
 =========================================
 
 Installazione semplice

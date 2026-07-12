@@ -1,6 +1,6 @@
 {
   "name": "obsidian-bridge",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Install with a guided wizard, then safely read, create, and append within GUI-scoped local Obsidian vaults.",
   "author": {
     "name": "studentepercaso",
