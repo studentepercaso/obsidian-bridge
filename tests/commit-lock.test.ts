@@ -10,7 +10,52 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const renameFault = vi.hoisted(
+  (): {
+    code: "EPERM" | "EBUSY" | "EACCES";
+    remaining: number;
+    attempts: number;
+    onFailure: (() => Promise<void>) | null;
+  } => ({
+    code: "EPERM",
+    remaining: 0,
+    attempts: 0,
+    onFailure: null,
+  }),
+);
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    rename: async (
+      oldPath: Parameters<typeof actual.rename>[0],
+      newPath: Parameters<typeof actual.rename>[1],
+    ): Promise<void> => {
+      const isReleaseRename =
+        String(oldPath).endsWith(".lock") &&
+        String(newPath).includes(".lock.release-");
+      if (!isReleaseRename) {
+        await actual.rename(oldPath, newPath);
+        return;
+      }
+
+      renameFault.attempts += 1;
+      if (renameFault.remaining > 0) {
+        renameFault.remaining -= 1;
+        const onFailure = renameFault.onFailure;
+        renameFault.onFailure = null;
+        await onFailure?.();
+        throw Object.assign(new Error("injected rename failure"), {
+          code: renameFault.code,
+        });
+      }
+      await actual.rename(oldPath, newPath);
+    },
+  };
+});
 
 import {
   CommitLockReleaseAfterOperationError,
@@ -24,6 +69,10 @@ describe("cross-process commit lock", () => {
   let sandbox = "";
 
   beforeEach(async () => {
+    renameFault.code = "EPERM";
+    renameFault.remaining = 0;
+    renameFault.attempts = 0;
+    renameFault.onFailure = null;
     sandbox = await mkdtemp(path.join(tmpdir(), "obsidian-commit-lock-"));
   });
 
@@ -88,6 +137,89 @@ describe("cross-process commit lock", () => {
     await lock.release();
     await lock.release();
     await expect(stat(lockDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each(["EPERM", "EBUSY"] as const)(
+    "retries transient %s failures while releasing a lock",
+    async (code) => {
+      const lock = await acquireCommitLock(options());
+      const lockDirectory = commitLockPath(
+        sandbox,
+        options().vault,
+        options().notePath,
+      );
+      renameFault.code = code;
+      renameFault.remaining = 2;
+
+      await lock.release();
+
+      expect(renameFault.attempts).toBe(3);
+      await expect(stat(lockDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
+
+  it("does not retry a non-transient release error", async () => {
+    const lock = await acquireCommitLock(options());
+    renameFault.code = "EACCES";
+    renameFault.remaining = 3;
+
+    await expect(lock.release()).rejects.toMatchObject({
+      code: "LOCK_IO_ERROR",
+    });
+    expect(renameFault.attempts).toBe(1);
+
+    renameFault.remaining = 0;
+    await lock.release();
+  });
+
+  it("stops after the bounded transient retry budget", async () => {
+    const lock = await acquireCommitLock(options());
+    const lockDirectory = commitLockPath(
+      sandbox,
+      options().vault,
+      options().notePath,
+    );
+    renameFault.remaining = 5;
+
+    await expect(lock.release()).rejects.toMatchObject({
+      code: "LOCK_IO_ERROR",
+    });
+    expect(renameFault.attempts).toBe(4);
+    await expect(stat(lockDirectory)).resolves.toMatchObject({});
+
+    renameFault.remaining = 0;
+    await lock.release();
+  });
+
+  it("stops retrying when the lock owner changes", async () => {
+    const lock = await acquireCommitLock(options());
+    const lockDirectory = commitLockPath(
+      sandbox,
+      options().vault,
+      options().notePath,
+    );
+    const ownerPath = path.join(lockDirectory, "owner.json");
+    renameFault.remaining = 1;
+    renameFault.onFailure = async () => {
+      const owner = JSON.parse(await readFile(ownerPath, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      await writeFile(
+        ownerPath,
+        `${JSON.stringify({
+          ...owner,
+          token: "00000000-0000-4000-8000-000000000002",
+        })}\n`,
+        "utf8",
+      );
+    };
+
+    await expect(lock.release()).rejects.toMatchObject({
+      code: "LOCK_OWNERSHIP_LOST",
+    });
+    expect(renameFault.attempts).toBe(1);
+    await expect(stat(lockDirectory)).resolves.toMatchObject({});
   });
 
   it("fails closed instead of releasing a lock with a different owner token", async () => {

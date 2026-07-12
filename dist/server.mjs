@@ -32046,6 +32046,7 @@ import path4 from "node:path";
 var LOCKS_DIRECTORY = "commit-locks";
 var OWNER_FILE = "owner.json";
 var MAX_OWNER_BYTES = 4096;
+var TRANSIENT_RENAME_RETRY_DELAYS_MS = [10, 25, 50];
 var DEFAULT_COMMIT_LOCK_TIMEOUT_MS = 1e4;
 var DEFAULT_COMMIT_LOCK_RETRY_DELAY_MS = 50;
 var DEFAULT_COMMIT_LOCK_STALE_AFTER_MS = 10 * 6e4;
@@ -32273,6 +32274,34 @@ function sameOwner(left, right) {
   if (left === null || right === null) return left === right;
   return left.token === right.token && left.pid === right.pid && left.createdAt === right.createdAt;
 }
+function isTransientRenameError(error51) {
+  return isNodeErrorWithCode(error51, "EPERM") || isNodeErrorWithCode(error51, "EBUSY");
+}
+async function delay(milliseconds) {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+async function verifyLockStillMatches(lockDirectory, expected) {
+  let current;
+  try {
+    current = await snapshotLock(lockDirectory);
+  } catch (error51) {
+    if (hasNodeErrorWithCode(error51, "ENOENT")) return false;
+    throw error51;
+  }
+  if (!sameDirectory(expected.stats, current.stats)) {
+    throw new CommitLockError(
+      "UNSAFE_LOCK_PATH",
+      "lock directory identity changed before an atomic transition"
+    );
+  }
+  if (!sameOwner(expected.owner, current.owner)) {
+    throw new CommitLockError(
+      "LOCK_OWNERSHIP_LOST",
+      "lock owner changed before an atomic transition"
+    );
+  }
+  return true;
+}
 function processMayStillBeAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -32305,13 +32334,26 @@ async function restoreUnexpectedDirectory(quarantinePath, lockDirectory) {
 }
 async function renameVerifiedAndRemove(lockDirectory, snapshot, transition) {
   const quarantinePath = `${lockDirectory}.${transition}-${randomUUID()}`;
-  try {
-    await rename(lockDirectory, quarantinePath);
-  } catch (error51) {
-    if (isNodeErrorWithCode(error51, "ENOENT")) return false;
-    throw new CommitLockError("LOCK_IO_ERROR", "lock cannot be renamed safely", {
-      cause: error51
-    });
+  for (let attempt = 0; ; attempt += 1) {
+    if (!await verifyLockStillMatches(lockDirectory, snapshot)) return false;
+    try {
+      await rename(lockDirectory, quarantinePath);
+      break;
+    } catch (error51) {
+      if (isNodeErrorWithCode(error51, "ENOENT")) return false;
+      if (isTransientRenameError(error51)) {
+        const retryDelayMs = TRANSIENT_RENAME_RETRY_DELAYS_MS[attempt];
+        if (retryDelayMs !== void 0) {
+          await delay(retryDelayMs);
+          continue;
+        }
+      }
+      throw new CommitLockError(
+        "LOCK_IO_ERROR",
+        "lock cannot be renamed safely",
+        { cause: error51 }
+      );
+    }
   }
   let moved;
   try {
