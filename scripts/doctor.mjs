@@ -117,17 +117,21 @@ async function inspectPanelSettings() {
       throw new Error("settings file is not a regular file of at most 64 KiB");
     }
     const parsed = JSON.parse(await readFile(settingsPath, "utf8"));
-    if (![2, 3, 4].includes(parsed?.version) || parsed.vaults === null || typeof parsed.vaults !== "object") {
-      throw new Error("settings file does not match schema version 2, 3 or 4");
+    if (![2, 3, 4, 5].includes(parsed?.version) || parsed.vaults === null || typeof parsed.vaults !== "object") {
+      throw new Error("settings file does not match schema version 2, 3, 4 or 5");
     }
     const vaults = Object.entries(parsed.vaults);
     console.log(`Bridge Control settings: ${settingsPath}`);
     console.log(`Configured vaults: ${vaults.length}`);
     for (const [id, value] of vaults) {
       const entry = value && typeof value === "object" ? value : {};
+      const configReady =
+        parsed.version === 5 &&
+        typeof entry.configDir === "string" &&
+        entry.configDir.length > 0;
       const full = parsed.version >= 3 && entry.accessMode === "full";
       const management =
-        parsed.version === 4 && entry.accessMode === "management";
+        parsed.version >= 4 && entry.accessMode === "management";
       const wholeVault = full || management;
       const managementPermissions = management
         ? ["edit", "move", "trash"].filter(
@@ -135,8 +139,9 @@ async function inspectPanelSettings() {
           )
         : [];
       console.log(
-        `- ${entry.vaultName || "unnamed"} (${id}): ${entry.enabled === true ? `read=${wholeVault ? "all" : entry.readMode}` : "disabled"}, ` +
-        `write=${entry.enabled === true && (wholeVault || entry.writeEnabled === true) ? (management ? `management:${managementPermissions.join("+") || "invalid"}` : full ? "autonomous" : "protected") : "disabled"}`,
+        `- ${entry.vaultName || "unnamed"} (${id}): ${configReady && entry.enabled === true ? `read=${wholeVault ? "all" : entry.readMode}` : "disabled"}, ` +
+        `write=${configReady && entry.enabled === true && (wholeVault || entry.writeEnabled === true) ? (management ? `management:${managementPermissions.join("+") || "invalid"}` : full ? "autonomous" : "protected") : "disabled"}, ` +
+        `configDir=${configReady ? entry.configDir : "migration-required"}`,
       );
     }
     return true;

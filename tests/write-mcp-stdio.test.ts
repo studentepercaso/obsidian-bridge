@@ -68,12 +68,13 @@ async function startClient(
     writeFileSync(
       settingsPath,
       `${JSON.stringify({
-        version: 4,
+        version: 5,
         updatedAt: new Date().toISOString(),
         vaults: {
           "0123456789abcdef": {
             vaultName: "Test Vault",
             vaultPath,
+            configDir: ".obsidian",
             enabled: true,
             readMode:
               effectiveAdditions.OBSIDIAN_BRIDGE_ALLOWED_FOLDERS === "*"
@@ -228,12 +229,14 @@ describe("guarded MCP write workflow", () => {
       writeFileSync(
         settingsPath,
         `${JSON.stringify({
-          version: 3,
+          version: 5,
           updatedAt: new Date().toISOString(),
           vaults: {
             "0123456789abcdef": {
               vaultName: "Test Vault",
               vaultPath: directory,
+              configDir: ".obsidian",
+              managementPermissions: { edit: false, move: false, trash: false },
               enabled: true,
               readMode: "folders",
               readFolders: ["Projects"],
@@ -315,12 +318,14 @@ describe("guarded MCP write workflow", () => {
       writeFileSync(
         settingsPath,
         `${JSON.stringify({
-          version: 3,
+          version: 5,
           updatedAt: new Date().toISOString(),
           vaults: {
             "0123456789abcdef": {
               vaultName: "Test Vault",
               vaultPath: directory,
+              configDir: ".obsidian",
+              managementPermissions: { edit: false, move: false, trash: false },
               enabled: true,
               readMode: "all",
               readFolders: [],
@@ -478,12 +483,15 @@ describe("guarded MCP write workflow", () => {
       writeFileSync(
         settingsPath,
         `${JSON.stringify({
-          version: 2,
+          version: 5,
           updatedAt: new Date().toISOString(),
           vaults: {
             "0123456789abcdef": {
               vaultName: "Test Vault",
               vaultPath: directory,
+              configDir: ".obsidian",
+              accessMode: "protected",
+              managementPermissions: { edit: false, move: false, trash: false },
               enabled: true,
               readMode: "folders",
               readFolders: ["Projects"],

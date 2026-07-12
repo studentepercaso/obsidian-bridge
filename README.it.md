@@ -24,11 +24,11 @@ Obsidian Bridge collega Codex e gli host plugin desktop ChatGPT compatibili ai v
 - Protocollo in due passaggi con anteprima e commit monouso; la conferma per ogni modifica resta obbligatoria in accesso protetto.
 - Accesso iniziale negato, impostazioni per vault, esclusione delle cartelle nascoste, controllo dei percorsi, timeout e limiti di output.
 - Permessi **modifica**, **sposta** e **cestino** separati in Gestione completa; nessuno viene dedotto da aggiornamenti, note, prompt o variabili d'ambiente.
-- Lock condiviso tra processi, al massimo 20 backup locali in chiaro condivisi, verifica del risultato, audit senza il corpo delle note, pannello **Problemi recenti** e diagnostica audit limitata leggibile direttamente da Codex dopo un errore. La versione 0.5.3 usa snapshot UTF-8 esatti basati sulle impostazioni per ogni osservazione transazionale create/append e gestita, incluse le note prive di nuova riga finale.
+- Lock condiviso tra processi, al massimo 20 backup locali in chiaro condivisi, verifica del risultato, audit senza il corpo delle note, pannello **Problemi recenti** e diagnostica audit limitata leggibile direttamente da Codex dopo un errore. La versione 0.5.4 conserva snapshot UTF-8 esatti basati sulle impostazioni per ogni osservazione transazionale create/append e gestita, incluse le note prive di nuova riga finale, e rafforza il companion per la revisione Obsidian.
 
 ## Installazione rapida su Windows
 
-1. Scarica **Obsidian-Bridge-Setup-0.5.3.zip** dalla [pagina delle release](https://github.com/studentepercaso/obsidian-bridge/releases).
+1. Scarica **Obsidian-Bridge-Setup-0.5.4.zip** dalla [pagina delle release](https://github.com/studentepercaso/obsidian-bridge/releases).
 2. Estrai completamente lo ZIP. Non eseguire l'installer dall'anteprima dell'archivio.
 3. Fai doppio clic su **INSTALLA-OBSIDIAN-BRIDGE.cmd**.
 4. Scegli un vault e completa l'installazione guidata.
@@ -38,7 +38,7 @@ Obsidian Bridge collega Codex e gli host plugin desktop ChatGPT compatibili ai v
 
 L'installer lascia i nuovi vault senza accesso finché non scegli le cartelle e conserva le autorizzazioni Bridge Control esistenti durante un aggiornamento. La procedura completa è in [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
-Usa l'asset il cui nome inizia con **Obsidian-Bridge-Setup**. Gli archivi **Source code** generati automaticamente da GitHub sono copie per sviluppatori, non l'installer guidato. I valori SHA-256 sono pubblicati accanto a ogni release in **SHA256-0.5.3.txt**.
+Usa l'asset il cui nome inizia con **Obsidian-Bridge-Setup**. Gli archivi **Source code** generati automaticamente da GitHub sono copie per sviluppatori, non l'installer guidato. I valori SHA-256 sono pubblicati accanto a ogni release in **SHA256-0.5.4.txt**.
 
 Se la diagnostica segnala che la CLI di Obsidian non è disponibile, abilitala in **Obsidian → Impostazioni → Generale → Interfaccia a riga di comando**. Il bridge usa la CLI locale ufficiale e non simula l'accesso al vault tramite un servizio HTTP.
 
@@ -47,7 +47,7 @@ Se la diagnostica segnala che la CLI di Obsidian non è disponibile, abilitala i
 Gli utenti avanzati possono aggiungere questo repository pubblico come marketplace Codex:
 
 ```powershell
-codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.5.3
+codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.5.4
 codex plugin add obsidian-bridge@obsidian-bridge-community
 ```
 
@@ -76,6 +76,10 @@ Le operazioni di Gestione completa usano una coppia prepare/commit dedicata. Pre
 
 L'handler gira dentro Obsidian. Sostituzione e frontmatter usano `Vault.process` con controllo compare-and-swap sull'hash sorgente preparato; il frontmatter viene letto e riscritto con gli helper YAML pubblici di Obsidian. Spostamento/rinomina usa `Vault.rename` e modifica deliberatamente soltanto il file selezionato: **non** riscrive backlink o altre note. Il cestino usa l'API pubblica di Obsidian. Il canale di gestione non espone cancellazione permanente, comandi arbitrari, palette comandi, gestione plugin, shell o `eval`. Percorsi nascosti, `.obsidian`, `.trash` e collegamenti fisici fuori dal vault restano esclusi. Lettore, writer protetto, writer autonomo e gestore usano processi MCP distinti con capacità diverse.
 
+Bridge Control 0.5.4 non usa `child_process` e non avvia eseguibili. Il pannello CLI identifica soltanto un candidato non autorevole; il bridge esterno effettua la verifica definitiva quando necessario. Il selettore usa il vero `Vault.configDir` del vault. L'accesso filesystem Node del companion è limitato agli archivi esterni documentati per impostazioni/lock/quarantena, registro di sola lettura, richieste monouso, backup e audit, mai ai percorsi delle note; lettura e modifica delle note nel companion restano sulle API pubbliche di Obsidian. Queste modifiche di hardening non aggiungono permessi, campi del protocollo o superfici di scrittura.
+
+Le impostazioni condivise usano ora lo schema versione 5 e conservano il vero `Vault.configDir` come regola di esclusione autorevole in ogni modalità del bridge. Le voci dalla versione 2 alla versione 4 conservano le scelte esplicite ma restano senza accesso finché quel vault non viene aperto e registra la cartella di configurazione reale; ogni ambito salvato che la interseca viene rimosso. La migrazione non inventa mai autorità.
+
 ## Requisiti
 
 - Windows 10 o 11 per l'installer guidato di questa anteprima.
@@ -101,7 +105,7 @@ I test automatici usano una CLI simulata e dati sintetici. Una release richiede 
 - [Guida di installazione in italiano](docs/INSTALLATION.md)
 - [English installation guide](docs/INSTALLATION.en.md)
 - [Protocollo di scrittura controllata](docs/WRITING.md)
-- [Note di rilascio bilingui 0.5.3](docs/RELEASE_NOTES_0.5.3.md)
+- [Note di rilascio bilingui 0.5.4](docs/RELEASE_NOTES_0.5.4.md)
 - [Privacy](PRIVACY.md)
 - [Sicurezza](SECURITY.md)
 - [Cronologia delle versioni](CHANGELOG.md)
@@ -111,6 +115,6 @@ I test automatici usano una CLI simulata e dati sintetici. Una release richiede 
 
 ## Stato del progetto
 
-La versione 0.5.3 è un'anteprima pubblica distribuita dalla community tramite GitHub. Il companion **Bridge Control** è pubblicato anche in un repository autonomo ed è presente nella directory ufficiale dei Community Plugin di Obsidian. L'architettura MCP locale stdio non equivale a un endpoint MCP ospitato e al momento non è stata inviata alla directory universale dei plugin OpenAI.
+La versione 0.5.4 è un'anteprima pubblica distribuita dalla community tramite GitHub. Il companion **Bridge Control** è pubblicato anche in un repository autonomo ed è presente nella directory ufficiale dei Community Plugin di Obsidian. L'architettura MCP locale stdio non equivale a un endpoint MCP ospitato e al momento non è stata inviata alla directory universale dei plugin OpenAI.
 
 Obsidian è un marchio di Dynalist Inc. ChatGPT, Codex e OpenAI sono marchi di OpenAI. Questo progetto indipendente non è affiliato né approvato da tali aziende.

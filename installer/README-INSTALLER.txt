@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.3 - INSTALLER WINDOWS
+OBSIDIAN BRIDGE 0.5.4 - INSTALLER WINDOWS
 =========================================
 
 Installazione semplice
@@ -21,8 +21,10 @@ Dati richiesti e controllati dal pannello
 - Node.js 20 o successivo per eseguire il plugin Codex. Se manca o e troppo
   vecchio, il pannello lo segnala e mostra il pulsante per il sito ufficiale:
   https://nodejs.org/en/download
-- CLI ufficiale di Obsidian. Se non viene rilevata, abilitala nelle
-  impostazioni di Obsidian. L installer non installa software in silenzio.
+- CLI ufficiale di Obsidian. Bridge Control non la esegue: Rileva file mostra
+  soltanto un candidato non certificato da percorsi noti allowlistati. La
+  verifica definitiva avviene nel bridge esterno. L installer non installa
+  software in silenzio.
 
 Cosa autorizza la casella di consenso
 -------------------------------------
@@ -40,7 +42,7 @@ Cosa viene installato
 ---------------------
 - Il companion Bridge Control nel solo vault selezionato.
 - Nessuna nota o cartella viene creata nella configurazione iniziale predefinita.
-- La configurazione condivisa schema v4, legata all ID stabile a 16 caratteri
+- La configurazione condivisa schema v5, legata all ID stabile a 16 caratteri
   registrato in obsidian.json e non soltanto al nome visualizzato del vault.
 - Una copia stabile del plugin Codex in:
 
@@ -70,10 +72,10 @@ Problemi recenti
 ----------------
 Bridge Control include la sezione Problemi recenti. Legge in sola lettura i
 metadati locali del registro audit, senza mostrare il contenuto delle note. La
-versione 0.5.3 puo mostrare una fase di errore limitata e un codice causa sicuro,
+versione 0.5.4 puo mostrare una fase di errore limitata e un codice causa sicuro,
 ma mai messaggi grezzi delle eccezioni, output della CLI, contenuto proposto o
 corpo dei backup. Indica se una scrittura e stata fermata, ripristinata o richiede
-un controllo manuale. La versione 0.5.3 usa la stessa osservazione UTF-8 esatta
+un controllo manuale. La versione 0.5.4 usa la stessa osservazione UTF-8 esatta
 basata sulle impostazioni per prepare create/append, controllo conflitto,
 acquisizione backup, verifica dei blocchi e finale e classificazione del
 recupero. Le mutazioni usano ancora soltanto la CLI ufficiale allowlistata.
@@ -96,9 +98,11 @@ Il valore predefinito e:
 
 Se OBSIDIAN_BRIDGE_SETTINGS_PATH e valorizzata, deve essere un percorso
 assoluto valido e diventa il percorso usato sia dall installer sia dal bridge.
-Il file usa lo schema esatto versione 4. Le configurazioni valide v2 e v3
-vengono migrate in modo prudente: v2 resta protetta e v3 conserva l eventuale
-accesso autonomo, ma nessuna migrazione concede permessi di gestione. File v1,
+Il file usa lo schema esatto versione 5 e un ID stabile di 16 caratteri.
+L installer non deduce mai la cartella di configurazione attiva dalla sola
+presenza di una cartella: voci nuove, aggiornate o valide v2, v3 e v4 restano
+senza accesso finche Bridge Control non gira in quel vault e registra il vero Vault.configDir.
+Le scelte restano conservate e nessuna migrazione concede permessi di gestione. File v1,
 JSON malformato, campi aggiuntivi o stati incoerenti vengono rifiutati senza
 sovrascrittura.
 

@@ -77,7 +77,7 @@ describe("MCP stdio integration", () => {
 
       expect(client.getServerVersion()).toMatchObject({
         name: "obsidian-bridge",
-        version: "0.5.3",
+        version: "0.5.4",
       });
       expect(client.getInstructions()).toContain("Read-only access");
 
@@ -183,12 +183,15 @@ describe("MCP stdio integration", () => {
       writeFileSync(
         settingsPath,
         `${JSON.stringify({
-          version: 2,
+          version: 5,
           updatedAt: new Date().toISOString(),
           vaults: {
             "0123456789abcdef": {
               vaultName: "Test Vault",
               vaultPath: directory,
+              configDir: ".obsidian",
+              accessMode: "protected",
+              managementPermissions: { edit: false, move: false, trash: false },
               enabled: true,
               readMode,
               readFolders: readMode === "folders" ? ["Projects"] : [],

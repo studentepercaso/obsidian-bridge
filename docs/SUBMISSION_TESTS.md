@@ -1,6 +1,6 @@
 # Review test cases
 
-These cases cover all three version-0.5.3 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
+These cases cover all three version-0.5.4 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
 
 Begin in **Protected access**: enable one exact synthetic vault, limit reading and controlled writing to `Projects`, and verify process separation:
 
@@ -86,6 +86,11 @@ Begin in **Protected access**: enable one exact synthetic vault, limit reading a
     - Prompt: “Check what happened with the last Obsidian operation without asking me for a screenshot.”
     - Expected behavior: call `obsidian_recent_write_events` with `failures_only=true` first.
     - Expected result: at most 20 currently readable metadata records, including operation, optional target path, error and recovery state, plus bounded `failure_stage`, `cause_code`, and `manual_recovery_required` when present; no raw exception message, CLI output, note body, proposed content, backup body, audit hash, or caller-selected filesystem path. The agent rereads the affected note and stops for human direction rather than treating diagnostics as retry authority.
+
+12. **Companion review hardening and release provenance**
+    - Setup: configure a vault whose `Vault.configDir` is not `.obsidian`, place a harmless file at one allowlisted CLI candidate path, and build the tagged standalone companion twice from the lockfile.
+    - Expected behavior: the picker excludes the actual configuration directory; **Detect file** reports only a non-executed, non-certified candidate; handler availability is shown separately; source and bundle sentinels reject `child_process`, `exec`, `execFile`, `spawn`, `fork`, or `shell: true`.
+    - Expected result: version-5 settings persist the real `configDir`; legacy entries are deny-all until migrated; the external bridge denies that directory even in whole-vault modes and uses case-insensitive comparison on Windows/macOS. Node filesystem access is confined to documented external settings/lock/quarantine, read-only registry/candidate metadata, one-time request, backup, and audit stores; notes remain on public Obsidian APIs; both builds are byte-identical and the workflow attests exactly `main.js`, `manifest.json`, and `styles.css` before creating a draft release.
 
 ## Negative cases
 

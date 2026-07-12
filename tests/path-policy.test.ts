@@ -34,9 +34,12 @@ describe("vault path policy", () => {
     "Projects//Alpha.md",
     "Projects/Alpha.txt",
     "Projects/Alpha.md\u0000ignored",
-  ])("rejects traversal, absolute, malformed, and non-Markdown path %j", (value) => {
-    expect(() => normalizeMarkdownPath(value)).toThrow(PathPolicyError);
-  });
+  ])(
+    "rejects traversal, absolute, malformed, and non-Markdown path %j",
+    (value) => {
+      expect(() => normalizeMarkdownPath(value)).toThrow(PathPolicyError);
+    },
+  );
 
   it.each([
     ".obsidian/workspace.md",
@@ -112,6 +115,18 @@ describe("vault path policy", () => {
 
     expect(isPathAllowed("PROJECTS/Public.md", policy)).toBe(true);
     expect(isPathAllowed("projects/private/Secret.md", policy)).toBe(false);
+  });
+
+  it("keeps dedicated configuration-directory denies case-insensitive", () => {
+    const policy = createPathPolicy({
+      allowedFolders: null,
+      caseSensitive: true,
+      caseInsensitiveDeniedFolders: ["Workspace/Config"],
+    });
+
+    expect(isPathAllowed("Workspace/Config/plugins/x.md", policy)).toBe(false);
+    expect(isPathAllowed("workspace/config/plugins/x.md", policy)).toBe(false);
+    expect(isPathAllowed("Workspace/Notes/x.md", policy)).toBe(true);
   });
 
   it("matches canonically equivalent Unicode folder names", () => {

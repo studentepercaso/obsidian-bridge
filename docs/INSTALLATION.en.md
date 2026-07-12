@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-This guide covers the Obsidian Bridge 0.5.3 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
+This guide covers the Obsidian Bridge 0.5.4 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
 
 ## Before you start
 
@@ -27,15 +27,15 @@ The installer stores a stable local copy of the Codex plugin. After a successful
 
 ## Enable the official Obsidian CLI
 
-If Bridge Control diagnostics report that the CLI is unavailable:
+If the external bridge reports that the CLI is unavailable:
 
 1. open Obsidian;
 2. go to **Settings → General → Command line interface**;
 3. enable the CLI using the instructions shown by Obsidian;
-4. close and reopen Obsidian and the desktop client if diagnostics do not refresh;
-5. run Bridge Control diagnostics again.
+4. close and reopen Obsidian and the desktop client;
+5. retry a harmless bridge read in a new Codex task.
 
-The first CLI command may bring Obsidian to the foreground. See the [official Obsidian CLI documentation](https://help.obsidian.md/cli) for platform-specific details.
+The first CLI command may bring Obsidian to the foreground. Bridge Control 0.5.4 does not execute the CLI: its optional candidate scan only checks allowlisted known paths and cannot certify readiness. The external bridge performs the definitive check. See the [official Obsidian CLI documentation](https://help.obsidian.md/cli) for platform-specific details.
 
 ## Configure reading and writing
 
@@ -92,7 +92,7 @@ To test Full management, use only a synthetic note and an independent backup. St
 1. Download and extract the new release to a different folder.
 2. Close open Obsidian settings dialogs.
 3. Run the new installer and select the same vault.
-4. Review Bridge Control and diagnostics. Existing saved permissions are preserved.
+4. Review Bridge Control, the registered-handler status, and the optional non-executing CLI candidate scan. Existing saved permissions are preserved.
 5. Start a new Codex task so updated plugin definitions are loaded.
 
 The installer creates timestamped backups before replacing its own configuration files. It does not delete vault notes.
@@ -115,9 +115,9 @@ Open it in Obsidian at least once, then restart the installer. Alternatively, br
 
 Confirm that Community plugins are allowed for the vault, reopen Obsidian, and rerun the installer for the same vault if needed.
 
-### Diagnostics cannot find the CLI
+### The bridge cannot use the CLI
 
-Enable the official CLI in Obsidian settings and restart both applications. Do not point the bridge at an unverified executable; the CLI path is a security boundary.
+Enable the official CLI in Obsidian settings and restart both applications. Bridge Control's **Detect file** action can report only an allowlisted candidate, never a verified version or ready state. Test through the external bridge. Do not point the bridge at an unverified executable; the CLI path is a security boundary.
 
 ### Codex reports that Node.js is unavailable
 
@@ -137,9 +137,9 @@ Previews expire and are single-use. If the note, permissions, or writer process 
 
 ### Obsidian showed a JavaScript error or a write failed
 
-Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports the recorded recovery state, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.3 reports bounded `failure_stage` and `cause_code` values without recording raw exception messages, CLI output, note text, proposed content, or backup bodies. These diagnostics are evidence only: reread the note and do not automatically retry until the user gives explicit direction.
+Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports the recorded recovery state, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.4 reports bounded `failure_stage` and `cause_code` values without recording raw exception messages, CLI output, note text, proposed content, or backup bodies. These diagnostics are evidence only: reread the note and do not automatically retry until the user gives explicit direction.
 
-Version 0.5.3 extends exact UTF-8 observations to create/append, fixing post-write verification mismatches on content such as a note without a final newline. A real conflict still fails closed. If a write or verification failure occurs after append has mutated the note, the writer does not attempt a destructive non-atomic CLI rollback. It preserves the exact backup and audit evidence, leaves the observed note untouched, and returns `manual_recovery_required=true` with `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` or `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. A partial create remains `delete_disabled`. Inspect the note and backup manually and wait for explicit direction.
+Version 0.5.4 retains exact UTF-8 observations for create/append, including content without a final newline. A real conflict still fails closed. If a write or verification failure occurs after append has mutated the note, the writer does not attempt a destructive non-atomic CLI rollback. It preserves the exact backup and audit evidence, leaves the observed note untouched, and returns `manual_recovery_required=true` with `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` or `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. A partial create remains `delete_disabled`. Inspect the note and backup manually and wait for explicit direction.
 
 After three consecutive autonomous or management failures, that process pauses for the task. Review recent problems, return to a narrower mode, and start a new task before enabling autonomy or Full management again.
 
@@ -153,4 +153,4 @@ On Windows, Bridge Control and the installer use:
 
 The file stores each vault's stable Obsidian ID, name, absolute local path, `protected`, `full`, or `management` access mode, optional edit/move/trash grants, and protected folder choices. The UI labels `full` as **Autonomous access** and `management` as **Full management**. It does not contain note bodies. Every process validates it before use; a malformed file fails closed.
 
-Early environment variables remain an advanced read-only compatibility mode only when the shared file is absent. Version 0.5.3 fails closed for environment-only create/append because normalized CLI stdout is not an exact compare-and-swap source. Install or configure Bridge Control to migrate writing access to shared settings.
+Early environment variables remain an advanced read-only compatibility mode only when the shared file is absent. Version 0.5.4 fails closed for environment-only create/append because normalized CLI stdout is not an exact compare-and-swap source. Install or configure Bridge Control to migrate writing access to shared settings.

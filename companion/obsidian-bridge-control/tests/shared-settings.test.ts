@@ -2,15 +2,40 @@ import { readFile } from "node:fs/promises";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  mergeVaultSettings,
+  mergeVaultSettings as mergeVaultSettingsWithConfigDir,
+  normalizeVaultFolder,
+  parseFolderList,
   readVaultSettings,
+  readVaultSettingsState,
   resolveVaultIdentity,
   sharedSettingsPath,
+  type MergeVaultSettingsOptions,
+  type VaultBridgeSettings,
 } from "../src/shared-settings.js";
+
+function mergeVaultSettings(
+  filePath: string,
+  vaultId: string,
+  vaultName: string,
+  vaultPath: string,
+  settings: VaultBridgeSettings,
+  options: MergeVaultSettingsOptions = {},
+) {
+  return mergeVaultSettingsWithConfigDir(
+    filePath,
+    vaultId,
+    vaultName,
+    vaultPath,
+    ".obsidian",
+    settings,
+    options,
+  );
+}
 
 describe("shared settings security", () => {
   const noManagement = { edit: false, move: false, trash: false } as const;
@@ -28,6 +53,20 @@ describe("shared settings security", () => {
 
   afterEach(async () => {
     await rm(sandbox, { recursive: true, force: true });
+  });
+
+  it("rejects hidden folders and the active custom configuration directory", () => {
+    expect(() => normalizeVaultFolder(".private/notes", "Config")).toThrow(
+      "cartella di configurazione",
+    );
+    expect(() => normalizeVaultFolder("Config/plugins", "Config")).toThrow(
+      "cartella di configurazione",
+    );
+    expect(normalizeVaultFolder("Config notes", "Config")).toBe("Config notes");
+    expect(parseFolderList("Notes\nConfig/plugins", "Config")).toEqual({
+      folders: ["Notes"],
+      errors: [expect.stringContaining("Config/plugins")],
+    });
   });
 
   it("resolves a stable vault identity from the bounded Obsidian registry", async () => {
@@ -105,14 +144,17 @@ describe("shared settings security", () => {
       writeFolders: ["Projects"],
     });
     expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({
-      version: 4,
+      version: 5,
       vaults: {
-        "0123456789abcdef": { accessMode: "protected" },
+        "0123456789abcdef": {
+          accessMode: "protected",
+          configDir: ".obsidian",
+        },
       },
     });
   });
 
-  it("migrates every version-2 vault to protected mode before saving version 4", async () => {
+  it("migrates every version-2 vault to protected mode before saving version 5", async () => {
     const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
     await mkdir(join(configRoot, "ObsidianBridge"), { recursive: true });
     await writeFile(
@@ -156,7 +198,7 @@ describe("shared settings security", () => {
       version: number;
       vaults: Record<string, { accessMode: string }>;
     };
-    expect(stored.version).toBe(4);
+    expect(stored.version).toBe(5);
     expect(stored.vaults.fedcba9876543210?.accessMode).toBe("protected");
     expect(stored.vaults["0123456789abcdef"]?.accessMode).toBe("full");
     await expect(
@@ -188,11 +230,16 @@ describe("shared settings security", () => {
       "utf8",
     );
 
+    await expect(readVaultSettings(settingsFile, "0123456789abcdef")).resolves
+      .toBeUndefined();
     await expect(
-      readVaultSettings(settingsFile, "0123456789abcdef"),
+      readVaultSettingsState(settingsFile, "0123456789abcdef"),
     ).resolves.toMatchObject({
-      accessMode: "full",
-      managementPermissions: noManagement,
+      configDir: null,
+      settings: {
+        accessMode: "full",
+        managementPermissions: noManagement,
+      },
     });
 
     await mergeVaultSettings(
@@ -214,10 +261,250 @@ describe("shared settings security", () => {
       version: number;
       vaults: Record<string, { managementPermissions: unknown }>;
     };
-    expect(stored.version).toBe(4);
+    expect(stored.version).toBe(5);
     expect(stored.vaults["0123456789abcdef"]?.managementPermissions).toEqual(
       noManagement,
     );
+  });
+
+  it("migrates the current version-4 vault with its real configDir and removes intersecting grants", async () => {
+    const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
+    await mkdir(join(configRoot, "ObsidianBridge"), { recursive: true });
+    await writeFile(
+      settingsFile,
+      `${JSON.stringify({
+        version: 4,
+        updatedAt: "2026-07-12T10:00:00.000Z",
+        vaults: {
+          "0123456789abcdef": {
+            vaultName: "Synthetic vault",
+            vaultPath: vault,
+            accessMode: "protected",
+            managementPermissions: noManagement,
+            enabled: true,
+            readMode: "folders",
+            readFolders: ["Workspace", "Notes"],
+            writeEnabled: true,
+            writeFolders: ["Workspace/Notes", "Notes"],
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    const legacy = await readVaultSettingsState(
+      settingsFile,
+      "0123456789abcdef",
+    );
+    expect(legacy).toMatchObject({ configDir: null });
+    await expect(readVaultSettings(settingsFile, "0123456789abcdef")).resolves
+      .toBeUndefined();
+
+    const migrated = await mergeVaultSettingsWithConfigDir(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      "Workspace/Config",
+      legacy!.settings,
+    );
+    expect(migrated.settings).toMatchObject({
+      readMode: "folders",
+      readFolders: ["Notes"],
+      writeEnabled: true,
+      writeFolders: ["Notes"],
+    });
+    expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({
+      version: 5,
+      vaults: {
+        "0123456789abcdef": {
+          configDir: "Workspace/Config",
+          readFolders: ["Notes"],
+          writeFolders: ["Notes"],
+        },
+      },
+    });
+  });
+
+  it("migrates configDir from the latest locked policy without restoring stale access", async () => {
+    const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
+    const disabled = {
+      accessMode: "full" as const,
+      managementPermissions: noManagement,
+      enabled: false,
+      readMode: "off" as const,
+      readFolders: [],
+      writeEnabled: false,
+      writeFolders: [],
+    };
+    await mergeVaultSettingsWithConfigDir(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      ".obsidian",
+      disabled,
+      { fullAccessConfirmed: true },
+    );
+
+    const staleEnabled = { ...disabled, enabled: true };
+    const migrated = await mergeVaultSettingsWithConfigDir(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      "Workspace/Config",
+      staleEnabled,
+      { configDirMigrationOnly: true },
+    );
+
+    expect(migrated.settings.enabled).toBe(false);
+    expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({
+      version: 5,
+      vaults: {
+        "0123456789abcdef": {
+          configDir: "Workspace/Config",
+          enabled: false,
+        },
+      },
+    });
+  });
+
+  it("never reasserts a configDir migration over a concurrent revocation", async () => {
+    const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
+    await mkdir(join(configRoot, "ObsidianBridge"), { recursive: true });
+    const legacyFull = {
+      accessMode: "full" as const,
+      managementPermissions: noManagement,
+      enabled: true,
+      readMode: "off" as const,
+      readFolders: [],
+      writeEnabled: false,
+      writeFolders: [],
+    };
+    await writeFile(
+      settingsFile,
+      `${JSON.stringify({
+        version: 4,
+        updatedAt: "2026-07-12T10:00:00.000Z",
+        vaults: {
+          "0123456789abcdef": {
+            vaultName: "Synthetic vault",
+            vaultPath: vault,
+            ...legacyFull,
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    await expect(
+      mergeVaultSettingsWithConfigDir(
+        settingsFile,
+        "0123456789abcdef",
+        "Synthetic vault",
+        vault,
+        "Workspace/Config",
+        legacyFull,
+        {
+          configDirMigrationOnly: true,
+          testAfterWrite: async (attempt) => {
+            if (attempt !== "primary") return;
+            await writeFile(
+              settingsFile,
+              `${JSON.stringify({
+                version: 5,
+                updatedAt: "2026-07-12T10:01:00.000Z",
+                vaults: {
+                  "0123456789abcdef": {
+                    vaultName: "Synthetic vault",
+                    vaultPath: vault,
+                    configDir: "Workspace/Config",
+                    accessMode: "protected",
+                    managementPermissions: noManagement,
+                    enabled: false,
+                    readMode: "off",
+                    readFolders: [],
+                    writeEnabled: false,
+                    writeFolders: [],
+                  },
+                },
+              })}\n`,
+              "utf8",
+            );
+          },
+        },
+      ),
+    ).rejects.toThrow("Verifica atomica");
+
+    await expect(
+      readVaultSettings(settingsFile, "0123456789abcdef"),
+    ).resolves.toMatchObject({
+      accessMode: "protected",
+      enabled: false,
+    });
+  });
+
+  it("replaces a concurrently restored stale configDir with a deny marker", async () => {
+    const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
+    const full = {
+      accessMode: "full" as const,
+      managementPermissions: noManagement,
+      enabled: true,
+      readMode: "off" as const,
+      readFolders: [],
+      writeEnabled: false,
+      writeFolders: [],
+    };
+    await mergeVaultSettingsWithConfigDir(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      ".obsidian",
+      full,
+      { fullAccessConfirmed: true },
+    );
+
+    await expect(
+      mergeVaultSettingsWithConfigDir(
+        settingsFile,
+        "0123456789abcdef",
+        "Synthetic vault",
+        vault,
+        "Config",
+        full,
+        {
+          configDirMigrationOnly: true,
+          testAfterWrite: async (attempt) => {
+            if (attempt !== "primary") return;
+            await writeFile(
+              settingsFile,
+              `${JSON.stringify({
+                version: 5,
+                updatedAt: "2026-07-12T10:02:00.000Z",
+                vaults: {
+                  "0123456789abcdef": {
+                    vaultName: "Synthetic vault",
+                    vaultPath: vault,
+                    configDir: ".obsidian",
+                    ...full,
+                  },
+                },
+              })}\n`,
+              "utf8",
+            );
+          },
+        },
+      ),
+    ).rejects.toThrow("disabilitato in modo prudente");
+
+    await expect(
+      readVaultSettings(settingsFile, "0123456789abcdef"),
+    ).resolves.toBeUndefined();
+    await expect(
+      readVaultSettingsState(settingsFile, "0123456789abcdef"),
+    ).resolves.toMatchObject({ configDir: null });
   });
 
   it("requires an exact acknowledgement for management activation and permission increases", async () => {
@@ -399,12 +686,13 @@ describe("shared settings security", () => {
     });
   });
 
-  it("rejects dormant or empty management permission combinations in version 4", async () => {
+  it("rejects dormant or empty management permission combinations in version 5", async () => {
     const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
     await mkdir(join(configRoot, "ObsidianBridge"), { recursive: true });
     const base = {
       vaultName: "Synthetic vault",
       vaultPath: vault,
+      configDir: ".obsidian",
       enabled: true,
       readMode: "off",
       readFolders: [],
@@ -426,7 +714,7 @@ describe("shared settings security", () => {
       await writeFile(
         settingsFile,
         `${JSON.stringify({
-          version: 4,
+          version: 5,
           updatedAt: "2026-07-12T10:00:00.000Z",
           vaults: { "0123456789abcdef": invalidEntry },
         })}\n`,
@@ -626,7 +914,10 @@ describe("shared settings security", () => {
           writeEnabled: false,
           writeFolders: [],
         },
-        { testLockWaitMs: 100 },
+        {
+          testLockWaitMs: 100,
+          testLockRetryDelay: delay,
+        },
       ),
     ).rejects.toThrow("Configurazione occupata");
     await expect(readFile(join(lockPath, "owner.json"), "utf8")).resolves.toBe(

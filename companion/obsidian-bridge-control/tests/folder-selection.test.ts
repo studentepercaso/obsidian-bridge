@@ -4,18 +4,19 @@ import {
   coveringParent,
   folderIsInside,
   hiddenFolder,
+  restrictedFolder,
 } from "../src/folder-selection.js";
 
-describe("folder selection", () => {
+describe("companion folder selection", () => {
   it("collapses duplicate and nested selections under their parent", () => {
     expect(
       collapseFolderSelection([
-        "Courses/Year One",
-        "Courses",
-        "Courses",
-        "Projects",
+        "School/First year",
+        "School",
+        "School",
+        "Notes",
       ]),
-    ).toEqual(["Courses", "Projects"]);
+    ).toEqual(["Notes", "School"]);
   });
 
   it("keeps sibling folders as separate scopes", () => {
@@ -26,10 +27,10 @@ describe("folder selection", () => {
   });
 
   it("recognizes parent coverage without treating similarly named folders as children", () => {
-    expect(folderIsInside("Courses/Year One", "Courses")).toBe(true);
-    expect(folderIsInside("Courses 2", "Courses")).toBe(false);
-    expect(coveringParent("Courses/Year One", new Set(["Courses"]))).toBe(
-      "Courses",
+    expect(folderIsInside("School/Year One", "School")).toBe(true);
+    expect(folderIsInside("School 2", "School")).toBe(false);
+    expect(coveringParent("School/Year One", new Set(["School"]))).toBe(
+      "School",
     );
   });
 
@@ -37,5 +38,15 @@ describe("folder selection", () => {
     expect(hiddenFolder(".obsidian/plugins")).toBe(true);
     expect(hiddenFolder("Projects/.private")).toBe(true);
     expect(hiddenFolder("Projects/Active")).toBe(false);
+  });
+
+  it("also hides the configured Obsidian configuration directory", () => {
+    expect(restrictedFolder("Config", "Config")).toBe(true);
+    expect(restrictedFolder("Config/plugins", "Config")).toBe(true);
+    expect(restrictedFolder("Workspace", "Workspace/Config")).toBe(true);
+    expect(restrictedFolder("config/plugins", "Config")).toBe(true);
+    expect(restrictedFolder("workspace", "Workspace/Config")).toBe(true);
+    expect(restrictedFolder("Config notes", "Config")).toBe(false);
+    expect(restrictedFolder("Notes", "Config")).toBe(false);
   });
 });

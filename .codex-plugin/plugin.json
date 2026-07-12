@@ -1,6 +1,6 @@
 {
   "name": "obsidian-bridge",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "Connect Codex to Obsidian with visual, per-vault permissions for reading, writing, editing, moving and trashing notes.",
   "author": {
     "name": "studentepercaso",

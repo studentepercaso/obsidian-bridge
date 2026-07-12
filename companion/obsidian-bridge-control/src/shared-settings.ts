@@ -1,20 +1,18 @@
-import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import {
   lstat,
   mkdir,
   open,
-  readFile,
   realpath,
   rm,
   rename,
-  stat,
   unlink,
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
-import { cliReportsDisabled, cliReportsVersion } from "./cli-status";
+import { folderIsInside, restrictedFolder } from "./folder-selection.js";
+import { hasControlCharacter } from "./text-validation.js";
 
 export type DesktopPlatform = "windows" | "macos" | "linux";
 export type ReadMode = "off" | "all" | "folders";
@@ -37,7 +35,7 @@ export interface VaultBridgeSettings {
 }
 
 export interface SharedSettingsFile {
-  version: 4;
+  version: 5;
   updatedAt: string;
   vaults: Record<string, SharedVaultSettings>;
 }
@@ -45,6 +43,8 @@ export interface SharedSettingsFile {
 export interface SharedVaultSettings extends VaultBridgeSettings {
   vaultName: string;
   vaultPath: string;
+  /** Null only while a legacy v2-v4 entry awaits its own vault startup migration. */
+  configDir: string | null;
 }
 
 export interface VaultIdentity {
@@ -64,8 +64,12 @@ export interface MergeVaultSettingsOptions {
   ) => Promise<void>;
   /** @internal Shortens lock contention tests; production callers omit it. */
   readonly testLockWaitMs?: number;
+  /** @internal Supplies a timer in Node-based lock contention tests. */
+  readonly testLockRetryDelay?: (milliseconds: number) => Promise<void>;
   /** @internal Runs after verification and before releasing the test lock. */
   readonly testBeforeRelease?: () => Promise<void>;
+  /** @internal Migration reads the latest locked entry and changes only configDir-related scope. */
+  readonly configDirMigrationOnly?: boolean;
 }
 
 export interface MergeVaultSettingsResult {
@@ -85,12 +89,9 @@ export interface CliCandidate {
   exists: boolean;
 }
 
-export interface CliDiagnostic {
-  state: "ready" | "missing" | "error";
+export interface CliCandidateScan {
   checkedAt: string;
-  executable?: string;
-  version?: string;
-  detail: string;
+  candidate?: string;
   candidates: CliCandidate[];
 }
 
@@ -142,7 +143,7 @@ export function sharedSettingsPath(
 ): string {
   const override = env.OBSIDIAN_BRIDGE_SETTINGS_PATH?.trim();
   if (override) {
-    if (!isAbsolute(override) || /[\u0000-\u001f\u007f]/u.test(override)) {
+    if (!isAbsolute(override) || hasControlCharacter(override)) {
       throw new Error("OBSIDIAN_BRIDGE_SETTINGS_PATH deve essere un percorso assoluto valido.");
     }
     return normalize(override);
@@ -160,7 +161,7 @@ export function sharedSettingsPath(
   return join(configRoot, "ObsidianBridge", "settings.json");
 }
 
-export function normalizeVaultFolder(input: string): string {
+export function normalizeVaultFolder(input: string, configDir = ""): string {
   const normalized = input.trim().replace(/\\/g, "/").normalize("NFC");
 
   if (!normalized) {
@@ -169,7 +170,7 @@ export function normalizeVaultFolder(input: string): string {
   if (/^[a-zA-Z]:/.test(normalized) || normalized.startsWith("/")) {
     throw new Error("Usa un percorso relativo alla radice del vault.");
   }
-  if (/[\u0000-\u001f\u007f]/u.test(normalized)) {
+  if (hasControlCharacter(normalized)) {
     throw new Error("Il percorso contiene caratteri di controllo non validi.");
   }
 
@@ -182,15 +183,79 @@ export function normalizeVaultFolder(input: string): string {
     if (segment === "." || segment === "..") {
       throw new Error("I segmenti . e .. non sono consentiti.");
     }
-    if (segment.startsWith(".")) {
-      throw new Error("Le cartelle nascoste, inclusi .obsidian e .trash, non sono consentite.");
-    }
   }
 
+  const folder = segments.join("/");
+  if (restrictedFolder(folder, configDir)) {
+    throw new Error("Le cartelle nascoste e la cartella di configurazione del vault non sono consentite.");
+  }
+  return folder;
+}
+
+export function normalizeVaultConfigDir(input: string): string {
+  const normalized = input.trim().replace(/\\/g, "/").normalize("NFC");
+  if (!normalized || normalized.length > 1_024) {
+    throw new Error("La cartella di configurazione del vault non è valida.");
+  }
+  if (/^[a-zA-Z]:/u.test(normalized) || normalized.startsWith("/")) {
+    throw new Error("La cartella di configurazione deve essere relativa al vault.");
+  }
+  if (hasControlCharacter(normalized)) {
+    throw new Error("La cartella di configurazione contiene caratteri non validi.");
+  }
+  const segments = normalized.split("/");
+  if (
+    segments.some(
+      (segment) => segment.length === 0 || segment === "." || segment === "..",
+    )
+  ) {
+    throw new Error("La cartella di configurazione contiene segmenti non validi.");
+  }
   return segments.join("/");
 }
 
-export function parseFolderList(value: string): FolderListResult {
+export function sanitizeVaultSettingsForConfigDir(
+  settings: Readonly<VaultBridgeSettings>,
+  configDir: string,
+): VaultBridgeSettings {
+  const normalizedConfigDir = normalizeVaultConfigDir(configDir);
+  const readFolders = settings.readFolders.filter(
+    (folder) => !restrictedFolder(folder, normalizedConfigDir),
+  );
+  let writeFolders = settings.writeFolders.filter(
+    (folder) => !restrictedFolder(folder, normalizedConfigDir),
+  );
+  let readMode = settings.readMode;
+  let writeEnabled = settings.writeEnabled;
+
+  if (settings.accessMode === "protected" && readMode === "folders") {
+    if (readFolders.length === 0) {
+      readMode = "off";
+    }
+    writeFolders = writeFolders.filter((writeFolder) =>
+      readFolders.some((readFolder) => folderIsInside(writeFolder, readFolder)),
+    );
+  }
+  if (
+    settings.accessMode === "protected" &&
+    writeEnabled &&
+    writeFolders.length === 0
+  ) {
+    writeEnabled = false;
+  }
+
+  return {
+    accessMode: settings.accessMode,
+    managementPermissions: copyManagementPermissions(settings.managementPermissions),
+    enabled: settings.enabled,
+    readMode,
+    readFolders,
+    writeEnabled,
+    writeFolders,
+  };
+}
+
+export function parseFolderList(value: string, configDir = ""): FolderListResult {
   const folders: string[] = [];
   const errors: string[] = [];
   const seen = new Set<string>();
@@ -198,7 +263,7 @@ export function parseFolderList(value: string): FolderListResult {
   for (const rawItem of value.split(/\r?\n/u)) {
     if (!rawItem.trim()) continue;
     try {
-      const folder = normalizeVaultFolder(rawItem);
+      const folder = normalizeVaultFolder(rawItem, configDir);
       if (!seen.has(folder)) {
         seen.add(folder);
         folders.push(folder);
@@ -217,14 +282,14 @@ function hasExactKeys(value: Record<string, unknown>, expected: readonly string[
   return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
 }
 
-function validateFolders(value: unknown): string[] | undefined {
+function validateFolders(value: unknown, configDir = ""): string[] | undefined {
   if (!Array.isArray(value) || value.length > 256) return undefined;
   const result: string[] = [];
   const seen = new Set<string>();
   for (const item of value) {
     if (typeof item !== "string" || item.length > 1_024) return undefined;
     try {
-      const normalizedFolder = normalizeVaultFolder(item);
+      const normalizedFolder = normalizeVaultFolder(item, configDir);
       if (normalizedFolder !== item || seen.has(normalizedFolder)) return undefined;
       seen.add(normalizedFolder);
       result.push(normalizedFolder);
@@ -252,7 +317,7 @@ function validateManagementPermissions(
 
 function validateVaultEntry(
   value: unknown,
-  version: 2 | 3 | 4,
+  version: 2 | 3 | 4 | 5,
 ): SharedVaultSettings | undefined {
   if (!isRecord(value)) return undefined;
   const expectedKeys = [
@@ -264,7 +329,8 @@ function validateVaultEntry(
     "writeEnabled",
     "writeFolders",
     ...(version >= 3 ? ["accessMode"] : []),
-    ...(version === 4 ? ["managementPermissions"] : []),
+    ...(version >= 4 ? ["managementPermissions"] : []),
+    ...(version === 5 ? ["configDir"] : []),
   ];
   if (!hasExactKeys(value, expectedKeys)) return undefined;
   if (
@@ -272,20 +338,32 @@ function validateVaultEntry(
     value.vaultName.length === 0 ||
     value.vaultName.length > 256 ||
     value.vaultName !== value.vaultName.trim().normalize("NFC") ||
-    /[\u0000-\u001f\u007f]/u.test(value.vaultName)
+    hasControlCharacter(value.vaultName)
   ) return undefined;
   if (
     typeof value.vaultPath !== "string" ||
     value.vaultPath.length > 4_096 ||
     !isAbsolute(value.vaultPath) ||
-    /[\u0000-\u001f\u007f]/u.test(value.vaultPath)
+    hasControlCharacter(value.vaultPath)
   ) return undefined;
   if (typeof value.enabled !== "boolean") return undefined;
   if (value.readMode !== "off" && value.readMode !== "all" && value.readMode !== "folders") {
     return undefined;
   }
-  const readFolders = validateFolders(value.readFolders);
-  const writeFolders = validateFolders(value.writeFolders);
+  let configDir: string | null = null;
+  if (version === 5) {
+    if (value.configDir !== null && typeof value.configDir !== "string") return undefined;
+    if (typeof value.configDir === "string") {
+      try {
+        configDir = normalizeVaultConfigDir(value.configDir);
+      } catch {
+        return undefined;
+      }
+      if (configDir !== value.configDir) return undefined;
+    }
+  }
+  const readFolders = validateFolders(value.readFolders, configDir ?? "");
+  const writeFolders = validateFolders(value.writeFolders, configDir ?? "");
   if (readFolders === undefined || writeFolders === undefined) return undefined;
   if (typeof value.writeEnabled !== "boolean") return undefined;
   if (
@@ -296,7 +374,7 @@ function validateVaultEntry(
   ) return undefined;
 
   const accessMode = version >= 3 ? value.accessMode as AccessMode : "protected";
-  const managementPermissions = version === 4
+  const managementPermissions = version >= 4
     ? validateManagementPermissions(value.managementPermissions)
     : disabledManagementPermissions();
   if (managementPermissions === undefined) return undefined;
@@ -312,6 +390,7 @@ function validateVaultEntry(
     managementPermissions,
     vaultName: value.vaultName,
     vaultPath: normalize(value.vaultPath),
+    configDir,
     enabled: value.enabled,
     readMode: value.readMode,
     readFolders,
@@ -352,7 +431,12 @@ async function readSharedRoot(filePath: string): Promise<SharedSettingsFile | un
     if (!isRecord(parsed) || !hasExactKeys(parsed, ["version", "updatedAt", "vaults"])) {
       throw new Error("Il file condiviso non rispetta lo schema previsto.");
     }
-    if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4) {
+    if (
+      parsed.version !== 2 &&
+      parsed.version !== 3 &&
+      parsed.version !== 4 &&
+      parsed.version !== 5
+    ) {
       throw new Error(`Versione del file condiviso non supportata: ${String(parsed.version)}.`);
     }
     if (
@@ -372,7 +456,7 @@ async function readSharedRoot(filePath: string): Promise<SharedSettingsFile | un
       if (entry === undefined) throw new Error(`Configurazione non valida per il vault ${vaultId}.`);
       vaults[vaultId] = entry;
     }
-    return { version: 4, updatedAt: parsed.updatedAt, vaults };
+    return { version: 5, updatedAt: parsed.updatedAt, vaults };
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new Error("Il file condiviso contiene JSON non valido; non è stato sovrascritto.");
@@ -438,6 +522,9 @@ async function readLockOwnerToken(ownerPath: string): Promise<string> {
 async function acquireLock(
   lockPath: string,
   waitMs = LOCK_WAIT_MS,
+  retryDelay: (milliseconds: number) => Promise<void> = async (milliseconds) => {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+  },
 ): Promise<() => Promise<void>> {
   const startedAt = Date.now();
   const token = randomUUID();
@@ -495,7 +582,7 @@ async function acquireLock(
       } catch (lockError) {
         if (errorCode(lockError) !== "ENOENT") throw lockError;
       }
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await retryDelay(50);
     }
   }
 
@@ -590,13 +677,19 @@ export async function mergeVaultSettings(
   vaultId: string,
   vaultName: string,
   vaultPath: string,
-  settings: VaultBridgeSettings,
+  configDir: string,
+  requestedSettings: VaultBridgeSettings,
   options: MergeVaultSettingsOptions = {},
 ): Promise<MergeVaultSettingsResult> {
   if (!VAULT_ID.test(vaultId)) throw new Error("L'ID stabile del vault non è disponibile.");
   const normalizedName = vaultName.trim().normalize("NFC");
   if (!normalizedName) throw new Error("Il nome del vault non è disponibile.");
   const physicalVaultPath = await realpath(vaultPath);
+  const normalizedConfigDir = normalizeVaultConfigDir(configDir);
+  let settings = sanitizeVaultSettingsForConfigDir(
+    requestedSettings,
+    normalizedConfigDir,
+  );
   const lockWaitMs = options.testLockWaitMs ?? LOCK_WAIT_MS;
   if (!Number.isSafeInteger(lockWaitMs) || lockWaitMs < 1 || lockWaitMs > LOCK_WAIT_MS) {
     throw new Error("Il tempo di attesa del lock non è valido.");
@@ -605,6 +698,7 @@ export async function mergeVaultSettings(
   const release = await acquireLock(
     `${filePath}.lock`,
     lockWaitMs,
+    options.testLockRetryDelay,
   );
   let operationError: unknown;
   let result: MergeVaultSettingsResult | undefined;
@@ -612,6 +706,25 @@ export async function mergeVaultSettings(
   try {
     const existing = await readSharedRoot(filePath);
     const currentEntry = existing?.vaults[vaultId];
+    if (options.configDirMigrationOnly === true) {
+      if (currentEntry === undefined) {
+        throw new Error("La configurazione da migrare non esiste più.");
+      }
+      settings = sanitizeVaultSettingsForConfigDir(
+        {
+          accessMode: currentEntry.accessMode,
+          managementPermissions: copyManagementPermissions(
+            currentEntry.managementPermissions,
+          ),
+          enabled: currentEntry.enabled,
+          readMode: currentEntry.readMode,
+          readFolders: [...currentEntry.readFolders],
+          writeEnabled: currentEntry.writeEnabled,
+          writeFolders: [...currentEntry.writeFolders],
+        },
+        normalizedConfigDir,
+      );
+    }
     const anyManagementPermission =
       settings.managementPermissions.edit ||
       settings.managementPermissions.move ||
@@ -644,7 +757,7 @@ export async function mergeVaultSettings(
       );
     }
     const merged: SharedSettingsFile = {
-      version: 4,
+      version: 5,
       updatedAt: new Date().toISOString(),
       vaults: {
         ...(existing?.vaults ?? {}),
@@ -653,6 +766,7 @@ export async function mergeVaultSettings(
           managementPermissions: copyManagementPermissions(settings.managementPermissions),
           vaultName: normalizedName,
           vaultPath: physicalVaultPath,
+          configDir: normalizedConfigDir,
           enabled: settings.enabled,
           readMode: settings.readMode,
           readFolders: [...settings.readFolders],
@@ -673,6 +787,7 @@ export async function mergeVaultSettings(
         ) ||
         verifiedEntry.vaultName !== normalizedName ||
         verifiedEntry.vaultPath !== physicalVaultPath ||
+        verifiedEntry.configDir !== normalizedConfigDir ||
         verifiedEntry.enabled !== settings.enabled ||
         verifiedEntry.readMode !== settings.readMode ||
         verifiedEntry.writeEnabled !== settings.writeEnabled ||
@@ -694,7 +809,92 @@ export async function mergeVaultSettings(
       await options.testAfterWrite?.("primary");
       await verifyMerged();
     } catch (writeOrVerifyError) {
-      if (activeRevocationOrScopeChange(currentEntry, settings)) {
+      if (
+        currentEntry !== undefined &&
+        currentEntry.configDir !== normalizedConfigDir
+      ) {
+        // Recording a previously unknown configDir can turn a deny-all legacy
+        // entry back on, so it is not a monotonic revocation. Never reassert or
+        // roll back a stale snapshot over a concurrent valid policy change.
+        let latest: SharedSettingsFile | undefined;
+        let latestReadFailed = false;
+        try {
+          latest = await readSharedRoot(filePath);
+        } catch {
+          latestReadFailed = true;
+        }
+        if (!latestReadFailed && latest !== undefined) {
+          const latestEntry = latest.vaults[vaultId];
+          const concurrentState =
+            JSON.stringify(latest) !== JSON.stringify(merged);
+          const latestConfigMatches =
+            latestEntry?.configDir !== null &&
+            latestEntry?.configDir !== undefined &&
+            folderIsInside(latestEntry.configDir, normalizedConfigDir) &&
+            folderIsInside(normalizedConfigDir, latestEntry.configDir);
+          if (
+            concurrentState &&
+            (latestEntry === undefined ||
+              latestEntry.configDir === null ||
+              latestConfigMatches)
+          ) {
+            // A concurrent valid deletion, deny marker, or policy using the
+            // current live configDir is already authoritative. Preserve it.
+            throw writeOrVerifyError;
+          }
+
+          if (latestEntry !== undefined) {
+            const deniedAfterFailedMigration: SharedSettingsFile = {
+              ...latest,
+              updatedAt: new Date().toISOString(),
+              vaults: {
+                ...latest.vaults,
+                [vaultId]: { ...latestEntry, configDir: null },
+              },
+            };
+            let denyMarkerVerified = false;
+            try {
+              await writeJsonAtomically(filePath, deniedAfterFailedMigration);
+              const denied = await readSharedRoot(filePath);
+              denyMarkerVerified = denied?.vaults[vaultId]?.configDir === null;
+            } catch {
+              denyMarkerVerified = false;
+            }
+            if (denyMarkerVerified) {
+              throw new Error(
+                "Migrazione configDir non verificata: il vault è stato disabilitato in modo prudente e deve essere riconfigurato.",
+              );
+            }
+          }
+        } else if (!latestReadFailed) {
+          // File removal is already fail-closed and must not be undone.
+          throw writeOrVerifyError;
+        }
+
+        const quarantinePath = `${filePath}.revoked-${Date.now()}-${randomUUID()}.json`;
+        try {
+          await rename(filePath, quarantinePath);
+        } catch (quarantineError) {
+          if (errorCode(quarantineError) !== "ENOENT") {
+            throw new Error(
+              `Migrazione configDir non verificata e quarantena non riuscita: ${errorMessage(quarantineError)}`,
+            );
+          }
+        }
+        if (await readSharedRoot(filePath) !== undefined) {
+          throw new Error(
+            "Migrazione configDir non verificata: lo stato condiviso resta incerto.",
+          );
+        }
+        throw new Error(
+          `Migrazione configDir non verificata: la configurazione è stata disabilitata in modo prudente${
+            latestReadFailed ? ` e messa in quarantena in ${quarantinePath}` : ""
+          }.`,
+        );
+      }
+      if (
+        activeRevocationOrScopeChange(currentEntry, settings)
+      ) {
         try {
           // Never restore a more permissive policy after the user revoked or
           // narrowed access. Reassert the target once while the lock is held.
@@ -794,7 +994,7 @@ export async function mergeVaultSettings(
   } catch (releaseError) {
     if (operationError !== undefined) {
       throw new Error(
-        `${operationError instanceof Error ? operationError.message : String(operationError)} Inoltre il lock della configurazione non è stato rilasciato: ${
+        `${errorMessage(operationError)} Inoltre il lock della configurazione non è stato rilasciato: ${
           releaseError instanceof Error ? releaseError.message : String(releaseError)
         }`,
       );
@@ -809,7 +1009,10 @@ export async function mergeVaultSettings(
     };
   }
 
-  if (operationError !== undefined) throw operationError;
+  if (operationError !== undefined) {
+    if (operationError instanceof Error) throw operationError;
+    throw new Error(errorMessage(operationError));
+  }
   return result!;
 }
 
@@ -817,17 +1020,34 @@ export async function readVaultSettings(
   filePath: string,
   vaultId: string,
 ): Promise<VaultBridgeSettings | undefined> {
+  const state = await readVaultSettingsState(filePath, vaultId);
+  return state?.configDir === null ? undefined : state?.settings;
+}
+
+export interface VaultSettingsState {
+  readonly settings: VaultBridgeSettings;
+  /** Null identifies a legacy entry that is denied by the external bridge until migration. */
+  readonly configDir: string | null;
+}
+
+export async function readVaultSettingsState(
+  filePath: string,
+  vaultId: string,
+): Promise<VaultSettingsState | undefined> {
   const root = await readSharedRoot(filePath);
   const entry = root?.vaults[vaultId];
   if (entry === undefined) return undefined;
   return {
-    accessMode: entry.accessMode,
-    managementPermissions: copyManagementPermissions(entry.managementPermissions),
-    enabled: entry.enabled,
-    readMode: entry.readMode,
-    readFolders: [...entry.readFolders],
-    writeEnabled: entry.writeEnabled,
-    writeFolders: [...entry.writeFolders],
+    configDir: entry.configDir,
+    settings: {
+      accessMode: entry.accessMode,
+      managementPermissions: copyManagementPermissions(entry.managementPermissions),
+      enabled: entry.enabled,
+      readMode: entry.readMode,
+      readFolders: [...entry.readFolders],
+      writeEnabled: entry.writeEnabled,
+      writeFolders: [...entry.writeFolders],
+    },
   };
 }
 
@@ -935,7 +1155,7 @@ function addCandidate(
   source: string,
 ): void {
   const trimmed = candidatePath?.trim().replace(/^"|"$/g, "");
-  if (!trimmed || !isAbsolute(trimmed) || /[\u0000-\u001f\u007f]/u.test(trimmed)) return;
+  if (!trimmed || !isAbsolute(trimmed) || hasControlCharacter(trimmed)) return;
   target.push({ path: trimmed, source });
 }
 
@@ -986,76 +1206,29 @@ function possibleCliPaths(
   });
 }
 
-function runVersion(executable: string): Promise<{ ok: boolean; missing: boolean; output: string }> {
-  return new Promise((resolve) => {
-    execFile(
-      executable,
-      ["version"],
-      { timeout: 6_000, windowsHide: true, maxBuffer: 64 * 1024 },
-      (error, stdout, stderr) => {
-        const output = `${stdout}\n${stderr}`.trim().slice(0, 500);
-        resolve({
-          ok: error === null && !cliReportsDisabled(output) && cliReportsVersion(output),
-          missing: errorCode(error) === "ENOENT",
-          output: output || (error ? error.message : "Versione non riportata"),
-        });
-      },
-    );
-  });
-}
-
-export async function diagnoseCli(
+export async function scanCliCandidates(
   platform: DesktopPlatform,
   env: NodeJS.ProcessEnv = process.env,
   home: string = homedir(),
-): Promise<CliDiagnostic> {
+): Promise<CliCandidateScan> {
   const possible = possibleCliPaths(platform, env, home);
   const candidates: CliCandidate[] = [];
-  const failures: string[] = [];
-  let firstExisting: string | undefined;
+  let firstCandidate: string | undefined;
   for (const candidate of possible) {
-    let regularFile = false;
+    let exists = false;
     try {
-      regularFile = (await stat(candidate.path)).isFile();
+      const candidateStat = await lstat(candidate.path);
+      exists = candidateStat.isFile() || candidateStat.isSymbolicLink();
     } catch {
-      regularFile = false;
+      exists = false;
     }
-    if (!regularFile) {
-      candidates.push({ ...candidate, exists: false });
-      continue;
-    }
-    const result = await runVersion(candidate.path);
-    candidates.push({ ...candidate, exists: true });
-    if (firstExisting === undefined) firstExisting = candidate.path;
-    if (result.ok) {
-      return {
-        state: "ready",
-        checkedAt: new Date().toISOString(),
-        executable: candidate.path,
-        version: result.output,
-        detail: "Un candidato CLI ha risposto con un formato di versione Obsidian riconosciuto.",
-        candidates,
-      };
-    }
-    if (!result.missing) failures.push(`${candidate.path}: ${result.output}`);
-  }
-
-  if (firstExisting === undefined) {
-    return {
-      state: "missing",
-      checkedAt: new Date().toISOString(),
-      detail: "CLI non trovata. Abilitala in Impostazioni → Generale → Interfaccia a riga di comando.",
-      candidates,
-    };
+    candidates.push({ ...candidate, exists });
+    if (exists && firstCandidate === undefined) firstCandidate = candidate.path;
   }
 
   return {
-    state: "error",
     checkedAt: new Date().toISOString(),
-    executable: firstExisting,
-    detail:
-      "Eseguibile trovato, ma il comando version non ha risposto. Lascia Obsidian aperto e riabilita la CLI dalle impostazioni generali. " +
-      failures.join(" | "),
+    ...(firstCandidate === undefined ? {} : { candidate: firstCandidate }),
     candidates,
   };
 }

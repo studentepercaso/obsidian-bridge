@@ -107,12 +107,13 @@ describe("managed MCP stdio server", () => {
     writeFileSync(
       settingsPath,
       `${JSON.stringify({
-        version: 4,
+        version: 5,
         updatedAt: new Date().toISOString(),
         vaults: {
           "0123456789abcdef": {
             vaultName: "Test Vault",
             vaultPath: directory,
+            configDir: ".obsidian",
             enabled: true,
             readMode: "all",
             readFolders: [],

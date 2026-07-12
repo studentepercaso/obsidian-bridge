@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 
+import {
+  hasControlCharacter,
+  hasUnsafeContentControlCharacter,
+} from "./text-validation.js";
+
 export const MANAGEMENT_REQUEST_VERSION = 1 as const;
 export const MAX_MANAGEMENT_REQUEST_BYTES = 1024 * 1024;
 export const MAX_MANAGEMENT_REQUEST_TTL_MS = 15 * 60 * 1000;
@@ -12,8 +17,6 @@ const TOKEN = /^[0-9a-f]{64}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const VAULT_ID = /^[0-9a-f]{16}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/u;
-const CONTENT_CONTROL_CHARACTER = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 const RESERVED_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 const BASE_KEYS = new Set([
@@ -141,7 +144,7 @@ export function isVisibleMarkdownPath(value: unknown): value is string {
     value.length < 4 ||
     value.length > 1_024 ||
     Buffer.byteLength(value, "utf8") > 4_096 ||
-    CONTROL_CHARACTER.test(value) ||
+    hasControlCharacter(value) ||
     value.includes("\\") ||
     value.startsWith("/") ||
     /^[A-Za-z]:/u.test(value) ||
@@ -192,7 +195,7 @@ function parseFrontmatterKey(value: unknown, label: string): string {
     value.length > 128 ||
     value !== value.trim() ||
     value !== value.normalize("NFC") ||
-    CONTROL_CHARACTER.test(value) ||
+    hasControlCharacter(value) ||
     RESERVED_OBJECT_KEYS.has(value)
   ) {
     reject(`${label} is invalid`);
@@ -207,7 +210,7 @@ function parseFrontmatterScalar(value: unknown, label: string): FrontmatterScala
     return value;
   }
   if (typeof value === "string") {
-    if (value.length > 32_768 || CONTENT_CONTROL_CHARACTER.test(value)) {
+    if (value.length > 32_768 || hasUnsafeContentControlCharacter(value)) {
       reject(`${label} is invalid`);
     }
     return value;
@@ -230,7 +233,7 @@ function parseReplacePayload(value: unknown): ReplacePayload {
   if (
     typeof value.content !== "string" ||
     Buffer.byteLength(value.content, "utf8") > MAX_MANAGEMENT_CONTENT_BYTES ||
-    CONTENT_CONTROL_CHARACTER.test(value.content)
+    hasUnsafeContentControlCharacter(value.content)
   ) {
     reject("replace content is invalid");
   }
@@ -369,7 +372,7 @@ export function parseManagementRequest(input: string | Uint8Array): ManagementRe
 }
 
 function absoluteDataDirectory(dataDirectory: string): string {
-  if (!path.isAbsolute(dataDirectory) || CONTROL_CHARACTER.test(dataDirectory)) {
+  if (!path.isAbsolute(dataDirectory) || hasControlCharacter(dataDirectory)) {
     throw new ManagementProtocolError(
       "DATA_DIRECTORY_INVALID",
       "management data directory must be an absolute path",
