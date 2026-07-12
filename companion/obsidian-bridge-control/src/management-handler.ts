@@ -15,7 +15,6 @@ import path from "node:path";
 import {
   MANAGEMENT_REQUEST_VERSION,
   MAX_MANAGEMENT_REQUEST_BYTES,
-  ManagementProtocolError,
   managementProcessingDirectory,
   managementRequestPath,
   managementRequestsDirectory,
@@ -256,7 +255,8 @@ function targetPath(request: ManagementRequest): string | undefined {
 }
 
 function cloneFrontmatterValue(value: FrontmatterValue): FrontmatterValue {
-  return Array.isArray(value) ? [...value] : value;
+  if (value === null || typeof value !== "object") return value;
+  return [...value];
 }
 
 function frontmatterValueEquals(actual: unknown, expected: FrontmatterValue): boolean {

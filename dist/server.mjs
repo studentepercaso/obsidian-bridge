@@ -3229,8 +3229,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path10) {
-      let input = path10;
+    function removeDotSegments(path11) {
+      let input = path11;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3482,8 +3482,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path10, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path10 && path10 !== "/" ? path10 : void 0;
+        const [path11, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path11 && path11 !== "/" ? path11 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6890,7 +6890,7 @@ var require_dist = __commonJS({
 });
 
 // src/server.ts
-import path9 from "node:path";
+import path10 from "node:path";
 import { fileURLToPath } from "node:url";
 
 // node_modules/zod/v3/helpers/util.js
@@ -7252,8 +7252,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path10, errorMaps, issueData } = params;
-  const fullPath = [...path10, ...issueData.path || []];
+  const { data, path: path11, errorMaps, issueData } = params;
+  const fullPath = [...path11, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7368,11 +7368,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path10, key) {
+  constructor(parent, value, path11, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path10;
+    this._path = path11;
     this._key = key;
   }
   get path() {
@@ -11292,10 +11292,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path10) {
-  if (!path10)
+function getElementAtPath(obj, path11) {
+  if (!path11)
     return obj;
-  return path10.reduce((acc, key) => acc?.[key], obj);
+  return path11.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11704,11 +11704,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path10, issues) {
+function prefixIssues(path11, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path10);
+    iss.path.unshift(path11);
     return iss;
   });
 }
@@ -11855,16 +11855,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path10 = []) => {
+  const processError = (error52, path11 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path10, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path11, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else {
-        const fullpath = [...path10, ...issue2.path];
+        const fullpath = [...path11, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -11891,17 +11891,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path10 = []) => {
+  const processError = (error52, path11 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path10, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path11, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path11, ...issue2.path]);
       } else {
-        const fullpath = [...path10, ...issue2.path];
+        const fullpath = [...path11, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -11933,8 +11933,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path10 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path10) {
+  const path11 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path11) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -25059,13 +25059,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path10 = ref.slice(1).split("/").filter(Boolean);
-  if (path10.length === 0) {
+  const path11 = ref.slice(1).split("/").filter(Boolean);
+  if (path11.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path10[0] === defsKey) {
-    const key = path10[1];
+  if (path11[0] === defsKey) {
+    const key = path11[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -31633,15 +31633,21 @@ function createPathPolicy(options = {}, deniedFolders = []) {
   const isLegacyArguments = Array.isArray(options) || options === null;
   const allowedInput = isLegacyArguments ? options : options.allowedFolders;
   const deniedInput = isLegacyArguments ? deniedFolders : options.deniedFolders ?? [];
+  const caseInsensitiveDeniedInput = isLegacyArguments ? [] : options.caseInsensitiveDeniedFolders ?? [];
   const caseSensitive = isLegacyArguments ? defaultCaseSensitivity() : options.caseSensitive ?? defaultCaseSensitivity();
   const allowed = allowedInput?.map(normalizeRelativeFolder) ?? [];
-  const denied = [
-    ...DEFAULT_DENIED_FOLDERS,
-    ...deniedInput
-  ].map(normalizeDeniedFolder);
+  const denied = [...DEFAULT_DENIED_FOLDERS, ...deniedInput].map(
+    normalizeDeniedFolder
+  );
+  const caseInsensitiveDenied = caseInsensitiveDeniedInput.map(
+    normalizeDeniedFolder
+  );
   return Object.freeze({
     allowedFolders: allowed.length > 0 ? Object.freeze(collapseFolders(allowed, caseSensitive)) : null,
     deniedFolders: Object.freeze(collapseFolders(denied, caseSensitive)),
+    caseInsensitiveDeniedFolders: Object.freeze(
+      collapseFolders(caseInsensitiveDenied, false)
+    ),
     caseSensitive
   });
 }
@@ -31652,15 +31658,21 @@ function createWritablePathPolicy(options = {}) {
     ...DEFAULT_DENIED_FOLDERS,
     ...options.deniedFolders ?? []
   ].map(normalizeDeniedFolder);
+  const caseInsensitiveDenied = (options.caseInsensitiveDeniedFolders ?? []).map(normalizeDeniedFolder);
   return Object.freeze({
     allowedFolders: Object.freeze(collapseFolders(allowed, caseSensitive)),
     deniedFolders: Object.freeze(collapseFolders(denied, caseSensitive)),
+    caseInsensitiveDeniedFolders: Object.freeze(
+      collapseFolders(caseInsensitiveDenied, false)
+    ),
     caseSensitive
   });
 }
 function assertNotDenied(candidate, policy) {
   if (policy.deniedFolders.some(
     (folder) => containsPath(folder, candidate, policy.caseSensitive)
+  ) || policy.caseInsensitiveDeniedFolders.some(
+    (folder) => containsPath(folder, candidate, false)
   )) {
     throw new PathPolicyError("path is inside a denied folder");
   }
@@ -34875,7 +34887,7 @@ function createManagementToolHandlers(runtime) {
 // src/shared-settings.ts
 import { lstat as lstat6, open as open5 } from "node:fs/promises";
 import { constants as constants4 } from "node:fs";
-import { isAbsolute } from "node:path";
+import path9, { isAbsolute } from "node:path";
 var MAX_SETTINGS_BYTES = 65536;
 var VaultName2 = external_exports.string().min(1).max(256).refine((value) => value === value.trim().normalize("NFC"), {
   message: "vault name must be trimmed and NFC-normalized"
@@ -34889,6 +34901,32 @@ var VaultPath = external_exports.string().min(1).max(4096).refine((value) => isA
 }).refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), {
   message: "vault path contains control characters"
 });
+function normalizeVaultConfigDir(value) {
+  const normalized = value.trim().replaceAll("\\", "/").normalize("NFC");
+  if (normalized.length === 0 || normalized.length > 1024) {
+    throw new Error("configDir must contain between 1 and 1024 characters");
+  }
+  if (path9.posix.isAbsolute(normalized) || path9.win32.isAbsolute(value) || /^[a-zA-Z]:/u.test(normalized) || /[\u0000-\u001f\u007f]/u.test(normalized)) {
+    throw new Error("configDir must be a vault-relative folder");
+  }
+  const segments = normalized.split("/");
+  if (segments.some(
+    (segment) => segment.length === 0 || segment === "." || segment === ".."
+  )) {
+    throw new Error("configDir contains invalid path segments");
+  }
+  return segments.join("/");
+}
+var VaultConfigDir = external_exports.string().min(1).max(1024).refine(
+  (value) => {
+    try {
+      return normalizeVaultConfigDir(value) === value;
+    } catch {
+      return false;
+    }
+  },
+  { message: "configDir must be a normalized vault-relative folder" }
+);
 var LegacyVaultSettingsSchema = external_exports.object({
   vaultName: VaultName2,
   vaultPath: VaultPath,
@@ -34906,9 +34944,32 @@ var ManagementPermissionsSchema = external_exports.object({
   move: external_exports.boolean(),
   trash: external_exports.boolean()
 }).strict();
-var VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
+var Version4VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
   accessMode: external_exports.enum(["protected", "full", "management"]),
   managementPermissions: ManagementPermissionsSchema
+}).strict().superRefine((value, context) => {
+  const permissions = Object.values(value.managementPermissions);
+  const hasManagementPermission = permissions.some(Boolean);
+  if (value.accessMode === "management" && !hasManagementPermission) {
+    context.addIssue({
+      code: "custom",
+      path: ["managementPermissions"],
+      message: "management mode requires at least one management permission"
+    });
+  }
+  if (value.accessMode !== "management" && hasManagementPermission) {
+    context.addIssue({
+      code: "custom",
+      path: ["managementPermissions"],
+      message: "management permissions must be disabled outside management mode"
+    });
+  }
+});
+var VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
+  accessMode: external_exports.enum(["protected", "full", "management"]),
+  managementPermissions: ManagementPermissionsSchema,
+  /** Null is a deny-all marker for a legacy vault not yet migrated by Obsidian. */
+  configDir: VaultConfigDir.nullable()
 }).strict().superRefine((value, context) => {
   const permissions = Object.values(value.managementPermissions);
   const hasManagementPermission = permissions.some(Boolean);
@@ -34958,8 +35019,21 @@ var Version3SharedSettingsSchema = external_exports.object({
     });
   }
 });
-var SharedSettingsSchema = external_exports.object({
+var Version4SharedSettingsSchema = external_exports.object({
   version: external_exports.literal(4),
+  ...SharedSettingsFields,
+  vaults: external_exports.record(VaultId, Version4VaultSettingsSchema)
+}).strict().superRefine((value, context) => {
+  if (Object.keys(value.vaults).length > 256) {
+    context.addIssue({
+      code: "custom",
+      path: ["vaults"],
+      message: "at most 256 vault entries are allowed"
+    });
+  }
+});
+var SharedSettingsSchema = external_exports.object({
+  version: external_exports.literal(5),
   ...SharedSettingsFields,
   vaults: external_exports.record(VaultId, VaultSettingsSchema)
 }).strict().superRefine((value, context) => {
@@ -34986,12 +35060,18 @@ var NO_MANAGEMENT_PERMISSIONS = Object.freeze({
 function validatePolicyFolders(settings) {
   try {
     for (const entry of Object.values(settings.vaults)) {
+      const configDir = entry.configDir;
       createWritablePathPolicy({ allowedFolders: entry.readFolders });
       createWritablePathPolicy({ allowedFolders: entry.writeFolders });
       for (const folders of [entry.readFolders, entry.writeFolders]) {
-        const normalized = folders.map((folder) => normalizeRelativeFolder(folder));
+        const normalized = folders.map(
+          (folder) => normalizeRelativeFolder(folder)
+        );
         if (normalized.some((folder, index) => folder !== folders[index]) || new Set(normalized).size !== normalized.length) {
           throw new Error("policy folders must be normalized and unique");
+        }
+        if (configDir !== null && normalized.some((folder) => vaultFoldersIntersect(folder, configDir))) {
+          throw new Error("policy folders must not intersect configDir");
         }
       }
     }
@@ -35000,6 +35080,18 @@ function validatePolicyFolders(settings) {
       cause: error51
     });
   }
+}
+function comparisonKey3(value, caseSensitive) {
+  const normalized = value.normalize("NFC");
+  return caseSensitive ? normalized : normalized.toLocaleLowerCase("en-US");
+}
+function folderContains(parent, candidate, caseSensitive) {
+  const parentKey = comparisonKey3(parent, caseSensitive);
+  const candidateKey = comparisonKey3(candidate, caseSensitive);
+  return candidateKey === parentKey || candidateKey.startsWith(`${parentKey}/`);
+}
+function vaultFoldersIntersect(left, right) {
+  return folderContains(left, right, false) || folderContains(right, left, false);
 }
 async function readSharedSettings(settingsPath) {
   try {
@@ -35065,9 +35157,10 @@ async function readSharedSettings(settingsPath) {
       });
     }
     const current = SharedSettingsSchema.safeParse(parsed);
-    const version3 = current.success ? void 0 : Version3SharedSettingsSchema.safeParse(parsed);
-    const legacy = current.success || version3?.success ? void 0 : LegacySharedSettingsSchema.safeParse(parsed);
-    if (!current.success && (version3 === void 0 || !version3.success) && (legacy === void 0 || !legacy.success)) {
+    const version4 = current.success ? void 0 : Version4SharedSettingsSchema.safeParse(parsed);
+    const version3 = current.success || version4?.success ? void 0 : Version3SharedSettingsSchema.safeParse(parsed);
+    const legacy = current.success || version4?.success || version3?.success ? void 0 : LegacySharedSettingsSchema.safeParse(parsed);
+    if (!current.success && (version4 === void 0 || !version4.success) && (version3 === void 0 || !version3.success) && (legacy === void 0 || !legacy.success)) {
       throw new SharedSettingsError("shared settings do not match schema", {
         cause: current.error
       });
@@ -35075,9 +35168,25 @@ async function readSharedSettings(settingsPath) {
     let settings;
     if (current.success) {
       settings = current.data;
+    } else if (version4?.success) {
+      settings = {
+        version: 5,
+        updatedAt: version4.data.updatedAt,
+        vaults: Object.fromEntries(
+          Object.entries(version4.data.vaults).map(([vaultId, entry]) => [
+            vaultId,
+            {
+              ...entry,
+              // The external bridge must not guess a custom Obsidian config
+              // directory. Null remains deny-all until that vault opens.
+              configDir: null
+            }
+          ])
+        )
+      };
     } else if (version3?.success) {
       settings = {
-        version: 4,
+        version: 5,
         updatedAt: version3.data.updatedAt,
         vaults: Object.fromEntries(
           Object.entries(version3.data.vaults).map(([vaultId, entry]) => [
@@ -35087,14 +35196,15 @@ async function readSharedSettings(settingsPath) {
               // The version-3 acknowledgement explicitly excluded edit,
               // move, and trash. Preserve full-vault create/append access but
               // never infer the new management authority during migration.
-              managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS }
+              managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS },
+              configDir: null
             }
           ])
         )
       };
     } else if (legacy?.success) {
       settings = {
-        version: 4,
+        version: 5,
         updatedAt: legacy.data.updatedAt,
         vaults: Object.fromEntries(
           Object.entries(legacy.data.vaults).map(([vaultId, entry]) => [
@@ -35102,7 +35212,8 @@ async function readSharedSettings(settingsPath) {
             {
               ...entry,
               accessMode: "protected",
-              managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS }
+              managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS },
+              configDir: null
             }
           ])
         )
@@ -35125,22 +35236,44 @@ function denyPolicy(deniedFolders) {
   return createWritablePathPolicy({ allowedFolders: [], deniedFolders });
 }
 function accessFromEntry(vaultId, entry, deniedFolders) {
+  if (entry.configDir === null) {
+    return Object.freeze({
+      readPolicy: denyPolicy(deniedFolders),
+      writablePolicy: denyPolicy(deniedFolders),
+      writeEnabled: false,
+      accessMode: "protected",
+      managementPermissions: NO_MANAGEMENT_PERMISSIONS,
+      vaultSelector: vaultId,
+      vaultName: entry.vaultName,
+      vaultPath: entry.vaultPath,
+      source: "settings"
+    });
+  }
+  const vaultDeniedFolders = [...deniedFolders];
+  const configDirectoryDeny = [entry.configDir];
   const accessMode = entry.enabled ? entry.accessMode : "protected";
   const wholeVaultAccess = accessMode === "full" || accessMode === "management";
-  const readPolicy = wholeVaultAccess || entry.enabled && entry.readMode === "all" ? createPathPolicy({ allowedFolders: null, deniedFolders }) : entry.enabled && entry.readMode === "folders" ? createWritablePathPolicy({
+  const readPolicy = wholeVaultAccess || entry.enabled && entry.readMode === "all" ? createPathPolicy({
+    allowedFolders: null,
+    deniedFolders: vaultDeniedFolders,
+    caseInsensitiveDeniedFolders: configDirectoryDeny
+  }) : entry.enabled && entry.readMode === "folders" ? createWritablePathPolicy({
     allowedFolders: entry.readFolders,
-    deniedFolders
-  }) : denyPolicy(deniedFolders);
+    deniedFolders: vaultDeniedFolders,
+    caseInsensitiveDeniedFolders: configDirectoryDeny
+  }) : denyPolicy(vaultDeniedFolders);
   const writeEnabled = wholeVaultAccess || entry.enabled && entry.writeEnabled;
   const writablePolicy = wholeVaultAccess ? createPathPolicy({
     allowedFolders: null,
-    deniedFolders,
+    deniedFolders: vaultDeniedFolders,
+    caseInsensitiveDeniedFolders: configDirectoryDeny,
     caseSensitive: readPolicy.caseSensitive
   }) : writeEnabled ? createWritablePathPolicy({
     allowedFolders: entry.writeFolders,
-    deniedFolders,
+    deniedFolders: vaultDeniedFolders,
+    caseInsensitiveDeniedFolders: configDirectoryDeny,
     caseSensitive: readPolicy.caseSensitive
-  }) : denyPolicy(deniedFolders);
+  }) : denyPolicy(vaultDeniedFolders);
   const managementPermissions = accessMode === "management" ? Object.freeze({ ...entry.managementPermissions }) : NO_MANAGEMENT_PERMISSIONS;
   return Object.freeze({
     readPolicy,
@@ -35220,7 +35353,9 @@ function createVaultAccessResolver(options) {
 }
 function createConfigAccessResolver(config2) {
   if (config2.settingsPath === void 0) {
-    throw new Error("BridgeConfig.settingsPath is required for shared settings");
+    throw new Error(
+      "BridgeConfig.settingsPath is required for shared settings"
+    );
   }
   return createVaultAccessResolver({
     settingsPath: config2.settingsPath,
@@ -35234,7 +35369,7 @@ function createConfigAccessResolver(config2) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.5.3";
+var SERVER_VERSION = "0.5.4";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
@@ -35995,7 +36130,7 @@ async function main() {
   await server.connect(new StdioServerTransport());
 }
 function isMainModule(moduleUrl = import.meta.url, entryPoint = process.argv[1]) {
-  return entryPoint !== void 0 && fileURLToPath(moduleUrl) === path9.resolve(entryPoint);
+  return entryPoint !== void 0 && fileURLToPath(moduleUrl) === path10.resolve(entryPoint);
 }
 if (isMainModule()) {
   main().catch((error51) => {

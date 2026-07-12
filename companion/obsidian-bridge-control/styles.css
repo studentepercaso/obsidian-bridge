@@ -410,7 +410,7 @@
   cursor: pointer;
 }
 
-.bridge-control-folder-picker__check:has(input:disabled) {
+.bridge-control-folder-picker__check.is-disabled {
   cursor: default;
   color: var(--text-muted);
 }

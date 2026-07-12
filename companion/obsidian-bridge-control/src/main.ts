@@ -18,18 +18,20 @@ import {
   stringifyYaml,
 } from "obsidian";
 import {
-  CliDiagnostic,
+  CliCandidateScan,
   DesktopPlatform,
   ManagementPermissions,
   ReadMode,
   VaultBridgeSettings,
   VaultIdentity,
-  diagnoseCli,
+  scanCliCandidates,
   disabledManagementPermissions,
   mergeVaultSettings,
+  normalizeVaultConfigDir,
   parseFolderList,
-  readVaultSettings,
+  readVaultSettingsState,
   resolveVaultIdentity,
+  sanitizeVaultSettingsForConfigDir,
   sharedSettingsPath,
 } from "./shared-settings";
 import {
@@ -37,7 +39,7 @@ import {
   collapseFolderSelection,
   coveringParent,
   folderIsInside,
-  hiddenFolder,
+  restrictedFolder,
 } from "./folder-selection";
 import {
   AuditDiagnosticsResult,
@@ -46,6 +48,7 @@ import {
 } from "./audit-diagnostics";
 import { coerceProtectedLocalSettings } from "./local-settings";
 import { runConfirmedActivation } from "./activation-flow";
+import { authorizeManagementConfigDirectory } from "./management-authorization";
 import {
   ManagementRequestHandler,
   type ManagementAuthorizationDecision,
@@ -101,6 +104,12 @@ function copySettings(settings: VaultBridgeSettings): VaultBridgeSettings {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "Errore non specificato.";
 }
 
 function parsedFrontMatter(content: string): Record<string, unknown> {
@@ -202,7 +211,11 @@ class FolderAccessModal extends Modal {
     const folders = this.app.vault
       .getAllFolders(false)
       .map((folder) => folder.path)
-      .filter((path) => path.length > 0 && !hiddenFolder(path))
+      .filter(
+        (path) =>
+          path.length > 0 &&
+          !restrictedFolder(path, this.app.vault.configDir),
+      )
       .sort((left, right) => left.localeCompare(right, "it", { numeric: true, sensitivity: "base" }));
 
     const searchHost = this.contentEl.createDiv({ cls: "bridge-control-folder-picker__search" });
@@ -241,6 +254,7 @@ class FolderAccessModal extends Modal {
         readInput.type = "checkbox";
         readInput.checked = this.readable.has(folder) || readParent !== undefined;
         readInput.disabled = readParent !== undefined;
+        if (readInput.disabled) readLabel.addClass("is-disabled");
         readInput.setAttr("aria-label", `Consenti lettura di ${folder}`);
         readLabel.createSpan({ text: readParent ? "Inclusa" : "Leggi" });
         if (readParent) readLabel.setAttr("title", `Inclusa da ${readParent}`);
@@ -263,6 +277,7 @@ class FolderAccessModal extends Modal {
         writeInput.type = "checkbox";
         writeInput.checked = this.writable.has(folder) || writeParent !== undefined;
         writeInput.disabled = writeParent !== undefined;
+        if (writeInput.disabled) writeLabel.addClass("is-disabled");
         writeInput.setAttr("aria-label", `Consenti scrittura in ${folder}`);
         writeLabel.createSpan({ text: writeParent ? "Inclusa" : "Scrivi" });
         if (writeParent) writeLabel.setAttr("title", `Inclusa da ${writeParent}`);
@@ -366,7 +381,7 @@ class AutonomousAccessConfirmationModal extends Modal {
     checkbox.addEventListener("change", () => {
       confirm.disabled = !checkbox.checked;
     });
-    confirm.addEventListener("click", async () => {
+    const activate = async (): Promise<void> => {
       confirm.disabled = true;
       cancel.disabled = true;
       confirm.setText("Attivazione…");
@@ -385,9 +400,12 @@ class AutonomousAccessConfirmationModal extends Modal {
       }
       if (outcome.uiError !== undefined) {
         new Notice(
-          `Accesso autonomo attivato e verificato, ma il pannello non è stato aggiornato. Chiudi e riapri le impostazioni. Dettaglio: ${outcome.uiError instanceof Error ? outcome.uiError.message : String(outcome.uiError)}`,
+          `Accesso autonomo attivato e verificato, ma il pannello non è stato aggiornato. Chiudi e riapri le impostazioni. Dettaglio: ${errorMessage(outcome.uiError)}`,
         );
       }
+    };
+    confirm.addEventListener("click", () => {
+      void activate();
     });
   }
 
@@ -492,7 +510,7 @@ class ManagementAccessConfirmationModal extends Modal {
       cls: "mod-warning",
     });
     syncConfirm();
-    confirm.addEventListener("click", async () => {
+    const activate = async (): Promise<void> => {
       if (confirm === undefined) return;
       confirm.disabled = true;
       cancel.disabled = true;
@@ -516,9 +534,12 @@ class ManagementAccessConfirmationModal extends Modal {
       }
       if (outcome.uiError !== undefined) {
         new Notice(
-          `Gestione completa attivata e verificata, ma il pannello non è stato aggiornato. Chiudi e riapri le impostazioni. Dettaglio: ${outcome.uiError instanceof Error ? outcome.uiError.message : String(outcome.uiError)}`,
+          `Gestione completa attivata e verificata, ma il pannello non è stato aggiornato. Chiudi e riapri le impostazioni. Dettaglio: ${errorMessage(outcome.uiError)}`,
         );
       }
+    };
+    confirm.addEventListener("click", () => {
+      void activate();
     });
   }
 
@@ -531,7 +552,7 @@ export default class BridgeControlPlugin extends Plugin {
   settings: VaultBridgeSettings = copySettings(DEFAULT_SETTINGS);
   sharedPath = "";
   verification: VerificationState | undefined;
-  cliDiagnostic: CliDiagnostic | undefined;
+  cliCandidateScan: CliCandidateScan | undefined;
   auditDiagnostics: AuditDiagnosticsResult | undefined;
   identity: VaultIdentity | undefined;
   private reviewedAuditChangeIds = new Set<string>();
@@ -610,15 +631,40 @@ export default class BridgeControlPlugin extends Plugin {
         this.app.vault.getName(),
         this.vaultBasePath(),
       );
-      const shared = await readVaultSettings(this.sharedPath, this.identity.id);
-      if (shared !== undefined) {
+      const sharedState = await readVaultSettingsState(
+        this.sharedPath,
+        this.identity.id,
+      );
+      if (sharedState !== undefined) {
+        const configDir = normalizeVaultConfigDir(this.app.vault.configDir);
+        const sanitized = sanitizeVaultSettingsForConfigDir(
+          sharedState.settings,
+          configDir,
+        );
+        const scopeNarrowed =
+          JSON.stringify(sanitized) !== JSON.stringify(sharedState.settings);
+        const requiresMigration =
+          sharedState.configDir !== configDir || scopeNarrowed;
+        const shared = requiresMigration
+          ? (await mergeVaultSettings(
+              this.sharedPath,
+              this.identity.id,
+              this.identity.name,
+              this.identity.path,
+              configDir,
+              sharedState.settings,
+              { configDirMigrationOnly: true },
+            )).settings
+          : sharedState.settings;
         this.settings = shared;
         this.verification = {
           ok: true,
           at: new Date().toISOString(),
-          message: "Configurazione condivisa caricata.",
+          message: requiresMigration
+            ? "Configurazione condivisa migrata al percorso di configurazione reale del vault."
+            : "Configurazione condivisa caricata.",
         };
-        return shouldOpenPanel;
+        return shouldOpenPanel || scopeNarrowed;
       }
       this.settings = localSettings;
       this.verification = {
@@ -742,8 +788,18 @@ export default class BridgeControlPlugin extends Plugin {
         return deny("VAULT_IDENTITY_CHANGED");
       }
 
-      const current = await readVaultSettings(this.sharedPath, currentIdentity.id);
-      if (current === undefined) return deny("MANAGEMENT_CONFIGURATION_MISSING");
+      const currentState = await readVaultSettingsState(
+        this.sharedPath,
+        currentIdentity.id,
+      );
+      if (currentState === undefined) return deny("MANAGEMENT_CONFIGURATION_MISSING");
+      const configAuthorization = authorizeManagementConfigDirectory(
+        request,
+        currentState.configDir,
+        this.app.vault.configDir,
+      );
+      if (!configAuthorization.allowed) return deny(configAuthorization.errorCode);
+      const current = currentState.settings;
       if (!current.enabled) return deny("BRIDGE_DISABLED");
       if (current.accessMode !== "management") {
         return deny("MANAGEMENT_ACCESS_REVOKED");
@@ -846,6 +902,7 @@ export default class BridgeControlPlugin extends Plugin {
       identity.id,
       identity.name,
       identity.path,
+      this.app.vault.configDir,
       normalized,
       options,
     );
@@ -900,9 +957,25 @@ export default class BridgeControlPlugin extends Plugin {
     }
   }
 
-  async refreshCliDiagnostic(): Promise<CliDiagnostic> {
-    this.cliDiagnostic = await diagnoseCli(currentPlatform());
-    return this.cliDiagnostic;
+  managementHandlerStatus(): Readonly<{ registered: boolean; detail: string }> {
+    if (this.managementHandler !== undefined) {
+      return {
+        registered: true,
+        detail:
+          "Handler Bridge Control registrato in Obsidian. La verifica completa del collegamento viene eseguita dal Bridge quando serve.",
+      };
+    }
+    return {
+      registered: false,
+      detail:
+        this.managementUnavailableReason ??
+        "Handler Bridge Control non disponibile. Riavvia Obsidian e controlla nuovamente questo pannello.",
+    };
+  }
+
+  async refreshCliCandidateScan(): Promise<CliCandidateScan> {
+    this.cliCandidateScan = await scanCliCandidates(currentPlatform());
+    return this.cliCandidateScan;
   }
 
   async refreshAuditDiagnostics(): Promise<AuditDiagnosticsResult> {
@@ -1008,8 +1081,8 @@ function renderControlPanel(
   const validateDraft = (): DraftValidation => {
     const errors: string[] = [];
     const warnings: string[] = [];
-    const readFolders = parseFolderList(readFoldersRaw);
-    const writeFolders = parseFolderList(writeFoldersRaw);
+    const readFolders = parseFolderList(readFoldersRaw, plugin.app.vault.configDir);
+    const writeFolders = parseFolderList(writeFoldersRaw, plugin.app.vault.configDir);
     const anyManagementPermission =
       draft.managementPermissions.edit ||
       draft.managementPermissions.move ||
@@ -1098,11 +1171,11 @@ function renderControlPanel(
     const grid = statusCard.createDiv({ cls: "bridge-control__status-grid" });
     addStatusItem(grid, "Lettura", describeReading({
       ...draft,
-      readFolders: parseFolderList(readFoldersRaw).folders,
+      readFolders: parseFolderList(readFoldersRaw, plugin.app.vault.configDir).folders,
     }));
     addStatusItem(grid, "Creazione e aggiunta", describeWriting({
       ...draft,
-      writeFolders: parseFolderList(writeFoldersRaw).folders,
+      writeFolders: parseFolderList(writeFoldersRaw, plugin.app.vault.configDir).folders,
     }));
     const managementActive = draft.enabled && draft.accessMode === "management";
     addStatusItem(
@@ -1202,8 +1275,8 @@ function renderControlPanel(
   };
 
   const openFolderPicker = (): void => {
-    const parsedRead = parseFolderList(readFoldersRaw).folders;
-    const parsedWrite = parseFolderList(writeFoldersRaw).folders;
+    const parsedRead = parseFolderList(readFoldersRaw, plugin.app.vault.configDir).folders;
+    const parsedWrite = parseFolderList(writeFoldersRaw, plugin.app.vault.configDir).folders;
     new FolderAccessModal(
       plugin.app,
       {
@@ -1762,70 +1835,76 @@ function renderControlPanel(
   diagnosticDetails.createEl("summary", { text: "Diagnostica del collegamento locale" });
   const cliCard = diagnosticDetails.createDiv({ cls: "bridge-control__card bridge-control__cli" });
 
-  const renderCli = (diagnostic: CliDiagnostic | undefined, checking = false): void => {
+  const renderLocalConnection = (
+    scan: CliCandidateScan | undefined,
+    checking = false,
+    scanError?: string,
+  ): void => {
     cliCard.empty();
+    const handler = plugin.managementHandlerStatus();
     const title = cliCard.createDiv({ cls: "bridge-control__card-title" });
     title.createEl("h3", { text: "Collegamento locale" });
     title.createSpan({
-      text: checking
-        ? "Controllo…"
-        : diagnostic === undefined
-          ? "Non eseguita"
-          : diagnostic.state === "ready"
-            ? "Pronto"
-            : diagnostic.state === "error"
-              ? "Da completare"
-              : "Non trovato",
-      cls: `bridge-control__badge ${diagnostic?.state === "ready" ? "is-ok" : "is-warn"}`,
+      text: handler.registered ? "Handler registrato" : "Handler non disponibile",
+      cls: `bridge-control__badge ${handler.registered ? "is-ok" : "is-warn"}`,
+    });
+    cliCard.createEl("p", { text: handler.detail });
+    cliCard.createEl("p", {
+      text: "Questo controllo non avvia programmi o comandi esterni. La verifica reale della CLI avviene nel componente esterno quando serve.",
     });
 
     if (checking) {
-      cliCard.createEl("p", { text: "Controllo la CLI soltanto nei percorsi di installazione noti…" });
+      cliCard.createEl("p", {
+        text: "Controllo soltanto se esiste un candidato nei percorsi di installazione noti…",
+      });
       return;
     }
 
-    if (diagnostic) {
-      cliCard.createEl("p", { text: diagnostic.detail });
-      if (diagnostic.executable) {
-        cliCard.createEl("code", { text: diagnostic.executable, cls: "bridge-control__path" });
-      }
-      if (diagnostic.version) {
-        cliCard.createEl("small", { text: `Risposta: ${diagnostic.version}` });
-      }
+    if (scanError !== undefined) {
+      cliCard.createEl("p", { text: `Rilevamento non riuscito: ${scanError}` });
+    } else if (scan?.candidate !== undefined) {
+      cliCard.createEl("p", {
+        text: "Candidato CLI rilevato, ma non eseguito né certificato:",
+      });
+      cliCard.createEl("code", { text: scan.candidate, cls: "bridge-control__path" });
+    } else if (scan !== undefined) {
+      cliCard.createEl("p", {
+        text: "Nessun candidato rilevato nei percorsi noti. Questo controllo non determina da solo lo stato del collegamento.",
+      });
+    } else {
+      cliCard.createEl("p", {
+        text: "Il rilevamento facoltativo non è ancora stato eseguito.",
+      });
+    }
 
+    if (scan !== undefined) {
       const details = cliCard.createEl("details");
       details.createEl("summary", { text: "Percorsi controllati" });
       const list = details.createEl("ul");
-      for (const candidate of diagnostic.candidates) {
+      for (const candidate of scan.candidates) {
         list.createEl("li", {
-          text: `${candidate.exists ? "✓" : "–"} ${candidate.path} (${candidate.source})`,
+          text: `${candidate.exists ? "rilevato" : "assente"} — ${candidate.path} (${candidate.source})`,
         });
       }
-    } else {
-      cliCard.createEl("p", { text: "Diagnostica non ancora eseguita." });
     }
   };
 
-  renderCli(plugin.cliDiagnostic);
+  renderLocalConnection(plugin.cliCandidateScan);
   new Setting(diagnosticDetails)
-    .setName("Controlla la CLI")
-    .setDesc("Solo su tua richiesta: non modifica note e non usa la rete; esegue version sui candidati nei percorsi noti.")
+    .setName("Rileva candidato CLI")
+    .setDesc("Facoltativo: controlla soltanto l'esistenza di file nei percorsi noti. Non avvia né verifica programmi.")
     .addButton((button) =>
-      button.setButtonText("Esegui diagnostica").onClick(async () => {
+      button.setButtonText("Rileva file").onClick(() => {
         button.setDisabled(true);
-        renderCli(undefined, true);
-        try {
-          renderCli(await plugin.refreshCliDiagnostic());
-        } catch (error) {
-          renderCli({
-            state: "error",
-            checkedAt: new Date().toISOString(),
-            detail: error instanceof Error ? error.message : String(error),
-            candidates: [],
+        renderLocalConnection(undefined, true);
+        void plugin.refreshCliCandidateScan()
+          .then((scan) => renderLocalConnection(scan))
+          .catch((error: unknown) => {
+            renderLocalConnection(undefined, false, errorMessage(error));
+          })
+          .finally(() => {
+            button.setDisabled(false);
           });
-        } finally {
-          button.setDisabled(false);
-        }
       }),
     );
 

@@ -1,6 +1,6 @@
 # Third-party notices
 
-The bundled MCP server contains code from the packages listed below. Versions match `package-lock.json` for release 0.5.3.
+The bundled MCP server contains code from the packages listed below. Versions match `package-lock.json` for release 0.5.4.
 
 ## @modelcontextprotocol/sdk 1.29.0 — MIT
 

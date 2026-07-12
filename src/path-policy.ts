@@ -17,12 +17,15 @@ export class PathPolicyError extends Error {
 export interface PathPolicyOptions {
   readonly allowedFolders?: readonly string[] | null;
   readonly deniedFolders?: readonly string[];
+  /** Deny-only paths checked without case sensitivity on every platform. */
+  readonly caseInsensitiveDeniedFolders?: readonly string[];
   readonly caseSensitive?: boolean;
 }
 
 export interface PathPolicy {
   readonly allowedFolders: readonly string[] | null;
   readonly deniedFolders: readonly string[];
+  readonly caseInsensitiveDeniedFolders: readonly string[];
   readonly caseSensitive: boolean;
 }
 
@@ -174,15 +177,21 @@ export function createPathPolicy(
   const deniedInput = isLegacyArguments
     ? deniedFolders
     : ((options as PathPolicyOptions).deniedFolders ?? []);
+  const caseInsensitiveDeniedInput = isLegacyArguments
+    ? []
+    : ((options as PathPolicyOptions).caseInsensitiveDeniedFolders ?? []);
   const caseSensitive = isLegacyArguments
     ? defaultCaseSensitivity()
-    : ((options as PathPolicyOptions).caseSensitive ?? defaultCaseSensitivity());
+    : ((options as PathPolicyOptions).caseSensitive ??
+      defaultCaseSensitivity());
 
   const allowed = allowedInput?.map(normalizeRelativeFolder) ?? [];
-  const denied = [
-    ...DEFAULT_DENIED_FOLDERS,
-    ...deniedInput,
-  ].map(normalizeDeniedFolder);
+  const denied = [...DEFAULT_DENIED_FOLDERS, ...deniedInput].map(
+    normalizeDeniedFolder,
+  );
+  const caseInsensitiveDenied = caseInsensitiveDeniedInput.map(
+    normalizeDeniedFolder,
+  );
 
   return Object.freeze({
     allowedFolders:
@@ -190,6 +199,9 @@ export function createPathPolicy(
         ? Object.freeze(collapseFolders(allowed, caseSensitive))
         : null,
     deniedFolders: Object.freeze(collapseFolders(denied, caseSensitive)),
+    caseInsensitiveDeniedFolders: Object.freeze(
+      collapseFolders(caseInsensitiveDenied, false),
+    ),
     caseSensitive,
   });
 }
@@ -207,10 +219,16 @@ export function createWritablePathPolicy(
     ...DEFAULT_DENIED_FOLDERS,
     ...(options.deniedFolders ?? []),
   ].map(normalizeDeniedFolder);
+  const caseInsensitiveDenied = (
+    options.caseInsensitiveDeniedFolders ?? []
+  ).map(normalizeDeniedFolder);
 
   return Object.freeze({
     allowedFolders: Object.freeze(collapseFolders(allowed, caseSensitive)),
     deniedFolders: Object.freeze(collapseFolders(denied, caseSensitive)),
+    caseInsensitiveDeniedFolders: Object.freeze(
+      collapseFolders(caseInsensitiveDenied, false),
+    ),
     caseSensitive,
   });
 }
@@ -219,6 +237,9 @@ function assertNotDenied(candidate: string, policy: PathPolicy): void {
   if (
     policy.deniedFolders.some((folder) =>
       containsPath(folder, candidate, policy.caseSensitive),
+    ) ||
+    policy.caseInsensitiveDeniedFolders.some((folder) =>
+      containsPath(folder, candidate, false),
     )
   ) {
     throw new PathPolicyError("path is inside a denied folder");

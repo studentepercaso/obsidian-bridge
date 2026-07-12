@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:BridgePluginId = 'bridge-control'
 $script:CodexPluginId = 'obsidian-bridge'
-$script:ExpectedCodexPluginVersion = '0.5.3'
+$script:ExpectedCodexPluginVersion = '0.5.4'
 $script:BridgePluginRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:PayloadRoot = Join-Path $script:BridgePluginRoot 'companion\obsidian-bridge-control'
 $localApplicationData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -1135,6 +1135,23 @@ function Assert-SharedFolderArray {
     }
 }
 
+function Test-VaultFoldersIntersect {
+    param(
+        [Parameter(Mandatory = $true)][string]$Left,
+        [Parameter(Mandatory = $true)][string]$Right
+    )
+
+    $leftValue = $Left.Normalize([Text.NormalizationForm]::FormC).Trim('/')
+    $rightValue = $Right.Normalize([Text.NormalizationForm]::FormC).Trim('/')
+    $leftPrefix = $leftValue + '/'
+    $rightPrefix = $rightValue + '/'
+    return (
+        [string]::Equals($leftValue, $rightValue, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $leftValue.StartsWith($rightPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $rightValue.StartsWith($leftPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+    )
+}
+
 function New-DisabledManagementPermissions {
     $permissions = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $permissions.Add('edit', $false)
@@ -1163,8 +1180,8 @@ function Assert-SharedSettingsSchema {
         throw "Le impostazioni condivise devono essere un oggetto JSON. Il file non verra sovrascritto: $Path"
     }
     Assert-ExactDictionaryKeys -Value $Value -Expected @('version', 'updatedAt', 'vaults') -Description 'Le impostazioni condivise'
-    if (-not ($Value['version'] -is [int]) -or @([int]2, [int]3, [int]4) -notcontains $Value['version']) {
-        throw "Le impostazioni condivise non usano uno schema supportato (versione 2, 3 o 4): $Path"
+    if (-not ($Value['version'] -is [int]) -or @([int]2, [int]3, [int]4, [int]5) -notcontains $Value['version']) {
+        throw "Le impostazioni condivise non usano uno schema supportato (versione 2, 3, 4 o 5): $Path"
     }
     if (-not ($Value['updatedAt'] -is [string]) -or
         [string]::IsNullOrWhiteSpace($Value['updatedAt']) -or
@@ -1199,8 +1216,11 @@ function Assert-SharedSettingsSchema {
         if ($Value['version'] -ge 3) {
             $expectedEntryKeys += 'accessMode'
         }
-        if ($Value['version'] -eq 4) {
+        if ($Value['version'] -ge 4) {
             $expectedEntryKeys += 'managementPermissions'
+        }
+        if ($Value['version'] -eq 5) {
+            $expectedEntryKeys += 'configDir'
         }
         Assert-ExactDictionaryKeys -Value $entry -Expected $expectedEntryKeys -Description "La configurazione del vault $vaultId"
         $vaultName = $entry['vaultName']
@@ -1223,10 +1243,10 @@ function Assert-SharedSettingsSchema {
         }
         if ($Value['version'] -ge 3 -and
             (-not ($entry['accessMode'] -is [string]) -or
-             $(if ($Value['version'] -eq 4) { @('protected', 'full', 'management') } else { @('protected', 'full') }) -notcontains $entry['accessMode'])) {
+             $(if ($Value['version'] -ge 4) { @('protected', 'full', 'management') } else { @('protected', 'full') }) -notcontains $entry['accessMode'])) {
             throw "Modalita di accesso non valida per il vault $vaultId."
         }
-        if ($Value['version'] -eq 4) {
+        if ($Value['version'] -ge 4) {
             $permissions = $entry['managementPermissions']
             if (-not ($permissions -is [System.Collections.Generic.Dictionary[string, object]])) {
                 throw "Permessi di gestione non validi per il vault $vaultId."
@@ -1246,8 +1266,35 @@ function Assert-SharedSettingsSchema {
                 throw "Modalita e permessi di gestione non coerenti per il vault $vaultId."
             }
         }
+        if ($Value['version'] -eq 5 -and $null -ne $entry['configDir']) {
+            $configDir = $entry['configDir']
+            $invalidConfigSegment = $false
+            $normalizedConfigDir = $null
+            if ($configDir -is [string]) {
+                $normalizedConfigDir = $configDir.Trim().Normalize([Text.NormalizationForm]::FormC)
+                foreach ($segment in $configDir.Split('/')) {
+                    if ($segment -eq '' -or $segment -eq '.' -or $segment -eq '..') {
+                        $invalidConfigSegment = $true
+                    }
+                }
+            }
+            if (-not ($configDir -is [string]) -or [string]::IsNullOrWhiteSpace($configDir) -or
+                $configDir.Length -gt 1024 -or $configDir -match '[\\\x00-\x1f\x7f]' -or
+                [System.IO.Path]::IsPathRooted($configDir) -or
+                -not [string]::Equals($normalizedConfigDir, $configDir, [System.StringComparison]::Ordinal) -or
+                $invalidConfigSegment) {
+                throw "Cartella di configurazione non valida per il vault $vaultId."
+            }
+        }
         Assert-SharedFolderArray -Value $entry['readFolders'] -Description "Cartelle leggibili del vault $vaultId"
         Assert-SharedFolderArray -Value $entry['writeFolders'] -Description "Cartelle scrivibili del vault $vaultId"
+        if ($Value['version'] -eq 5 -and $null -ne $entry['configDir']) {
+            foreach ($folderValue in @($entry['readFolders']) + @($entry['writeFolders'])) {
+                if (Test-VaultFoldersIntersect -Left ([string]$folderValue) -Right ([string]$entry['configDir'])) {
+                    throw "Una cartella autorizzata interseca la cartella di configurazione del vault $vaultId."
+                }
+            }
+        }
     }
 }
 
@@ -1317,6 +1364,10 @@ function New-VaultSettingsEntry {
     $entry = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $entry.Add('vaultName', $VaultName)
     $entry.Add('vaultPath', $VaultPath)
+    # Directory presence does not prove which configuration directory is
+    # active. Keep the entry deny-all until the plugin running inside this
+    # exact vault records authoritative Vault.configDir.
+    $entry.Add('configDir', $null)
     $entry.Add('accessMode', 'protected')
     $entry.Add('managementPermissions', (New-DisabledManagementPermissions))
     $entry.Add('enabled', $true)
@@ -1347,10 +1398,14 @@ function New-InstallerVaultSettingsEntry {
     $entry = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $entry.Add('vaultName', $VaultName)
     $entry.Add('vaultPath', $VaultPath)
+    # Reinstallation also cannot prove that a previously recorded directory is
+    # still active. Preserve the permission choices but require the selected
+    # vault to re-attest Vault.configDir when Bridge Control next loads.
+    $entry.Add('configDir', $null)
     $entry.Add('accessMode', $(if ($existing.ContainsKey('accessMode')) { [string]$existing['accessMode'] } else { 'protected' }))
     $entry.Add(
         'managementPermissions',
-        $(if ($ExistingSharedSettings['version'] -eq 4) {
+        $(if ($ExistingSharedSettings['version'] -ge 4) {
             Copy-ManagementPermissions -Value $existing['managementPermissions']
         } else {
             New-DisabledManagementPermissions
@@ -1373,7 +1428,7 @@ function Merge-SharedSettings {
 
     if ($null -eq $Existing) {
         $Existing = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
-        $Existing.Add('version', 4)
+        $Existing.Add('version', 5)
         $Existing.Add('updatedAt', [DateTime]::UtcNow.ToString('o'))
         $Existing.Add('vaults', [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal))
     }
@@ -1390,6 +1445,12 @@ function Merge-SharedSettings {
             $legacyEntry.Add('managementPermissions', (New-DisabledManagementPermissions))
         }
         $Existing['version'] = 4
+    }
+    if ($Existing['version'] -eq 4) {
+        foreach ($legacyEntry in $Existing['vaults'].Values) {
+            $legacyEntry.Add('configDir', $null)
+        }
+        $Existing['version'] = 5
     }
 
     $vaults = $Existing['vaults']
@@ -1764,6 +1825,7 @@ function Invoke-InstallerSelfTest {
     # preserved exactly on reinstall, using a deep copy of its permission map.
     $managementVaultId = '0011223344556677'
     $managementEntry = New-VaultSettingsEntry -VaultName 'Vault gestione' -VaultPath 'C:\Vault gestione' -ReadFolders @('Studio') -WriteEnabled $true -WriteFolders @('Studio')
+    [void]$managementEntry.Remove('configDir')
     $managementEntry['accessMode'] = 'management'
     $managementEntry['managementPermissions']['edit'] = $true
     $managementEntry['managementPermissions']['move'] = $true
@@ -1785,6 +1847,7 @@ function Invoke-InstallerSelfTest {
     $mergedManagement = Merge-SharedSettings -Existing $managementSettings -VaultId $managementVaultId -Entry $preservedManagement
 
     $invalidDormantEntry = New-VaultSettingsEntry -VaultName 'Vault non valido' -VaultPath 'C:\Vault non valido' -ReadFolders @() -WriteEnabled $false -WriteFolders @()
+    [void]$invalidDormantEntry.Remove('configDir')
     $invalidDormantEntry['managementPermissions']['edit'] = $true
     $invalidDormantVaults = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $invalidDormantVaults.Add('8899aabbccddeeff', $invalidDormantEntry)
@@ -1801,6 +1864,7 @@ function Invoke-InstallerSelfTest {
     }
 
     $invalidEmptyEntry = New-VaultSettingsEntry -VaultName 'Vault non valido' -VaultPath 'C:\Vault non valido' -ReadFolders @() -WriteEnabled $false -WriteFolders @()
+    [void]$invalidEmptyEntry.Remove('configDir')
     $invalidEmptyEntry['accessMode'] = 'management'
     $invalidEmptyVaults = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
     $invalidEmptyVaults.Add('7766554433221100', $invalidEmptyEntry)
@@ -1814,6 +1878,22 @@ function Invoke-InstallerSelfTest {
     }
     catch {
         $invalidEmptyRejected = $true
+    }
+
+    $invalidConfigEntry = New-VaultSettingsEntry -VaultName 'Vault config non valido' -VaultPath 'C:\Vault config non valido' -ReadFolders @() -WriteEnabled $false -WriteFolders @()
+    $invalidConfigEntry['configDir'] = ' Config '
+    $invalidConfigVaults = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $invalidConfigVaults.Add('66778899aabbccdd', $invalidConfigEntry)
+    $invalidConfigSettings = [System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
+    $invalidConfigSettings.Add('version', 5)
+    $invalidConfigSettings.Add('updatedAt', [DateTime]::UtcNow.ToString('o'))
+    $invalidConfigSettings.Add('vaults', $invalidConfigVaults)
+    $invalidConfigDirRejected = $false
+    try {
+        Assert-SharedSettingsSchema -Value $invalidConfigSettings -Path '(self-test configDir)'
+    }
+    catch {
+        $invalidConfigDirRejected = $true
     }
 
     $reviewedInput = New-Object System.Collections.ArrayList
@@ -1896,6 +1976,7 @@ function Invoke-InstallerSelfTest {
         schemaGuardrails = [ordered]@{
             dormantPermissionsRejected = $invalidDormantRejected
             emptyManagementRejected = $invalidEmptyRejected
+            invalidConfigDirRejected = $invalidConfigDirRejected
         }
         reviewedAuditChangeIds = [ordered]@{
             count = [int]$preservedReviewedIds.Count
@@ -1969,7 +2050,7 @@ function Show-Installer {
     [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Installa Obsidian Bridge 0.5.3'
+    $form.Text = 'Installa Obsidian Bridge 0.5.4'
     $form.StartPosition = 'CenterScreen'
     $form.Size = New-Object System.Drawing.Size(780, 650)
     $form.MinimumSize = New-Object System.Drawing.Size(780, 650)
@@ -1984,7 +2065,7 @@ function Show-Installer {
     $form.Controls.Add($header)
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = 'Collega Obsidian a ChatGPT - Bridge 0.5.3'
+    $title.Text = 'Collega Obsidian a ChatGPT - Bridge 0.5.4'
     $title.ForeColor = [System.Drawing.Color]::White
     $title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 20)
     $title.AutoSize = $true

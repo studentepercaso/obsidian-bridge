@@ -64,13 +64,19 @@ describe("guided installer permission flow", () => {
     );
   });
 
-  it("supports v4 while migrating v2 and v3 without management privileges", () => {
-    expect(installer).toContain("@([int]2, [int]3, [int]4)");
+  it("supports v5 while migrating v2-v4 without inventing privileges", () => {
+    expect(installer).toContain("@([int]2, [int]3, [int]4, [int]5)");
     expect(installer).toContain("$Existing['version'] -eq 3");
     expect(installer).toContain(
       "$legacyEntry.Add('managementPermissions', (New-DisabledManagementPermissions))",
     );
     expect(installer).toContain("$Existing['version'] = 4");
+    expect(installer).toContain("$Existing['version'] -eq 4");
+    expect(installer).toContain("$legacyEntry.Add('configDir', $null)");
+    expect(installer).toContain("$Existing['version'] = 5");
+    expect(installer).toContain("Test-VaultFoldersIntersect");
+    expect(installer).toContain("$entry.Add('configDir', $null)");
+    expect(installer).not.toContain("$entry.Add('configDir', '.obsidian')");
   });
 
   it.skipIf(process.platform !== "win32")(
@@ -139,6 +145,7 @@ describe("guided installer permission flow", () => {
         schemaGuardrails: {
           dormantPermissionsRejected: boolean;
           emptyManagementRejected: boolean;
+          invalidConfigDirRejected: boolean;
         };
         reviewedAuditChangeIds: {
           count: number;
@@ -171,18 +178,18 @@ describe("guided installer permission flow", () => {
           writeFolders: ["Studio/Appunti"],
         },
         arraysAreIndependent: true,
-        migratedVersion: 4,
+        migratedVersion: 5,
         migratedAccessMode: "protected",
         migratedManagementPermissions: { edit: false, move: false, trash: false },
         preservedFull: {
-          version: 4,
+          version: 5,
           accessMode: "full",
           managementPermissions: { edit: false, move: false, trash: false },
           vaultName: "Vault completo aggiornato",
           vaultPath: "C:\\Vault completo aggiornato",
         },
         preservedManagement: {
-          version: 4,
+          version: 5,
           accessMode: "management",
           managementPermissions: { edit: true, move: true, trash: false },
           objectsAreIndependent: true,
@@ -196,6 +203,7 @@ describe("guided installer permission flow", () => {
         schemaGuardrails: {
           dormantPermissionsRejected: true,
           emptyManagementRejected: true,
+          invalidConfigDirRejected: true,
         },
         reviewedAuditChangeIds: {
           count: 100,

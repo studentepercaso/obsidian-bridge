@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -7,6 +9,11 @@ const sharedSource = readFileSync(
   new URL("../src/shared-settings.ts", import.meta.url),
   "utf8",
 );
+const sourceDirectory = fileURLToPath(new URL("../src/", import.meta.url));
+const runtimeSource = readdirSync(sourceDirectory, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+  .map((entry) => readFileSync(join(sourceDirectory, entry.name), "utf8"))
+  .join("\n");
 
 describe("security policy guardrails", () => {
   it("never trusts an external settings path loaded from vault plugin data", () => {
@@ -14,10 +21,20 @@ describe("security policy guardrails", () => {
     expect(mainSource).not.toContain("sharedSettingsPath: this.sharedPath");
   });
 
-  it("does not execute CLI diagnostics automatically", () => {
-    expect(mainSource).not.toContain("void this.refreshCliDiagnostic()");
-    expect(mainSource).not.toContain("if (!plugin.cliDiagnostic)");
-    expect(mainSource).toContain('button.setButtonText("Esegui diagnostica")');
+  it("reports handler state and only performs optional non-executing candidate detection", () => {
+    expect(mainSource).toContain("managementHandlerStatus()");
+    expect(mainSource).toContain("Questo controllo non avvia programmi o comandi esterni");
+    expect(mainSource).toContain('button.setButtonText("Rileva file")');
+    expect(sharedSource).toContain("export async function scanCliCandidates(");
+    expect(sharedSource).not.toContain('state: "ready"');
+  });
+
+  it("contains no process-execution primitive in any runtime source", () => {
+    expect(runtimeSource).not.toMatch(/(?:node:)?child_process/u);
+    expect(runtimeSource).not.toMatch(/\bexec(?:File)?(?:Sync)?\s*\(/u);
+    expect(runtimeSource).not.toMatch(/\bspawn(?:Sync)?\s*\(/u);
+    expect(runtimeSource).not.toMatch(/\bfork\s*\(/u);
+    expect(runtimeSource).not.toMatch(/\bshell\s*:\s*true/u);
   });
 
   it("does not discover executable candidates from the ambient PATH", () => {
@@ -48,8 +65,10 @@ describe("security policy guardrails", () => {
 
   it("re-reads shared management authority instead of trusting panel state", () => {
     expect(mainSource).toContain(
-      "const current = await readVaultSettings(this.sharedPath, currentIdentity.id)",
+      "const currentState = await readVaultSettingsState(",
     );
+    expect(mainSource).toContain("authorizeManagementConfigDirectory(");
+    expect(mainSource).toContain("this.app.vault.configDir");
     expect(mainSource).toContain('current.accessMode !== "management"');
     expect(mainSource).toContain("current.managementPermissions[managementCapability(request.operation)]");
   });

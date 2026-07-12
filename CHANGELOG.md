@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.4 - 2026-07-12
+
+- Remove `child_process` and every executable launch from the bundled Bridge Control companion. Its optional CLI scan now reports only a non-certified candidate from allowlisted known paths; the external bridge retains the definitive readiness check.
+- Use the vault's actual `Vault.configDir` in the companion picker, replace review-triggering control-character regexes with equivalent character-code validation, and resolve the reported promise, type, thrown-value, timer, unused-code, and CSS `:has()` findings.
+- Migrate shared settings to version 5 so `Vault.configDir` becomes an authoritative, case-insensitive deny rule in the external bridge. Legacy entries are deny-all until their own vault records it, and intersecting saved folder grants are removed without creating new authority.
+- Restrict companion Node filesystem access to documented external settings/lock/quarantine, read-only registry/candidate metadata, one-time request, recovery-backup, and metadata-only audit stores. Note reads and mutations remain on public Obsidian APIs.
+- Add standalone source/bundle no-shell sentinels and a GitHub Actions workflow that runs locked checks, requires byte-identical builds, attests `main.js`, `manifest.json`, and `styles.css`, and creates a draft release from those exact assets.
+- Preserve the command protocol, permission model, management handler, external bridge tool surfaces, and all note-mutation semantics. This release adds no permission, protocol field, or write surface.
+
 ## 0.5.3 - 2026-07-12
 
 - Extend settings-backed bounded exact UTF-8 snapshots to every create/append transactional observation: preparation, commit compare-and-swap, backup capture, intermediate chunk checks, final verification, and recovery classification.

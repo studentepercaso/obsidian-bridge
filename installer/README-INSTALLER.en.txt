@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.3 - READ THIS FIRST
+OBSIDIAN BRIDGE 0.5.4 - READ THIS FIRST
 
 1. Extract the complete ZIP to a normal folder.
 2. Double-click INSTALLA-OBSIDIAN-BRIDGE.cmd.
@@ -7,7 +7,7 @@ OBSIDIAN BRIDGE 0.5.3 - READ THIS FIRST
 5. Keep protected access, enable autonomous access, or explicitly choose the
    individual permissions offered by Full management.
 
-The user interface of the 0.5.3 installer and Bridge Control panel is currently
+The user interface of the 0.5.4 installer and Bridge Control panel is currently
 in Italian. No administrator rights or OpenAI API key are required.
 
 New vaults start with protected mode and no note access. Folder-scoped writing
@@ -30,11 +30,11 @@ Access modes in Bridge Control:
   unavailable. Returning to a lower mode takes effect immediately.
 
 The Recent problems section reads only bounded local audit metadata, never note
-contents. Version 0.5.3 can show a bounded failure stage and safe cause code,
+contents. Version 0.5.4 can show a bounded failure stage and safe cause code,
 but never raw exception messages, CLI output, proposed content, or backup bodies.
 It explains whether a failed write was stopped before applying, restored
 automatically, or needs manual review; it can open an existing affected note and
-remember up to 100 problems marked as reviewed. Version 0.5.3 uses the same
+remember up to 100 problems marked as reviewed. Version 0.5.4 uses the same
 settings-backed exact UTF-8 observation for create/append prepare, conflict
 checks, backup capture, chunk/final verification, and recovery classification.
 Mutations still use only the allowlisted official Obsidian CLI. Append results
@@ -47,13 +47,17 @@ observed note untouched, and reports manual_recovery_required. A partial create
 remains delete_disabled. Diagnostics are evidence only: check the current note
 and wait for explicit human direction before recovery or retry.
 
-Shared settings use strict schema version 4 and a stable 16-character vault ID
-from Obsidian's vault registry. Valid schema-v2/v3 configurations migrate
-fail-closed: an old autonomous grant may remain autonomous, but migration never
-invents edit, move, or trash permission. Malformed data is not overwritten.
+Shared settings use strict schema version 5 and a stable 16-character vault ID.
+The installer never guesses the active configuration directory from a folder's
+presence: new, upgraded, and schema-v2/v3/v4 entries remain deny-all until
+Bridge Control runs inside that exact vault and records authoritative Vault.configDir. Existing
+choices are retained, but migration never invents edit, move, or trash
+permission. Malformed data is not overwritten.
 
-If diagnostics cannot find the official Obsidian CLI, enable it in:
-Obsidian > Settings > General > Command line interface.
+Bridge Control 0.5.4 never launches an executable. Its optional CLI scan only
+reports a non-certified candidate from known allowlisted locations; the external
+bridge performs the definitive readiness check. If that check fails, enable the
+official CLI in Obsidian > Settings > General > Command line interface.
 
 Requirements:
 - Windows 10 or 11 for this guided installer

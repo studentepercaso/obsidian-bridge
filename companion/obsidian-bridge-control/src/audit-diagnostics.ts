@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import type { DesktopPlatform } from "./shared-settings.js";
+import { hasControlCharacter } from "./text-validation.js";
 
 export const AUDIT_TAIL_MAX_BYTES = 128 * 1024;
 export const AUDIT_RESULT_MAX_RECORDS = 20;
@@ -17,7 +18,6 @@ const SHA256 = /^[0-9a-f]{64}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const BACKUP_ID = /^[0-9A-Za-z._+-]{1,200}$/u;
-const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/u;
 const WRITE_ERROR_CODES = new Set([
   "WRITE_FAILED_ROLLBACK_SUCCEEDED",
   "WRITE_FAILED_ROLLBACK_FAILED",
@@ -175,7 +175,7 @@ function validAbsolutePath(
   value: string,
   platform: DesktopPlatform,
 ): boolean {
-  return platformPath(platform).isAbsolute(value) && !CONTROL_CHARACTER.test(value);
+  return platformPath(platform).isAbsolute(value) && !hasControlCharacter(value);
 }
 
 /** Resolve the same private data directory used by the bridge server. */
@@ -231,7 +231,7 @@ function isBoundedText(
     typeof value === "string" &&
     value.length > 0 &&
     value.length <= maximumLength &&
-    !CONTROL_CHARACTER.test(value)
+    !hasControlCharacter(value)
   );
 }
 
@@ -383,7 +383,7 @@ function parseAuditLine(line: string): ParsedAuditRecord | undefined {
     ...(value.error_code === undefined ? {} : { errorCode: value.error_code }),
     ...(value.failure_stage === undefined
       ? {}
-      : { failureStage: value.failure_stage as AuditFailureStage }),
+      : { failureStage: value.failure_stage }),
     ...(value.cause_code === undefined ? {} : { causeCode: value.cause_code }),
     ...(value.backup_id === undefined ? {} : { backupId: value.backup_id }),
     ...(value.rollback_attempted === undefined

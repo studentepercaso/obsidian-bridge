@@ -1,6 +1,6 @@
 import { lstat, open } from "node:fs/promises";
 import { constants } from "node:fs";
-import { isAbsolute } from "node:path";
+import path, { isAbsolute } from "node:path";
 
 import { z } from "zod";
 
@@ -39,6 +39,45 @@ const VaultPath = z
     message: "vault path contains control characters",
   });
 
+export function normalizeVaultConfigDir(value: string): string {
+  const normalized = value.trim().replaceAll("\\", "/").normalize("NFC");
+  if (normalized.length === 0 || normalized.length > 1_024) {
+    throw new Error("configDir must contain between 1 and 1024 characters");
+  }
+  if (
+    path.posix.isAbsolute(normalized) ||
+    path.win32.isAbsolute(value) ||
+    /^[a-zA-Z]:/u.test(normalized) ||
+    /[\u0000-\u001f\u007f]/u.test(normalized)
+  ) {
+    throw new Error("configDir must be a vault-relative folder");
+  }
+  const segments = normalized.split("/");
+  if (
+    segments.some(
+      (segment) => segment.length === 0 || segment === "." || segment === "..",
+    )
+  ) {
+    throw new Error("configDir contains invalid path segments");
+  }
+  return segments.join("/");
+}
+
+const VaultConfigDir = z
+  .string()
+  .min(1)
+  .max(1_024)
+  .refine(
+    (value) => {
+      try {
+        return normalizeVaultConfigDir(value) === value;
+      } catch {
+        return false;
+      }
+    },
+    { message: "configDir must be a normalized vault-relative folder" },
+  );
+
 const LegacyVaultSettingsSchema = z
   .object({
     vaultName: VaultName,
@@ -63,9 +102,36 @@ export const ManagementPermissionsSchema = z
   })
   .strict();
 
+const Version4VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
+  accessMode: z.enum(["protected", "full", "management"]),
+  managementPermissions: ManagementPermissionsSchema,
+})
+  .strict()
+  .superRefine((value, context) => {
+    const permissions = Object.values(value.managementPermissions);
+    const hasManagementPermission = permissions.some(Boolean);
+    if (value.accessMode === "management" && !hasManagementPermission) {
+      context.addIssue({
+        code: "custom",
+        path: ["managementPermissions"],
+        message: "management mode requires at least one management permission",
+      });
+    }
+    if (value.accessMode !== "management" && hasManagementPermission) {
+      context.addIssue({
+        code: "custom",
+        path: ["managementPermissions"],
+        message:
+          "management permissions must be disabled outside management mode",
+      });
+    }
+  });
+
 export const VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
   accessMode: z.enum(["protected", "full", "management"]),
   managementPermissions: ManagementPermissionsSchema,
+  /** Null is a deny-all marker for a legacy vault not yet migrated by Obsidian. */
+  configDir: VaultConfigDir.nullable(),
 })
   .strict()
   .superRefine((value, context) => {
@@ -132,9 +198,26 @@ const Version3SharedSettingsSchema = z
     }
   });
 
-export const SharedSettingsSchema = z
+const Version4SharedSettingsSchema = z
   .object({
     version: z.literal(4),
+    ...SharedSettingsFields,
+    vaults: z.record(VaultId, Version4VaultSettingsSchema),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (Object.keys(value.vaults).length > 256) {
+      context.addIssue({
+        code: "custom",
+        path: ["vaults"],
+        message: "at most 256 vault entries are allowed",
+      });
+    }
+  });
+
+export const SharedSettingsSchema = z
+  .object({
+    version: z.literal(5),
     ...SharedSettingsFields,
     vaults: z.record(VaultId, VaultSettingsSchema),
   })
@@ -152,9 +235,7 @@ export const SharedSettingsSchema = z
 export type VaultSettings = z.infer<typeof VaultSettingsSchema>;
 export type SharedSettings = z.infer<typeof SharedSettingsSchema>;
 export type AccessMode = VaultSettings["accessMode"];
-export type ManagementPermissions = z.infer<
-  typeof ManagementPermissionsSchema
->;
+export type ManagementPermissions = z.infer<typeof ManagementPermissionsSchema>;
 
 export type SharedSettingsSnapshot =
   | { readonly status: "absent" }
@@ -178,17 +259,26 @@ const NO_MANAGEMENT_PERMISSIONS: ManagementPermissions = Object.freeze({
 function validatePolicyFolders(settings: SharedSettings): void {
   try {
     for (const entry of Object.values(settings.vaults)) {
+      const configDir = entry.configDir;
       // Parse all configured paths even when the related toggle is currently
       // off. A malformed present file must never partially grant access.
       createWritablePathPolicy({ allowedFolders: entry.readFolders });
       createWritablePathPolicy({ allowedFolders: entry.writeFolders });
       for (const folders of [entry.readFolders, entry.writeFolders]) {
-        const normalized = folders.map((folder) => normalizeRelativeFolder(folder));
+        const normalized = folders.map((folder) =>
+          normalizeRelativeFolder(folder),
+        );
         if (
           normalized.some((folder, index) => folder !== folders[index]) ||
           new Set(normalized).size !== normalized.length
         ) {
           throw new Error("policy folders must be normalized and unique");
+        }
+        if (
+          configDir !== null &&
+          normalized.some((folder) => vaultFoldersIntersect(folder, configDir))
+        ) {
+          throw new Error("policy folders must not intersect configDir");
         }
       }
     }
@@ -197,6 +287,27 @@ function validatePolicyFolders(settings: SharedSettings): void {
       cause: error,
     });
   }
+}
+
+function comparisonKey(value: string, caseSensitive: boolean): string {
+  const normalized = value.normalize("NFC");
+  return caseSensitive ? normalized : normalized.toLocaleLowerCase("en-US");
+}
+
+function folderContains(
+  parent: string,
+  candidate: string,
+  caseSensitive: boolean,
+): boolean {
+  const parentKey = comparisonKey(parent, caseSensitive);
+  const candidateKey = comparisonKey(candidate, caseSensitive);
+  return candidateKey === parentKey || candidateKey.startsWith(`${parentKey}/`);
+}
+
+function vaultFoldersIntersect(left: string, right: string): boolean {
+  return (
+    folderContains(left, right, false) || folderContains(right, left, false)
+  );
 }
 
 /** Read and validate one complete settings snapshot without caching it. */
@@ -284,14 +395,20 @@ export async function readSharedSettings(
     }
 
     const current = SharedSettingsSchema.safeParse(parsed);
-    const version3 = current.success
+    const version4 = current.success
       ? undefined
-      : Version3SharedSettingsSchema.safeParse(parsed);
-    const legacy = current.success || version3?.success
-      ? undefined
-      : LegacySharedSettingsSchema.safeParse(parsed);
+      : Version4SharedSettingsSchema.safeParse(parsed);
+    const version3 =
+      current.success || version4?.success
+        ? undefined
+        : Version3SharedSettingsSchema.safeParse(parsed);
+    const legacy =
+      current.success || version4?.success || version3?.success
+        ? undefined
+        : LegacySharedSettingsSchema.safeParse(parsed);
     if (
       !current.success &&
+      (version4 === undefined || !version4.success) &&
       (version3 === undefined || !version3.success) &&
       (legacy === undefined || !legacy.success)
     ) {
@@ -302,9 +419,25 @@ export async function readSharedSettings(
     let settings: SharedSettings;
     if (current.success) {
       settings = current.data;
+    } else if (version4?.success) {
+      settings = {
+        version: 5,
+        updatedAt: version4.data.updatedAt,
+        vaults: Object.fromEntries(
+          Object.entries(version4.data.vaults).map(([vaultId, entry]) => [
+            vaultId,
+            {
+              ...entry,
+              // The external bridge must not guess a custom Obsidian config
+              // directory. Null remains deny-all until that vault opens.
+              configDir: null,
+            },
+          ]),
+        ),
+      };
     } else if (version3?.success) {
       settings = {
-        version: 4,
+        version: 5,
         updatedAt: version3.data.updatedAt,
         vaults: Object.fromEntries(
           Object.entries(version3.data.vaults).map(([vaultId, entry]) => [
@@ -315,13 +448,14 @@ export async function readSharedSettings(
               // move, and trash. Preserve full-vault create/append access but
               // never infer the new management authority during migration.
               managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS },
+              configDir: null,
             },
           ]),
         ),
       };
     } else if (legacy?.success) {
       settings = {
-        version: 4,
+        version: 5,
         updatedAt: legacy.data.updatedAt,
         vaults: Object.fromEntries(
           Object.entries(legacy.data.vaults).map(([vaultId, entry]) => [
@@ -330,6 +464,7 @@ export async function readSharedSettings(
               ...entry,
               accessMode: "protected" as const,
               managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS },
+              configDir: null,
             },
           ]),
         ),
@@ -388,34 +523,57 @@ function accessFromEntry(
   entry: VaultSettings,
   deniedFolders: readonly string[],
 ): VaultAccess {
-  const accessMode: AccessMode = entry.enabled
-    ? entry.accessMode
-    : "protected";
-  const wholeVaultAccess =
-    accessMode === "full" || accessMode === "management";
+  if (entry.configDir === null) {
+    // Legacy v2-v4 entries remain visible only as identity metadata. They do
+    // not grant read, write, autonomous, or management access until the
+    // companion running inside this exact vault persists Vault.configDir.
+    return Object.freeze({
+      readPolicy: denyPolicy(deniedFolders),
+      writablePolicy: denyPolicy(deniedFolders),
+      writeEnabled: false,
+      accessMode: "protected",
+      managementPermissions: NO_MANAGEMENT_PERMISSIONS,
+      vaultSelector: vaultId,
+      vaultName: entry.vaultName,
+      vaultPath: entry.vaultPath,
+      source: "settings" as const,
+    });
+  }
+  const vaultDeniedFolders = [...deniedFolders];
+  const configDirectoryDeny = [entry.configDir];
+  const accessMode: AccessMode = entry.enabled ? entry.accessMode : "protected";
+  const wholeVaultAccess = accessMode === "full" || accessMode === "management";
   const readPolicy =
     wholeVaultAccess || (entry.enabled && entry.readMode === "all")
-      ? createPathPolicy({ allowedFolders: null, deniedFolders })
+      ? createPathPolicy({
+          allowedFolders: null,
+          deniedFolders: vaultDeniedFolders,
+          caseInsensitiveDeniedFolders: configDirectoryDeny,
+        })
       : entry.enabled && entry.readMode === "folders"
         ? createWritablePathPolicy({
             allowedFolders: entry.readFolders,
-            deniedFolders,
+            deniedFolders: vaultDeniedFolders,
+            caseInsensitiveDeniedFolders: configDirectoryDeny,
           })
-        : denyPolicy(deniedFolders);
-  const writeEnabled = wholeVaultAccess || (entry.enabled && entry.writeEnabled);
+        : denyPolicy(vaultDeniedFolders);
+  const writeEnabled =
+    wholeVaultAccess || (entry.enabled && entry.writeEnabled);
   const writablePolicy = wholeVaultAccess
     ? createPathPolicy({
         allowedFolders: null,
-        deniedFolders,
+        deniedFolders: vaultDeniedFolders,
+        caseInsensitiveDeniedFolders: configDirectoryDeny,
         caseSensitive: readPolicy.caseSensitive,
       })
     : writeEnabled
       ? createWritablePathPolicy({
           allowedFolders: entry.writeFolders,
-          deniedFolders,
+          deniedFolders: vaultDeniedFolders,
+          caseInsensitiveDeniedFolders: configDirectoryDeny,
           caseSensitive: readPolicy.caseSensitive,
         })
-      : denyPolicy(deniedFolders);
+      : denyPolicy(vaultDeniedFolders);
   const managementPermissions =
     accessMode === "management"
       ? Object.freeze({ ...entry.managementPermissions })
@@ -454,12 +612,13 @@ function environmentAccess(
   vault: string,
   options: VaultAccessResolverOptions,
 ): VaultAccess {
-  const readPolicy = options.environmentReadConfigured === true
-    ? createPathPolicy({
-        allowedFolders: options.allowedFolders,
-        deniedFolders: options.deniedFolders,
-      })
-    : denyPolicy(options.deniedFolders);
+  const readPolicy =
+    options.environmentReadConfigured === true
+      ? createPathPolicy({
+          allowedFolders: options.allowedFolders,
+          deniedFolders: options.deniedFolders,
+        })
+      : denyPolicy(options.deniedFolders);
   const writeEnabled = options.writableVaults.includes(vault);
   const writablePolicy = writeEnabled
     ? createWritablePathPolicy({
@@ -529,9 +688,13 @@ export function createVaultAccessResolver(
   };
 }
 
-export function createConfigAccessResolver(config: BridgeConfig): VaultAccessResolver {
+export function createConfigAccessResolver(
+  config: BridgeConfig,
+): VaultAccessResolver {
   if (config.settingsPath === undefined) {
-    throw new Error("BridgeConfig.settingsPath is required for shared settings");
+    throw new Error(
+      "BridgeConfig.settingsPath is required for shared settings",
+    );
   }
   return createVaultAccessResolver({
     settingsPath: config.settingsPath,
