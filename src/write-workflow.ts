@@ -18,7 +18,10 @@ import {
   type ObsidianCliRunner,
 } from "./cli.js";
 import { assertPathAllowed, type PathPolicy } from "./path-policy.js";
-import { assertPhysicalVaultPath } from "./physical-scope.js";
+import {
+  assertPhysicalVaultPath,
+  PhysicalScopeError,
+} from "./physical-scope.js";
 import type { VaultAccess, VaultAccessResolver } from "./shared-settings.js";
 import { jsonResult } from "./tool-helpers.js";
 import { assertVaultIdentity } from "./vault-identity.js";
@@ -138,6 +141,83 @@ class PostWriteVerificationError extends Error {
   }
 }
 
+export type AuditFailureStage =
+  | "pre_write"
+  | "write"
+  | "verification"
+  | "commit_lock";
+
+/** Return a bounded code only; exception messages can contain note content. */
+function diagnosticCauseCode(error: unknown): string {
+  const classify = (current: unknown, depth: number): string => {
+    if (depth > 3) return "UNEXPECTED_ERROR";
+    try {
+      if (current instanceof ObsidianCliError) {
+        const code: unknown = current.code;
+        switch (code) {
+          case "INVALID_ARGUMENTS":
+            return "CLI_INVALID_ARGUMENTS";
+          case "SPAWN_FAILED":
+            return "CLI_SPAWN_FAILED";
+          case "TIMEOUT":
+            return "CLI_TIMEOUT";
+          case "OUTPUT_LIMIT":
+            return "CLI_OUTPUT_LIMIT";
+          case "ABORTED":
+            return "CLI_ABORTED";
+          case "CLI_NOT_ENABLED":
+            return "CLI_NOT_ENABLED";
+          case "CLI_REPORTED_ERROR":
+            return "CLI_REPORTED_ERROR";
+          case "NON_ZERO_EXIT":
+            return "CLI_NON_ZERO_EXIT";
+          default:
+            return "UNEXPECTED_ERROR";
+        }
+      }
+      if (current instanceof ChangeConflictError) return "CHANGE_CONFLICT";
+      if (current instanceof PhysicalScopeError) {
+        return "PHYSICAL_PATH_NOT_ALLOWED";
+      }
+      if (current instanceof CommitLockError) {
+        const code: unknown = current.code;
+        switch (code) {
+          case "INVALID_LOCK_OPTIONS":
+            return "COMMIT_INVALID_LOCK_OPTIONS";
+          case "LOCK_ABORTED":
+            return "COMMIT_LOCK_ABORTED";
+          case "LOCK_IO_ERROR":
+            return "COMMIT_LOCK_IO_ERROR";
+          case "LOCK_OWNERSHIP_LOST":
+            return "COMMIT_LOCK_OWNERSHIP_LOST";
+          case "LOCK_TIMEOUT":
+            return "COMMIT_LOCK_TIMEOUT";
+          case "UNSAFE_LOCK_PATH":
+            return "COMMIT_UNSAFE_LOCK_PATH";
+          default:
+            return "UNEXPECTED_ERROR";
+        }
+      }
+      if (current instanceof PostWriteVerificationError) {
+        const cause: unknown = current.cause;
+        return cause === undefined
+          ? "POST_WRITE_VERIFICATION"
+          : classify(cause, depth + 1);
+      }
+      if (current instanceof RangeError) return "RANGE_ERROR";
+      return "UNEXPECTED_ERROR";
+    } catch {
+      return "UNEXPECTED_ERROR";
+    }
+  };
+
+  try {
+    return classify(error, 0);
+  } catch {
+    return "UNEXPECTED_ERROR";
+  }
+}
+
 export class PreparedChangeStore {
   readonly #ttlMs: number;
   readonly #now: () => number;
@@ -216,6 +296,8 @@ export interface AuditEvent {
   readonly after_sha256: string;
   readonly backup_id?: string;
   readonly error_code?: string;
+  readonly failure_stage?: AuditFailureStage;
+  readonly cause_code?: string;
   readonly rollback_attempted?: boolean;
   readonly rollback_succeeded?: boolean;
   readonly rollback_reason?: string;
@@ -1105,6 +1187,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
         // every bounded mutation. Each chunk is then read back and hashed
         // before the next one is allowed to run.
         let chunkVerificationFailed = false;
+        let verificationCauseCode: string | undefined;
         try {
           await writePreparedChangeInChunks(
             runtime.runner,
@@ -1131,6 +1214,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
         } catch (error) {
           if (!(error instanceof PostWriteVerificationError)) throw error;
           chunkVerificationFailed = true;
+          verificationCauseCode = diagnosticCauseCode(error);
         }
 
         let verificationSucceeded = false;
@@ -1148,10 +1232,15 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
           );
           verificationSucceeded =
             verified.exists && verified.sha256 === change.afterSha256;
-        } catch {
+          if (!verificationSucceeded) {
+            verificationCauseCode ??= "POST_WRITE_MISMATCH";
+          }
+        } catch (error) {
+          verificationCauseCode ??= diagnosticCauseCode(error);
           verificationSucceeded = false;
         }
         if (!verificationSucceeded) {
+          const causeCode = verificationCauseCode ?? "POST_WRITE_VERIFICATION";
           const rollback = await attemptRollback(
             runtime.runner,
             change,
@@ -1175,6 +1264,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
               error_code: rollback.succeeded
                 ? "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED"
                 : "VERIFICATION_FAILED_ROLLBACK_FAILED",
+              failure_stage: "verification",
+              cause_code: causeCode,
               rollback_attempted: rollback.attempted,
               rollback_succeeded: rollback.succeeded,
               rollback_reason: rollback.reason,
@@ -1191,6 +1282,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
             operation: change.operation,
             authorization_mode: change.authorizationMode,
             error: "post_write_verification_failed",
+            failure_stage: "verification",
+            cause_code: causeCode,
             verified: false,
             rollback_attempted: rollback.attempted,
             rollback_succeeded: rollback.succeeded,
@@ -1242,6 +1335,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
             bridgeWrittenHashes,
             verifyRecoveryGrant,
           );
+          const causeCode = diagnosticCauseCode(error);
           let auditRecorded = true;
           try {
             await runtime.storage.appendAudit({
@@ -1258,6 +1352,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
               error_code: rollback.succeeded
                 ? "WRITE_FAILED_ROLLBACK_SUCCEEDED"
                 : "WRITE_FAILED_ROLLBACK_FAILED",
+              failure_stage: "write",
+              cause_code: causeCode,
               rollback_attempted: rollback.attempted,
               rollback_succeeded: rollback.succeeded,
               rollback_reason: rollback.reason,
@@ -1274,6 +1370,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
             operation: change.operation,
             authorization_mode: change.authorizationMode,
             error: "write_failed",
+            failure_stage: "write",
+            cause_code: causeCode,
             verified: false,
             rollback_attempted: rollback.attempted,
             rollback_succeeded: rollback.succeeded,
@@ -1285,6 +1383,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
         }
 
         try {
+          const causeCode = diagnosticCauseCode(error);
           await runtime.storage.appendAudit({
             timestamp: new Date(now()).toISOString(),
             change_id: change.changeId,
@@ -1300,6 +1399,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
               error instanceof ChangeConflictError
                 ? error.code
                 : "PRE_WRITE_FAILED",
+            failure_stage: "pre_write",
+            cause_code: causeCode,
           });
         } catch {
           // Preserve the primary failure; audit contains no note content.
@@ -1333,6 +1434,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
               before_sha256: auditChange.before.sha256,
               after_sha256: auditChange.afterSha256,
               error_code: `COMMIT_${error.code}`,
+              failure_stage: "commit_lock",
+              cause_code: diagnosticCauseCode(error),
             });
           } catch {
             // Preserve the lock failure; audit contains no note content.

@@ -18,6 +18,44 @@ const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const BACKUP_ID = /^[0-9A-Za-z._+-]{1,200}$/u;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/u;
+const WRITE_ERROR_CODES = new Set([
+  "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+  "WRITE_FAILED_ROLLBACK_FAILED",
+]);
+const VERIFICATION_ERROR_CODES = new Set([
+  "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED",
+  "VERIFICATION_FAILED_ROLLBACK_FAILED",
+]);
+const COMMIT_ERROR_CODES = new Set([
+  "COMMIT_INVALID_LOCK_OPTIONS",
+  "COMMIT_LOCK_ABORTED",
+  "COMMIT_LOCK_IO_ERROR",
+  "COMMIT_LOCK_OWNERSHIP_LOST",
+  "COMMIT_LOCK_TIMEOUT",
+  "COMMIT_UNSAFE_LOCK_PATH",
+]);
+const CAUSE_CODES = new Set([
+  "CLI_INVALID_ARGUMENTS",
+  "CLI_SPAWN_FAILED",
+  "CLI_TIMEOUT",
+  "CLI_OUTPUT_LIMIT",
+  "CLI_ABORTED",
+  "CLI_NOT_ENABLED",
+  "CLI_REPORTED_ERROR",
+  "CLI_NON_ZERO_EXIT",
+  "CHANGE_CONFLICT",
+  "PHYSICAL_PATH_NOT_ALLOWED",
+  "COMMIT_INVALID_LOCK_OPTIONS",
+  "COMMIT_LOCK_ABORTED",
+  "COMMIT_LOCK_IO_ERROR",
+  "COMMIT_LOCK_OWNERSHIP_LOST",
+  "COMMIT_LOCK_TIMEOUT",
+  "COMMIT_UNSAFE_LOCK_PATH",
+  "POST_WRITE_VERIFICATION",
+  "POST_WRITE_MISMATCH",
+  "RANGE_ERROR",
+  "UNEXPECTED_ERROR",
+]);
 
 const AUDIT_KEYS = new Set([
   "timestamp",
@@ -32,6 +70,8 @@ const AUDIT_KEYS = new Set([
   "after_sha256",
   "backup_id",
   "error_code",
+  "failure_stage",
+  "cause_code",
   "rollback_attempted",
   "rollback_succeeded",
   "rollback_reason",
@@ -51,6 +91,11 @@ export type AuditRecovery =
   | "not-applied"
   | "restored"
   | "manual-review";
+export type AuditFailureStage =
+  | "pre_write"
+  | "write"
+  | "verification"
+  | "commit_lock";
 
 export interface AuditDiagnosticRecord {
   readonly timestamp: string;
@@ -61,6 +106,8 @@ export interface AuditDiagnosticRecord {
   readonly status: "committed" | "failed";
   readonly authorizationMode: "protected" | "autonomous" | "management";
   readonly errorCode?: string;
+  readonly failureStage?: AuditFailureStage;
+  readonly causeCode?: string;
   readonly backupId?: string;
   readonly rollbackAttempted: boolean;
   readonly rollbackSucceeded: boolean | null;
@@ -104,6 +151,8 @@ interface ParsedAuditRecord {
   readonly status: "committed" | "failed";
   readonly authorizationMode: "protected" | "autonomous" | "management";
   readonly errorCode?: string;
+  readonly failureStage?: AuditFailureStage;
+  readonly causeCode?: string;
   readonly backupId?: string;
   readonly rollbackAttempted?: boolean;
   readonly rollbackSucceeded?: boolean;
@@ -200,6 +249,30 @@ function isSafeNotePath(value: unknown): value is string {
   );
 }
 
+function hasConsistentFailureStage(
+  operation: unknown,
+  errorCode: unknown,
+  failureStage: unknown,
+): boolean {
+  if (failureStage === undefined) return true;
+  if (typeof errorCode !== "string") return false;
+
+  if (operation === "create" || operation === "append") {
+    if (failureStage === "pre_write") {
+      return errorCode === "PRE_WRITE_FAILED" || errorCode === "CHANGE_CONFLICT";
+    }
+    if (failureStage === "write") return WRITE_ERROR_CODES.has(errorCode);
+    if (failureStage === "verification") {
+      return VERIFICATION_ERROR_CODES.has(errorCode);
+    }
+    if (failureStage === "commit_lock") {
+      return COMMIT_ERROR_CODES.has(errorCode);
+    }
+    return false;
+  }
+  return false;
+}
+
 function parseAuditLine(line: string): ParsedAuditRecord | undefined {
   if (
     line.length === 0 ||
@@ -254,6 +327,13 @@ function parseAuditLine(line: string): ParsedAuditRecord | undefined {
       (typeof value.backup_id !== "string" || !BACKUP_ID.test(value.backup_id))) ||
     (value.error_code !== undefined &&
       (typeof value.error_code !== "string" || !ERROR_CODE.test(value.error_code))) ||
+    (value.failure_stage !== undefined &&
+      value.failure_stage !== "pre_write" &&
+      value.failure_stage !== "write" &&
+      value.failure_stage !== "verification" &&
+      value.failure_stage !== "commit_lock") ||
+    (value.cause_code !== undefined &&
+      (typeof value.cause_code !== "string" || !CAUSE_CODES.has(value.cause_code))) ||
     (value.rollback_attempted !== undefined &&
       typeof value.rollback_attempted !== "boolean") ||
     (value.rollback_succeeded !== undefined &&
@@ -269,6 +349,14 @@ function parseAuditLine(line: string): ParsedAuditRecord | undefined {
     (value.operation !== "move" && value.target_path !== undefined) ||
     (value.status === "committed" && value.error_code !== undefined) ||
     (value.status === "failed" && value.error_code === undefined) ||
+    ((value.failure_stage === undefined) !==
+      (value.cause_code === undefined)) ||
+    (value.status !== "failed" && value.failure_stage !== undefined) ||
+    !hasConsistentFailureStage(
+      value.operation,
+      value.error_code,
+      value.failure_stage,
+    ) ||
     (value.rollback_succeeded !== undefined &&
       value.rollback_attempted === undefined)
   ) {
@@ -291,6 +379,10 @@ function parseAuditLine(line: string): ParsedAuditRecord | undefined {
         ? value.authorization_mode
         : "protected",
     ...(value.error_code === undefined ? {} : { errorCode: value.error_code }),
+    ...(value.failure_stage === undefined
+      ? {}
+      : { failureStage: value.failure_stage as AuditFailureStage }),
+    ...(value.cause_code === undefined ? {} : { causeCode: value.cause_code }),
     ...(value.backup_id === undefined ? {} : { backupId: value.backup_id }),
     ...(value.rollback_attempted === undefined
       ? {}
@@ -360,6 +452,10 @@ function classifyAuditRecord(record: ParsedAuditRecord): AuditDiagnosticRecord {
     status: record.status,
     authorizationMode: record.authorizationMode,
     ...(errorCode === undefined ? {} : { errorCode }),
+    ...(record.failureStage === undefined
+      ? {}
+      : { failureStage: record.failureStage }),
+    ...(record.causeCode === undefined ? {} : { causeCode: record.causeCode }),
     ...(record.backupId === undefined ? {} : { backupId: record.backupId }),
     rollbackAttempted: inferredRollbackAttempted,
     rollbackSucceeded: inferredRollbackSucceeded,

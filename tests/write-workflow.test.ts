@@ -546,6 +546,8 @@ describe("write workflow schemas and storage", () => {
     expect(resultJson(result)).toMatchObject({
       status: "failed",
       error: "write_failed",
+      failure_stage: "write",
+      cause_code: "CLI_NON_ZERO_EXIT",
       rollback_attempted: true,
       rollback_succeeded: true,
       rollback_reason: "restored",
@@ -553,6 +555,156 @@ describe("write workflow schemas and storage", () => {
     });
     expect(notes["Projects/Editable/Chunk failure.md"]).toBe("original\n");
     expect(invocations.filter((args) => args[1] === "append").length).toBe(2);
+  });
+
+  it("preserves a safe CLI cause when create fails before any side effect", async () => {
+    const notes: Record<string, string> = {};
+    const audits: AuditEvent[] = [];
+    const sensitiveMessage = "Error: private diagnostic must not be retained";
+    const runner: ObsidianCliRunner = async (args) => {
+      const command = args[1];
+      const notePath = parameter(args, "path");
+      if (notePath === undefined) throw new Error("path is required");
+      if (command === "read") {
+        if (!(notePath in notes)) {
+          throw new ObsidianCliError("NON_ZERO_EXIT", "Note not found", 2);
+        }
+        return { stdout: notes[notePath]!, stderr: "", exitCode: 0 };
+      }
+      if (command === "create") {
+        throw new ObsidianCliError("CLI_REPORTED_ERROR", sensitiveMessage);
+      }
+      throw new Error(`unexpected command ${command}`);
+    };
+    const handlers = runtime(runner, {
+      async createBackup() {
+        throw new Error("create must not make a backup");
+      },
+      async appendAudit(event) {
+        audits.push(event);
+      },
+    });
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/New note.md",
+          operation: "create",
+          content: "safe content\n",
+        }),
+      ),
+    );
+
+    const result = await handlers.commitChange(
+      WriteToolInputSchemas.commitChange.parse({
+        change_id: prepared.change_id,
+      }),
+    );
+    const parsed = resultJson(result);
+
+    expect(result.isError).toBe(true);
+    expect(parsed).toMatchObject({
+      status: "failed",
+      error: "write_failed",
+      failure_stage: "write",
+      cause_code: "CLI_REPORTED_ERROR",
+      verified: false,
+      rollback_attempted: false,
+      rollback_succeeded: true,
+      rollback_reason: "unchanged",
+    });
+    expect(notes).toEqual({});
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      status: "failed",
+      error_code: "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+      failure_stage: "write",
+      cause_code: "CLI_REPORTED_ERROR",
+      rollback_attempted: false,
+      rollback_succeeded: true,
+      rollback_reason: "unchanged",
+    });
+    expect(JSON.stringify({ parsed, audits })).not.toContain(sensitiveMessage);
+  });
+
+  it("never lets hostile diagnostic metadata prevent rollback", async () => {
+    const notes: Record<string, string> = {
+      "Projects/Editable/Note.md": "original\n",
+    };
+    const audits: AuditEvent[] = [];
+    let failAppend = true;
+    const hostileError = new Proxy(Object.create(null) as object, {
+      getPrototypeOf() {
+        throw new Error("diagnostic inspection must stay contained");
+      },
+    });
+    const runner: ObsidianCliRunner = async (args) => {
+      const command = args[1];
+      const notePath = parameter(args, "path");
+      if (notePath === undefined) throw new Error("path is required");
+      if (command === "read") {
+        if (!(notePath in notes)) {
+          throw new ObsidianCliError("NON_ZERO_EXIT", "Note not found", 2);
+        }
+        return { stdout: notes[notePath]!, stderr: "", exitCode: 0 };
+      }
+      const content = decodeCliContent(parameter(args, "content") ?? "");
+      if (command === "append") {
+        notes[notePath] = `${notes[notePath]}${content}`;
+        if (failAppend) {
+          failAppend = false;
+          throw hostileError;
+        }
+        return { stdout: notePath, stderr: "", exitCode: 0 };
+      }
+      if (command === "create" && args.includes("overwrite")) {
+        notes[notePath] = content;
+        return { stdout: notePath, stderr: "", exitCode: 0 };
+      }
+      throw new Error(`unexpected command ${command}`);
+    };
+    const handlers = runtime(runner, {
+      async createBackup() {
+        return { backupId: "hostile-error-backup" };
+      },
+      async appendAudit(event) {
+        audits.push(event);
+      },
+    });
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/Note.md",
+          operation: "append",
+          content: "proposed\n",
+        }),
+      ),
+    );
+
+    const result = resultJson(
+      await handlers.commitChange(
+        WriteToolInputSchemas.commitChange.parse({
+          change_id: prepared.change_id,
+        }),
+      ),
+    );
+
+    expect(notes["Projects/Editable/Note.md"]).toBe("original\n");
+    expect(result).toMatchObject({
+      status: "failed",
+      failure_stage: "write",
+      cause_code: "UNEXPECTED_ERROR",
+      rollback_attempted: true,
+      rollback_succeeded: true,
+      rollback_reason: "restored",
+    });
+    expect(audits.at(-1)).toMatchObject({
+      failure_stage: "write",
+      cause_code: "UNEXPECTED_ERROR",
+      rollback_attempted: true,
+      rollback_succeeded: true,
+    });
   });
 
   it("reports a partial long create for manual review when deletion is disabled", async () => {
@@ -592,6 +744,8 @@ describe("write workflow schemas and storage", () => {
     expect(resultJson(result)).toMatchObject({
       status: "failed",
       error: "write_failed",
+      failure_stage: "write",
+      cause_code: "CLI_NON_ZERO_EXIT",
       verified: false,
       rollback_attempted: false,
       rollback_succeeded: false,
@@ -603,6 +757,8 @@ describe("write workflow schemas and storage", () => {
     expect(audits[0]).toMatchObject({
       status: "failed",
       error_code: "WRITE_FAILED_ROLLBACK_FAILED",
+      failure_stage: "write",
+      cause_code: "CLI_NON_ZERO_EXIT",
     });
   });
 
@@ -643,6 +799,8 @@ describe("write workflow schemas and storage", () => {
     expect(audits[0]).toMatchObject({
       status: "failed",
       error_code: "PRE_WRITE_FAILED",
+      failure_stage: "pre_write",
+      cause_code: "UNEXPECTED_ERROR",
     });
     expect(JSON.stringify(audits)).not.toContain("must-not-land");
     await expect(
@@ -690,6 +848,8 @@ describe("write workflow schemas and storage", () => {
     expect(resultJson(result)).toMatchObject({
       status: "failed",
       error: "write_failed",
+      failure_stage: "write",
+      cause_code: "CLI_NON_ZERO_EXIT",
       verified: false,
       rollback_attempted: true,
       rollback_succeeded: true,
@@ -706,6 +866,8 @@ describe("write workflow schemas and storage", () => {
     expect(audits.at(-1)).toMatchObject({
       status: "failed",
       error_code: "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+      failure_stage: "write",
+      cause_code: "CLI_NON_ZERO_EXIT",
     });
   });
 
@@ -806,6 +968,8 @@ describe("write workflow schemas and storage", () => {
     expect(resultJson(result)).toMatchObject({
       status: "failed",
       error: "post_write_verification_failed",
+      failure_stage: "verification",
+      cause_code: "POST_WRITE_VERIFICATION",
       rollback_attempted: false,
       rollback_succeeded: false,
       rollback_reason: "concurrent_change",

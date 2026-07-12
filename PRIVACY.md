@@ -2,7 +2,7 @@
 
 Effective date: 2026-07-12
 
-Obsidian Bridge is local, open-source software. Version 0.5.0 has no hosted service, account system, advertising, analytics, or project-operated telemetry. Bridge Control and the guided installer operate on local files and do not publish or upload a vault.
+Obsidian Bridge is local, open-source software. Version 0.5.1 has no hosted service, account system, advertising, analytics, or project-operated telemetry. Bridge Control and the guided installer operate on local files and do not publish or upload a vault.
 
 This notice covers the bridge itself. Obsidian, Obsidian Sync, the MCP host, ChatGPT/Codex, the selected model provider, and other community plugins have separate privacy terms and data flows.
 
@@ -75,7 +75,7 @@ The bridge does not upload data itself. The host decides whether tool inputs and
 
 ## Network activity
 
-At runtime, version 0.5.0:
+At runtime, version 0.5.1:
 
 - opens no HTTP listener;
 - does not call OpenAI, Obsidian, analytics, or update endpoints;
@@ -129,11 +129,11 @@ If managed verification fails, automatic recovery is deliberately bounded:
 - trash is not silently reversed, so the backup or Obsidian trash is the recovery source;
 - unknown concurrent content is never overwritten.
 
-Mutation attempts append NDJSON audit data containing operation, authorization mode, source path, optional destination, hashes, status, backup ID, error code, and rollback outcome—but no note body or proposed content. These records still reveal sensitive metadata.
+Mutation attempts append NDJSON audit data containing operation, authorization mode, source path, optional destination, hashes, status, backup ID, error code, rollback outcome, and optional bounded `failure_stage` and `cause_code` values—but no raw exception message, CLI stdout/stderr, note body, proposed content, or backup body. These records still reveal sensitive metadata.
 
 Bridge Control's **Problemi recenti** view reads at most the final 128 KiB of the fixed audit and returns at most 20 validated records for the current stable vault ID. It never opens a backup or returns note text. It may ask Obsidian whether the source or destination currently exists.
 
-The read-only `obsidian_recent_write_events` tool exposes the same bounded class of metadata to the MCP host and model after applying current vault and folder read permissions. The caller cannot select an arbitrary audit path. It omits audit hashes, note content, proposed content, and backup bodies. Unsafe, malformed, invalid-UTF-8, non-regular, symlinked, or oversized records fail closed.
+The read-only `obsidian_recent_write_events` tool exposes the same bounded class of metadata to the MCP host and model after applying current vault and folder read permissions. The caller cannot select an arbitrary audit path. It omits raw messages and output, audit hashes, note content, proposed content, and backup bodies. Unsafe, malformed, invalid-UTF-8, non-regular, symlinked, or oversized records fail closed. Diagnostic metadata is not permission, confirmation, or authority to retry a failed change.
 
 Cross-process lock directories below the bridge data directory use opaque SHA-256-derived names. Small owner files can contain a random ownership token, process ID, and creation time. Locks are normally removed after commit; stale locks can remain after a crash.
 

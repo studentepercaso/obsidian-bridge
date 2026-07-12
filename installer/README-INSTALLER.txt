@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.0 - INSTALLER WINDOWS
+OBSIDIAN BRIDGE 0.5.1 - INSTALLER WINDOWS
 =========================================
 
 Installazione semplice
@@ -69,11 +69,12 @@ Modalita di accesso in Bridge Control
 Problemi recenti
 ----------------
 Bridge Control include la sezione Problemi recenti. Legge in sola lettura i
-metadati locali del registro audit, senza mostrare il contenuto delle note, e
-indica se una scrittura e stata fermata, ripristinata o richiede un controllo
-manuale. Permette di aprire la nota coinvolta, se esiste, e segnare il problema
-come controllato. Prima di riprovare una modifica fallita, aggiorna questo
-controllo e verifica lo stato attuale della nota.
+metadati locali del registro audit, senza mostrare il contenuto delle note. La
+versione 0.5.1 puo mostrare una fase di errore limitata e un codice causa sicuro,
+ma mai messaggi grezzi delle eccezioni, output della CLI, contenuto proposto o
+corpo dei backup. Indica se una scrittura e stata fermata, ripristinata o richiede
+un controllo manuale. La diagnostica e soltanto evidenza: verifica lo stato
+attuale della nota e attendi indicazioni umane esplicite prima di riprovare.
 
 Percorso configurazione condivisa
 ---------------------------------

@@ -2,7 +2,7 @@
 
 [English](README.md) · [Italiano](README.it.md)
 
-Bridge Control è il companion desktop di Obsidian Bridge. La versione 0.5.0 aggiunge il profilo esplicito **Gestione completa** per modificare note e frontmatter, rinominare o spostare file e trasferirli nel cestino di Obsidian all'interno del vault corrente.
+Bridge Control è il companion desktop di Obsidian Bridge. La versione 0.5.1 aggiunge una diagnostica strutturata e composta soltanto da metadati ai profili **Gestione completa**, Accesso protetto e Accesso autonomo introdotti nelle release precedenti.
 
 ## Comportamento iniziale
 
@@ -39,7 +39,7 @@ Non esistono volutamente operazioni di cancellazione permanente, valutazione Jav
 
 ## Impostazioni condivise
 
-Bridge Control 0.5.0 mantiene atomicamente il formato rigoroso versione 4:
+Bridge Control 0.5.1 mantiene atomicamente il formato rigoroso versione 4:
 
 - Windows: `%LOCALAPPDATA%\ObsidianBridge\settings.json`
 - macOS: `~/Library/Application Support/ObsidianBridge/settings.json`
@@ -59,7 +59,7 @@ I percorsi devono essere percorsi Markdown normalizzati e relativi al vault. Son
 - Il pannello elenca le cartelle ma non analizza i corpi delle note. L'handler di gestione legge soltanto la nota coinvolta in una richiesta autenticata.
 - Una richiesta di sostituzione con scadenza breve può contenere il nuovo corpo proposto. Il file richiesta locale viene acquisito una sola volta e rimosso prima della modifica; non viene mai inviato in rete.
 - I backup di recupero contengono il corpo precedente della nota interessata e condividono il pool locale degli ultimi 20 JSON nella cartella dati di Obsidian Bridge. Non vengono mostrati da **Problemi recenti** né restituiti dallo strumento audit, che espone solo metadati; conserva un backup indipendente.
-- L'audit contiene percorsi, tipo di operazione, hash, esito, ID del backup e stato del recupero, ma non il corpo delle note o dei backup.
+- L'audit può contenere percorsi, tipo di operazione, hash, esito, ID del backup, stato del recupero e valori limitati `failure_stage` e `cause_code`, ma mai messaggi grezzi delle eccezioni, output della CLI, testo delle note, contenuto proposto o corpo dei backup.
 - Il plugin legge il registro globale `obsidian.json`, con limite dimensionale, fuori dal vault soltanto per associare i permessi all'ID stabile del vault corrente.
 - La diagnostica CLI parte soltanto dopo un clic esplicito. Controlla un override d'ambiente o percorsi di installazione noti, mai il `PATH` generale, esegue soltanto `version` senza shell e accetta solo un formato versione Obsidian riconosciuto.
 - Il canale di gestione accetta esclusivamente `bridge-control:commit` con ID richiesta monouso e token a 256 bit. Il contenuto della nota non viene passato come argomento della CLI.
@@ -77,6 +77,6 @@ Per una prova manuale copia `main.js`, `manifest.json` e `styles.css` in:
 <vault>/.obsidian/plugins/bridge-control/
 ```
 
-Poi ricarica Obsidian e abilita **Bridge Control** tra i plugin della community. Le operazioni gestite richiedono Obsidian 1.12.7 o successivo, la CLI ufficiale abilitata e la versione corrispondente Obsidian Bridge 0.5.0.
+Poi ricarica Obsidian e abilita **Bridge Control** tra i plugin della community. Le operazioni gestite richiedono Obsidian 1.12.7 o successivo, la CLI ufficiale abilitata e la versione corrispondente Obsidian Bridge 0.5.1.
 
 Questo progetto è indipendente e non è affiliato né approvato da Obsidian.

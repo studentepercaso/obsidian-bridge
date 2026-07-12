@@ -23,6 +23,50 @@ const AuditOperationSchema = z.enum([
   "move",
   "trash",
 ]);
+const AuditFailureStageSchema = z.enum([
+  "pre_write",
+  "write",
+  "verification",
+  "commit_lock",
+]);
+const AuditCauseCodeSchema = z.enum([
+  "CLI_INVALID_ARGUMENTS",
+  "CLI_SPAWN_FAILED",
+  "CLI_TIMEOUT",
+  "CLI_OUTPUT_LIMIT",
+  "CLI_ABORTED",
+  "CLI_NOT_ENABLED",
+  "CLI_REPORTED_ERROR",
+  "CLI_NON_ZERO_EXIT",
+  "CHANGE_CONFLICT",
+  "PHYSICAL_PATH_NOT_ALLOWED",
+  "COMMIT_INVALID_LOCK_OPTIONS",
+  "COMMIT_LOCK_ABORTED",
+  "COMMIT_LOCK_IO_ERROR",
+  "COMMIT_LOCK_OWNERSHIP_LOST",
+  "COMMIT_LOCK_TIMEOUT",
+  "COMMIT_UNSAFE_LOCK_PATH",
+  "POST_WRITE_VERIFICATION",
+  "POST_WRITE_MISMATCH",
+  "RANGE_ERROR",
+  "UNEXPECTED_ERROR",
+]);
+const COMMIT_ERROR_CODES = new Set([
+  "COMMIT_INVALID_LOCK_OPTIONS",
+  "COMMIT_LOCK_ABORTED",
+  "COMMIT_LOCK_IO_ERROR",
+  "COMMIT_LOCK_OWNERSHIP_LOST",
+  "COMMIT_LOCK_TIMEOUT",
+  "COMMIT_UNSAFE_LOCK_PATH",
+]);
+const WRITE_ERROR_CODES = new Set([
+  "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+  "WRITE_FAILED_ROLLBACK_FAILED",
+]);
+const VERIFICATION_ERROR_CODES = new Set([
+  "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED",
+  "VERIFICATION_FAILED_ROLLBACK_FAILED",
+]);
 
 const AuditLineSchema = z
   .object({
@@ -79,6 +123,8 @@ const AuditLineSchema = z
     after_sha256: z.string().regex(SHA256),
     backup_id: z.string().regex(BACKUP_ID).optional(),
     error_code: z.string().regex(ERROR_CODE).optional(),
+    failure_stage: AuditFailureStageSchema.optional(),
+    cause_code: AuditCauseCodeSchema.optional(),
     rollback_attempted: z.boolean().optional(),
     rollback_succeeded: z.boolean().optional(),
     rollback_reason: z
@@ -116,11 +162,16 @@ const AuditLineSchema = z
         message: "target_path is allowed only for move records",
       });
     }
-    if (value.status === "committed" && value.error_code !== undefined) {
+    if (
+      value.status === "committed" &&
+      (value.error_code !== undefined ||
+        value.failure_stage !== undefined ||
+        value.cause_code !== undefined)
+    ) {
       context.addIssue({
         code: "custom",
         path: ["error_code"],
-        message: "committed records cannot contain an error code",
+        message: "committed records cannot contain failure diagnostics",
       });
     }
     if (value.status === "failed" && value.error_code === undefined) {
@@ -129,6 +180,47 @@ const AuditLineSchema = z
         path: ["error_code"],
         message: "failed records require an error code",
       });
+    }
+    if (
+      (value.failure_stage === undefined) !== (value.cause_code === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["cause_code"],
+        message: "failure_stage and cause_code must be provided together",
+      });
+    }
+    if (value.failure_stage !== undefined) {
+      if (value.operation === "create" || value.operation === "append") {
+        const expectedStage =
+          value.error_code === "PRE_WRITE_FAILED" ||
+          value.error_code === "CHANGE_CONFLICT"
+            ? "pre_write"
+            : value.error_code !== undefined &&
+                WRITE_ERROR_CODES.has(value.error_code)
+              ? "write"
+              : value.error_code !== undefined &&
+                  VERIFICATION_ERROR_CODES.has(value.error_code)
+                ? "verification"
+                : value.error_code !== undefined &&
+                    COMMIT_ERROR_CODES.has(value.error_code)
+                  ? "commit_lock"
+                  : undefined;
+        if (expectedStage === undefined || value.failure_stage !== expectedStage) {
+          context.addIssue({
+            code: "custom",
+            path: ["failure_stage"],
+            message:
+              "create/append failure_stage must match the transactional error code",
+          });
+        }
+      } else {
+        context.addIssue({
+          code: "custom",
+          path: ["failure_stage"],
+          message: "managed operations cannot contain transactional diagnostics",
+        });
+      }
     }
     if (
       (value.rollback_succeeded !== undefined ||
@@ -177,6 +269,8 @@ export interface AuditMetadataEvent {
   readonly authorization_mode: "protected" | "autonomous" | "management";
   readonly status: "committed" | "failed";
   readonly error_code?: string;
+  readonly failure_stage?: z.infer<typeof AuditFailureStageSchema>;
+  readonly cause_code?: z.infer<typeof AuditCauseCodeSchema>;
   readonly rollback_attempted?: boolean;
   readonly rollback_succeeded?: boolean;
   readonly rollback_reason?: string;
@@ -220,6 +314,12 @@ function sanitizeAuditLine(value: ParsedAuditLine): AuditMetadataEvent {
     ...(value.error_code === undefined
       ? {}
       : { error_code: value.error_code }),
+    ...(value.failure_stage === undefined
+      ? {}
+      : { failure_stage: value.failure_stage }),
+    ...(value.cause_code === undefined
+      ? {}
+      : { cause_code: value.cause_code }),
     ...(value.rollback_attempted === undefined
       ? {}
       : { rollback_attempted: value.rollback_attempted }),

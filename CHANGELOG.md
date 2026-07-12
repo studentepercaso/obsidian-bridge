@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1 - 2026-07-12
+
+- Preserve the bounded failure stage and safe cause code when a create or append attempt previously collapsed to the generic `write_failed` result.
+- Return the same metadata-only diagnostics through `obsidian_recent_write_events` and Bridge Control's Recent problems view without exposing exception messages, CLI output, note text, proposed content, or backup bodies.
+- Keep existing rollback evidence intact so `unchanged`, restored, conflicted, or unverified outcomes can be distinguished after rereading the affected note.
+- Treat diagnostic metadata only as evidence: it never grants permission, authorizes a retry, or replaces the required state reread and explicit human direction after a failed autonomous or managed change.
+- Preserve all 0.5.0 permission profiles, settings schema, management grants, backup limits, and mutation surfaces.
+
 ## 0.5.0 - 2026-07-12
 
 - Rename the previous user-facing **Full access** profile to **Autonomous access** while preserving its stable `accessMode=full` value and its vault-wide read/create/append behavior.

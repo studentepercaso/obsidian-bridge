@@ -1,6 +1,6 @@
 # Review test cases
 
-These cases cover all three version-0.5.0 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
+These cases cover all three version-0.5.1 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
 
 Begin in **Protected access**: enable one exact synthetic vault, limit reading and controlled writing to `Projects`, and verify process separation:
 
@@ -66,7 +66,7 @@ Begin in **Protected access**: enable one exact synthetic vault, limit reading a
     - Setup: produce one synthetic failed managed change and one success inside the current read scope, plus an event outside it.
     - Prompt: “Check what happened with the last Obsidian operation without asking me for a screenshot.”
     - Expected behavior: call `obsidian_recent_write_events` with `failures_only=true` first.
-    - Expected result: at most 20 currently readable metadata records, including operation, optional target path, error and rollback state; no note body, backup body, audit hash, or caller-selected filesystem path.
+    - Expected result: at most 20 currently readable metadata records, including operation, optional target path, error and rollback state, plus bounded `failure_stage` and `cause_code` when present; no raw exception message, CLI output, note body, proposed content, backup body, audit hash, or caller-selected filesystem path. The agent rereads the affected note and stops for human direction rather than treating diagnostics as retry authority.
 
 ## Negative cases
 

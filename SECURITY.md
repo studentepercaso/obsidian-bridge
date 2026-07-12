@@ -1,6 +1,6 @@
 # Security policy
 
-Obsidian Bridge provides scoped local access to Obsidian notes. Version 0.5.0 adds an explicitly activated Full-management profile with independent edit, move, and trash grants, a fixed public handler inside Obsidian, pre-mutation recovery backups, and verified postconditions. Reports are especially welcome for permission escalation, management activation without user acknowledgement, replayed requests, backup or audit disclosure, path escape, unintended executable invocation, or any permanent deletion surface.
+Obsidian Bridge provides scoped local access to Obsidian notes. Version 0.5.1 retains the explicitly activated Full-management profile and adds bounded, metadata-only failure-stage and cause diagnostics without exposing raw exception messages or CLI output. Reports are especially welcome for permission escalation, management activation without user acknowledgement, replayed requests, backup or audit disclosure, path escape, unintended executable invocation, diagnostic-content leakage, or any permanent deletion surface.
 
 ## Supported versions
 
@@ -154,9 +154,9 @@ Mutating processes share filesystem-backed locks keyed by SHA-256 of stable vaul
 
 The bridge data directory contains plaintext backups, metadata-only `audit.ndjson`, management request/processing files, and lock state. Use a trusted absolute `OBSIDIAN_BRIDGE_DATA_DIR` or the deterministic platform default, restrictive OS permissions, disk encryption where appropriate, and a documented retention policy.
 
-Audit records can include time, change ID, stable vault label/ID, source path, optional destination, operation, authorization mode, hashes, status, backup ID, error code, and rollback state. They exclude note and proposed bodies but remain sensitive metadata.
+Audit records can include time, change ID, stable vault label/ID, source path, optional destination, operation, authorization mode, hashes, status, backup ID, error code, rollback state, and optional bounded `failure_stage` and `cause_code` values. They exclude raw exception messages, CLI stdout/stderr, note and proposed bodies, and backup bodies, but remain sensitive metadata.
 
-Bridge Control and `obsidian_recent_write_events` read only a bounded tail of the fixed audit file, validate strict records, apply current access policy, and omit note bodies, backup bodies, and audit hashes. Caller-selected audit paths, symlinks, non-regular files, invalid UTF-8, incomplete oversized lines, and unknown fields fail closed.
+Bridge Control and `obsidian_recent_write_events` read only a bounded tail of the fixed audit file, validate strict records, apply current access policy, and omit raw messages and output, note bodies, proposed bodies, backup bodies, and audit hashes. Caller-selected audit paths, symlinks, non-regular files, invalid UTF-8, incomplete oversized lines, and unknown fields fail closed. A diagnostic code cannot grant permission, confirm a protected change, or authorize retry.
 
 ## Trust boundaries
 

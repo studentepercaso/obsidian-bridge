@@ -57,7 +57,7 @@ import {
 } from "./write-workflow.js";
 
 export const SERVER_NAME = "obsidian-bridge";
-export const SERVER_VERSION = "0.5.0";
+export const SERVER_VERSION = "0.5.1";
 
 export type ServerMode = "read" | "write" | "autonomous" | "management";
 
@@ -695,6 +695,12 @@ export function createToolHandlers(runtime: ToolRuntime) {
             ...(event.error_code === undefined
               ? {}
               : { error_code: event.error_code }),
+            ...(event.failure_stage === undefined
+              ? {}
+              : { failure_stage: event.failure_stage }),
+            ...(event.cause_code === undefined
+              ? {}
+              : { cause_code: event.cause_code }),
             ...(event.rollback_attempted === undefined
               ? {}
               : { rollback_attempted: event.rollback_attempted }),

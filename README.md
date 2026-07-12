@@ -24,11 +24,11 @@ Obsidian Bridge connects Codex and compatible ChatGPT desktop plugin hosts to lo
 - A two-step single-use preview/commit protocol; per-change confirmation remains mandatory in protected access.
 - Default-deny access, per-vault settings, hidden-folder rejection, path containment, timeouts, and output limits.
 - Separate **edit**, **move**, and **trash** grants in Full management; none is inferred during an update or from a note, prompt, or environment variable.
-- Cross-process commit locks, at most 20 shared local plaintext recovery backups, postcondition verification, content-free audit metadata, a **Recent problems** panel, and direct bounded audit diagnostics for Codex after an error.
+- Cross-process commit locks, at most 20 shared local plaintext recovery backups, postcondition verification, content-free audit metadata, a **Recent problems** panel, and direct bounded audit diagnostics for Codex after an error. Version 0.5.1 preserves a safe `failure_stage` and `cause_code` without recording raw messages or output.
 
 ## Quick start on Windows
 
-1. Download **Obsidian-Bridge-Setup-0.5.0.zip** from the [releases page](https://github.com/studentepercaso/obsidian-bridge/releases).
+1. Download **Obsidian-Bridge-Setup-0.5.1.zip** from the [releases page](https://github.com/studentepercaso/obsidian-bridge/releases).
 2. Extract the ZIP completely. Do not run the installer from inside the archive preview.
 3. Double-click **INSTALLA-OBSIDIAN-BRIDGE.cmd**.
 4. Select a vault and complete the guided installation.
@@ -38,9 +38,9 @@ Obsidian Bridge connects Codex and compatible ChatGPT desktop plugin hosts to lo
 
 The installer keeps new vaults deny-by-default and preserves existing Bridge Control permissions during an update. The full walkthrough is in [docs/INSTALLATION.en.md](docs/INSTALLATION.en.md).
 
-Use the asset whose name starts with **Obsidian-Bridge-Setup**. GitHub's automatically generated **Source code** archives are development snapshots, not the guided installer. SHA-256 values are published beside every release in **SHA256-0.5.0.txt**.
+Use the asset whose name starts with **Obsidian-Bridge-Setup**. GitHub's automatically generated **Source code** archives are development snapshots, not the guided installer. SHA-256 values are published beside every release in **SHA256-0.5.1.txt**.
 
-The 0.5.0 installer and Bridge Control interface are currently in Italian; the English guide maps each step.
+The 0.5.1 installer and Bridge Control interface are currently in Italian; the English guide maps each step.
 
 If diagnostics report that the Obsidian CLI is unavailable, enable it under **Obsidian → Settings → General → Command line interface**. The bridge uses the official local CLI and does not emulate vault access through an HTTP service.
 
@@ -49,7 +49,7 @@ If diagnostics report that the Obsidian CLI is unavailable, enable it under **Ob
 Advanced users can add this public repository as a Codex marketplace:
 
 ```powershell
-codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.5.0
+codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.5.1
 codex plugin add obsidian-bridge@obsidian-bridge-community
 ```
 
@@ -99,7 +99,7 @@ Automated tests use a simulated CLI and synthetic data. A release also requires 
 - [English installation guide](docs/INSTALLATION.en.md)
 - [Guida di installazione in italiano](docs/INSTALLATION.md)
 - [Controlled writing protocol](docs/WRITING.md)
-- [0.5.0 bilingual release notes](docs/RELEASE_NOTES_0.5.0.md)
+- [0.5.1 bilingual release notes](docs/RELEASE_NOTES_0.5.1.md)
 - [Privacy](PRIVACY.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
@@ -109,6 +109,6 @@ Automated tests use a simulated CLI and synthetic data. A release also requires 
 
 ## Project status
 
-Version 0.5.0 is a public community preview distributed from GitHub. The **Bridge Control** companion is also published in its own review-ready repository for submission to the official Obsidian Community Plugins directory. The local stdio MCP architecture is not the same as a hosted MCP endpoint and is not currently submitted to the universal OpenAI Plugins Directory.
+Version 0.5.1 is a public community preview distributed from GitHub. The **Bridge Control** companion is also published in its own review-ready repository and listed in the official Obsidian Community Plugins directory. The local stdio MCP architecture is not the same as a hosted MCP endpoint and is not currently submitted to the universal OpenAI Plugins Directory.
 
 Obsidian is a trademark of Dynalist Inc. ChatGPT, Codex, and OpenAI are trademarks of OpenAI. This independent project is not affiliated with or endorsed by either company.

@@ -31726,6 +31726,50 @@ var AuditOperationSchema = external_exports.enum([
   "move",
   "trash"
 ]);
+var AuditFailureStageSchema = external_exports.enum([
+  "pre_write",
+  "write",
+  "verification",
+  "commit_lock"
+]);
+var AuditCauseCodeSchema = external_exports.enum([
+  "CLI_INVALID_ARGUMENTS",
+  "CLI_SPAWN_FAILED",
+  "CLI_TIMEOUT",
+  "CLI_OUTPUT_LIMIT",
+  "CLI_ABORTED",
+  "CLI_NOT_ENABLED",
+  "CLI_REPORTED_ERROR",
+  "CLI_NON_ZERO_EXIT",
+  "CHANGE_CONFLICT",
+  "PHYSICAL_PATH_NOT_ALLOWED",
+  "COMMIT_INVALID_LOCK_OPTIONS",
+  "COMMIT_LOCK_ABORTED",
+  "COMMIT_LOCK_IO_ERROR",
+  "COMMIT_LOCK_OWNERSHIP_LOST",
+  "COMMIT_LOCK_TIMEOUT",
+  "COMMIT_UNSAFE_LOCK_PATH",
+  "POST_WRITE_VERIFICATION",
+  "POST_WRITE_MISMATCH",
+  "RANGE_ERROR",
+  "UNEXPECTED_ERROR"
+]);
+var COMMIT_ERROR_CODES = /* @__PURE__ */ new Set([
+  "COMMIT_INVALID_LOCK_OPTIONS",
+  "COMMIT_LOCK_ABORTED",
+  "COMMIT_LOCK_IO_ERROR",
+  "COMMIT_LOCK_OWNERSHIP_LOST",
+  "COMMIT_LOCK_TIMEOUT",
+  "COMMIT_UNSAFE_LOCK_PATH"
+]);
+var WRITE_ERROR_CODES = /* @__PURE__ */ new Set([
+  "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+  "WRITE_FAILED_ROLLBACK_FAILED"
+]);
+var VERIFICATION_ERROR_CODES = /* @__PURE__ */ new Set([
+  "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED",
+  "VERIFICATION_FAILED_ROLLBACK_FAILED"
+]);
 var AuditLineSchema = external_exports.object({
   timestamp: external_exports.string().min(1).max(64).refine(
     (value) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) && Number.isFinite(Date.parse(value)),
@@ -31757,6 +31801,8 @@ var AuditLineSchema = external_exports.object({
   after_sha256: external_exports.string().regex(SHA256),
   backup_id: external_exports.string().regex(BACKUP_ID).optional(),
   error_code: external_exports.string().regex(ERROR_CODE).optional(),
+  failure_stage: AuditFailureStageSchema.optional(),
+  cause_code: AuditCauseCodeSchema.optional(),
   rollback_attempted: external_exports.boolean().optional(),
   rollback_succeeded: external_exports.boolean().optional(),
   rollback_reason: external_exports.enum([
@@ -31790,11 +31836,11 @@ var AuditLineSchema = external_exports.object({
       message: "target_path is allowed only for move records"
     });
   }
-  if (value.status === "committed" && value.error_code !== void 0) {
+  if (value.status === "committed" && (value.error_code !== void 0 || value.failure_stage !== void 0 || value.cause_code !== void 0)) {
     context.addIssue({
       code: "custom",
       path: ["error_code"],
-      message: "committed records cannot contain an error code"
+      message: "committed records cannot contain failure diagnostics"
     });
   }
   if (value.status === "failed" && value.error_code === void 0) {
@@ -31803,6 +31849,31 @@ var AuditLineSchema = external_exports.object({
       path: ["error_code"],
       message: "failed records require an error code"
     });
+  }
+  if (value.failure_stage === void 0 !== (value.cause_code === void 0)) {
+    context.addIssue({
+      code: "custom",
+      path: ["cause_code"],
+      message: "failure_stage and cause_code must be provided together"
+    });
+  }
+  if (value.failure_stage !== void 0) {
+    if (value.operation === "create" || value.operation === "append") {
+      const expectedStage = value.error_code === "PRE_WRITE_FAILED" || value.error_code === "CHANGE_CONFLICT" ? "pre_write" : value.error_code !== void 0 && WRITE_ERROR_CODES.has(value.error_code) ? "write" : value.error_code !== void 0 && VERIFICATION_ERROR_CODES.has(value.error_code) ? "verification" : value.error_code !== void 0 && COMMIT_ERROR_CODES.has(value.error_code) ? "commit_lock" : void 0;
+      if (expectedStage === void 0 || value.failure_stage !== expectedStage) {
+        context.addIssue({
+          code: "custom",
+          path: ["failure_stage"],
+          message: "create/append failure_stage must match the transactional error code"
+        });
+      }
+    } else {
+      context.addIssue({
+        code: "custom",
+        path: ["failure_stage"],
+        message: "managed operations cannot contain transactional diagnostics"
+      });
+    }
   }
   if ((value.rollback_succeeded !== void 0 || value.rollback_reason !== void 0) && value.rollback_attempted === void 0) {
     context.addIssue({
@@ -31837,6 +31908,8 @@ function sanitizeAuditLine(value) {
     authorization_mode: value.authorization_mode ?? "protected",
     status: value.status,
     ...value.error_code === void 0 ? {} : { error_code: value.error_code },
+    ...value.failure_stage === void 0 ? {} : { failure_stage: value.failure_stage },
+    ...value.cause_code === void 0 ? {} : { cause_code: value.cause_code },
     ...value.rollback_attempted === void 0 ? {} : { rollback_attempted: value.rollback_attempted },
     ...value.rollback_succeeded === void 0 ? {} : { rollback_succeeded: value.rollback_succeeded },
     ...value.rollback_reason === void 0 ? {} : { rollback_reason: value.rollback_reason },
@@ -32903,6 +32976,72 @@ var PostWriteVerificationError = class extends Error {
     this.name = "PostWriteVerificationError";
   }
 };
+function diagnosticCauseCode(error51) {
+  const classify = (current, depth) => {
+    if (depth > 3) return "UNEXPECTED_ERROR";
+    try {
+      if (current instanceof ObsidianCliError) {
+        const code = current.code;
+        switch (code) {
+          case "INVALID_ARGUMENTS":
+            return "CLI_INVALID_ARGUMENTS";
+          case "SPAWN_FAILED":
+            return "CLI_SPAWN_FAILED";
+          case "TIMEOUT":
+            return "CLI_TIMEOUT";
+          case "OUTPUT_LIMIT":
+            return "CLI_OUTPUT_LIMIT";
+          case "ABORTED":
+            return "CLI_ABORTED";
+          case "CLI_NOT_ENABLED":
+            return "CLI_NOT_ENABLED";
+          case "CLI_REPORTED_ERROR":
+            return "CLI_REPORTED_ERROR";
+          case "NON_ZERO_EXIT":
+            return "CLI_NON_ZERO_EXIT";
+          default:
+            return "UNEXPECTED_ERROR";
+        }
+      }
+      if (current instanceof ChangeConflictError) return "CHANGE_CONFLICT";
+      if (current instanceof PhysicalScopeError) {
+        return "PHYSICAL_PATH_NOT_ALLOWED";
+      }
+      if (current instanceof CommitLockError) {
+        const code = current.code;
+        switch (code) {
+          case "INVALID_LOCK_OPTIONS":
+            return "COMMIT_INVALID_LOCK_OPTIONS";
+          case "LOCK_ABORTED":
+            return "COMMIT_LOCK_ABORTED";
+          case "LOCK_IO_ERROR":
+            return "COMMIT_LOCK_IO_ERROR";
+          case "LOCK_OWNERSHIP_LOST":
+            return "COMMIT_LOCK_OWNERSHIP_LOST";
+          case "LOCK_TIMEOUT":
+            return "COMMIT_LOCK_TIMEOUT";
+          case "UNSAFE_LOCK_PATH":
+            return "COMMIT_UNSAFE_LOCK_PATH";
+          default:
+            return "UNEXPECTED_ERROR";
+        }
+      }
+      if (current instanceof PostWriteVerificationError) {
+        const cause = current.cause;
+        return cause === void 0 ? "POST_WRITE_VERIFICATION" : classify(cause, depth + 1);
+      }
+      if (current instanceof RangeError) return "RANGE_ERROR";
+      return "UNEXPECTED_ERROR";
+    } catch {
+      return "UNEXPECTED_ERROR";
+    }
+  };
+  try {
+    return classify(error51, 0);
+  } catch {
+    return "UNEXPECTED_ERROR";
+  }
+}
 var PreparedChangeStore = class {
   #ttlMs;
   #now;
@@ -33609,6 +33748,7 @@ function createWriteToolHandlers(runtime) {
                 assertSameState(change.before, afterBackup);
               }
               let chunkVerificationFailed = false;
+              let verificationCauseCode;
               try {
                 await writePreparedChangeInChunks(
                   runtime.runner,
@@ -33635,6 +33775,7 @@ function createWriteToolHandlers(runtime) {
               } catch (error51) {
                 if (!(error51 instanceof PostWriteVerificationError)) throw error51;
                 chunkVerificationFailed = true;
+                verificationCauseCode = diagnosticCauseCode(error51);
               }
               let verificationSucceeded = false;
               try {
@@ -33650,10 +33791,15 @@ function createWriteToolHandlers(runtime) {
                   options
                 );
                 verificationSucceeded = verified.exists && verified.sha256 === change.afterSha256;
-              } catch {
+                if (!verificationSucceeded) {
+                  verificationCauseCode ??= "POST_WRITE_MISMATCH";
+                }
+              } catch (error51) {
+                verificationCauseCode ??= diagnosticCauseCode(error51);
                 verificationSucceeded = false;
               }
               if (!verificationSucceeded) {
+                const causeCode = verificationCauseCode ?? "POST_WRITE_VERIFICATION";
                 const rollback = await attemptRollback(
                   runtime.runner,
                   change,
@@ -33675,6 +33821,8 @@ function createWriteToolHandlers(runtime) {
                     after_sha256: change.afterSha256,
                     ...backupId === void 0 ? {} : { backup_id: backupId },
                     error_code: rollback.succeeded ? "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED" : "VERIFICATION_FAILED_ROLLBACK_FAILED",
+                    failure_stage: "verification",
+                    cause_code: causeCode,
                     rollback_attempted: rollback.attempted,
                     rollback_succeeded: rollback.succeeded,
                     rollback_reason: rollback.reason
@@ -33690,6 +33838,8 @@ function createWriteToolHandlers(runtime) {
                   operation: change.operation,
                   authorization_mode: change.authorizationMode,
                   error: "post_write_verification_failed",
+                  failure_stage: "verification",
+                  cause_code: causeCode,
                   verified: false,
                   rollback_attempted: rollback.attempted,
                   rollback_succeeded: rollback.succeeded,
@@ -33739,6 +33889,7 @@ function createWriteToolHandlers(runtime) {
                   bridgeWrittenHashes,
                   verifyRecoveryGrant
                 );
+                const causeCode = diagnosticCauseCode(error51);
                 let auditRecorded = true;
                 try {
                   await runtime.storage.appendAudit({
@@ -33753,6 +33904,8 @@ function createWriteToolHandlers(runtime) {
                     after_sha256: change.afterSha256,
                     ...backupId === void 0 ? {} : { backup_id: backupId },
                     error_code: rollback.succeeded ? "WRITE_FAILED_ROLLBACK_SUCCEEDED" : "WRITE_FAILED_ROLLBACK_FAILED",
+                    failure_stage: "write",
+                    cause_code: causeCode,
                     rollback_attempted: rollback.attempted,
                     rollback_succeeded: rollback.succeeded,
                     rollback_reason: rollback.reason
@@ -33768,6 +33921,8 @@ function createWriteToolHandlers(runtime) {
                   operation: change.operation,
                   authorization_mode: change.authorizationMode,
                   error: "write_failed",
+                  failure_stage: "write",
+                  cause_code: causeCode,
                   verified: false,
                   rollback_attempted: rollback.attempted,
                   rollback_succeeded: rollback.succeeded,
@@ -33778,6 +33933,7 @@ function createWriteToolHandlers(runtime) {
                 return { ...result2, isError: true };
               }
               try {
+                const causeCode = diagnosticCauseCode(error51);
                 await runtime.storage.appendAudit({
                   timestamp: new Date(now()).toISOString(),
                   change_id: change.changeId,
@@ -33789,7 +33945,9 @@ function createWriteToolHandlers(runtime) {
                   before_sha256: change.before.sha256,
                   after_sha256: change.afterSha256,
                   ...backupId === void 0 ? {} : { backup_id: backupId },
-                  error_code: error51 instanceof ChangeConflictError ? error51.code : "PRE_WRITE_FAILED"
+                  error_code: error51 instanceof ChangeConflictError ? error51.code : "PRE_WRITE_FAILED",
+                  failure_stage: "pre_write",
+                  cause_code: causeCode
                 });
               } catch {
               }
@@ -33821,7 +33979,9 @@ function createWriteToolHandlers(runtime) {
               status: "failed",
               before_sha256: auditChange.before.sha256,
               after_sha256: auditChange.afterSha256,
-              error_code: `COMMIT_${error51.code}`
+              error_code: `COMMIT_${error51.code}`,
+              failure_stage: "commit_lock",
+              cause_code: diagnosticCauseCode(error51)
             });
           } catch {
           }
@@ -34855,7 +35015,7 @@ function createConfigAccessResolver(config2) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.5.0";
+var SERVER_VERSION = "0.5.1";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
@@ -35303,6 +35463,8 @@ function createToolHandlers(runtime) {
             authorization_mode: event.authorization_mode,
             status: event.status,
             ...event.error_code === void 0 ? {} : { error_code: event.error_code },
+            ...event.failure_stage === void 0 ? {} : { failure_stage: event.failure_stage },
+            ...event.cause_code === void 0 ? {} : { cause_code: event.cause_code },
             ...event.rollback_attempted === void 0 ? {} : { rollback_attempted: event.rollback_attempted },
             ...event.rollback_succeeded === void 0 ? {} : { rollback_succeeded: event.rollback_succeeded },
             ...event.rollback_reason === void 0 ? {} : { rollback_reason: event.rollback_reason },
