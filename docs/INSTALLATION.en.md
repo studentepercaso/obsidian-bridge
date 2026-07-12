@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-This guide covers the Obsidian Bridge 0.5.0 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
+This guide covers the Obsidian Bridge 0.5.1 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
 
 ## Before you start
 
@@ -135,7 +135,7 @@ Previews expire and are single-use. If the note, permissions, or writer process 
 
 ### Obsidian showed a JavaScript error or a write failed
 
-Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports whether recovery succeeded, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.0 also records replacement, frontmatter, move/rename, and trash events, including a destination path where applicable. Do not automatically retry a failed change before checking the note's current state.
+Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports whether recovery succeeded, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.1 can also report the bounded `failure_stage` and `cause_code` that were previously lost behind a generic `write_failed` result. It never records raw exception messages, CLI output, note text, proposed content, or backup bodies in those fields. These diagnostics are evidence only: reread the note and do not automatically retry until the user gives explicit direction.
 
 After three consecutive autonomous or management failures, that process pauses for the task. Review recent problems, return to a narrower mode, and start a new task before enabling autonomy or Full management again.
 

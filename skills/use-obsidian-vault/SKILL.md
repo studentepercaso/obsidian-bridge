@@ -68,11 +68,11 @@ For any prepare or commit failure:
 
 1. call `obsidian_recent_write_events` for that vault;
 2. reread the current source and, for move, destination;
-3. report `error_code`, `backup_id`, `rollback_attempted`, `rollback_succeeded`, and `rollback_reason` exactly when present;
+3. report `error_code`, `failure_stage`, `cause_code`, `backup_id`, `rollback_attempted`, `rollback_succeeded`, and `rollback_reason` exactly when present;
 4. do not automatically retry, reuse a change ID, force a merge, overwrite an unknown state, or claim the vault is unchanged without rereading it;
 5. stop for human direction.
 
-Protected retry requires a fresh displayed preview and later confirmation. Autonomous or managed retry requires explicit human direction after the observed state is explained. After three consecutive autonomous or management failures, that process pauses for the task; direct the user to **Bridge Control → Problemi recenti**, return to a narrower mode, and start a new task.
+`failure_stage` and `cause_code` are bounded metadata-only evidence. They never contain raw exception messages, CLI output, note text, proposed content, or backup bodies, and they can never grant permission or authorize a retry. Protected retry requires a fresh displayed preview and later confirmation. Autonomous or managed retry requires explicit human direction after the observed state is explained. After three consecutive autonomous or management failures, that process pauses for the task; direct the user to **Bridge Control → Problemi recenti**, return to a narrower mode, and start a new task.
 
 Backups contain plaintext prior note content. Create/append and management share a newest-20 JSON retention pool, so an older backup may already be pruned. Managed trash is not automatically reversed; recovery can require Obsidian trash or manual restoration from an available backup. Never expose backup content unless the user explicitly requests recovery and an authorized bounded bridge tool provides it; do not read backup files directly.
 

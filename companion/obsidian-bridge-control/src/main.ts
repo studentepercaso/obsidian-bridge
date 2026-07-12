@@ -1605,6 +1605,8 @@ function renderControlPanel(
         technical.createEl("code", {
           text: [
             record.errorCode ? `Errore: ${record.errorCode}` : undefined,
+            record.failureStage ? `Fase: ${record.failureStage}` : undefined,
+            record.causeCode ? `Codice causa: ${record.causeCode}` : undefined,
             record.rollbackReason
               ? `Recupero: ${record.rollbackReason}`
               : undefined,

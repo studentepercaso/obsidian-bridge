@@ -2,7 +2,7 @@
 
 [English](README.md) · [Italiano](README.it.md)
 
-Bridge Control is the desktop-only Obsidian companion for Obsidian Bridge. Version 0.5.0 adds an explicit **Full management** profile for controlled in-place editing, frontmatter updates, rename/move, and move-to-trash operations inside the current vault.
+Bridge Control is the desktop-only Obsidian companion for Obsidian Bridge. Version 0.5.1 adds structured, metadata-only failure diagnostics to the explicit **Full management**, Protected, and Autonomous profiles introduced in earlier releases.
 
 ## Default behavior
 
@@ -39,7 +39,7 @@ There is deliberately no permanent-delete operation, JavaScript evaluation, shel
 
 ## Shared settings
 
-Bridge Control 0.5.0 atomically maintains strict shared-settings version 4:
+Bridge Control 0.5.1 atomically maintains strict shared-settings version 4:
 
 - Windows: `%LOCALAPPDATA%\ObsidianBridge\settings.json`
 - macOS: `~/Library/Application Support/ObsidianBridge/settings.json`
@@ -59,7 +59,7 @@ Paths must be normalized Markdown paths relative to the vault. Absolute paths, t
 - The settings panel enumerates folders but does not scan note bodies. The management handler reads only the note involved in an authenticated request.
 - A short-lived replacement request can contain the proposed new note body. Its local request file is claimed once and removed before mutation; it is never sent over the network.
 - Recovery backups contain the affected pre-change note body and share the deterministic local Obsidian Bridge directory's newest-20 JSON pool. They are never shown by **Recent problems** or returned by the metadata-only audit tool; keep an independent backup.
-- Audit records contain paths, operation types, hashes, outcome, backup identifiers, and recovery status, but no note or backup bodies.
+- Audit records can contain paths, operation types, hashes, outcome, backup identifiers, recovery status, and bounded `failure_stage` and `cause_code` values, but never raw exception messages, CLI output, note text, proposed content, or backup bodies.
 - The plugin reads Obsidian's size-bounded global `obsidian.json` registry outside the vault only to bind permissions to the current vault's stable ID.
 - CLI diagnostics run only after an explicit click. They inspect an environment override or known installation paths, never the ambient `PATH`, invoke only `version` without a shell, and accept only recognized Obsidian version output.
 - The management channel accepts only `bridge-control:commit` with an exact one-time request ID and 256-bit token. It does not accept note content as a CLI argument.
@@ -77,6 +77,6 @@ For manual testing, copy `main.js`, `manifest.json`, and `styles.css` to:
 <vault>/.obsidian/plugins/bridge-control/
 ```
 
-Then reload Obsidian and enable **Bridge Control** under Community plugins. Managed operations require Obsidian 1.12.7 or later, the official CLI enabled, and the matching Obsidian Bridge 0.5.0 release.
+Then reload Obsidian and enable **Bridge Control** under Community plugins. Managed operations require Obsidian 1.12.7 or later, the official CLI enabled, and the matching Obsidian Bridge 0.5.1 release.
 
 This project is independent and is not affiliated with or endorsed by Obsidian.

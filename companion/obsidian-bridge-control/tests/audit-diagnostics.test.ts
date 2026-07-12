@@ -118,6 +118,8 @@ describe("bounded companion audit diagnostics", () => {
         operation: "append",
         status: "failed",
         error_code: "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+        failure_stage: "write",
+        cause_code: "CLI_REPORTED_ERROR",
       }),
       auditRecord(5, {
         status: "failed",
@@ -178,6 +180,8 @@ describe("bounded companion audit diagnostics", () => {
       recovery: "restored",
       rollbackAttempted: true,
       rollbackSucceeded: true,
+      failureStage: "write",
+      causeCode: "CLI_REPORTED_ERROR",
     });
     expect(result.failedRecords.map((record) => record.changeId)).toEqual([
       "00000000-0000-4000-8000-000000000007",
@@ -186,6 +190,208 @@ describe("bounded companion audit diagnostics", () => {
       "00000000-0000-4000-8000-000000000004",
     ]);
     expect(JSON.stringify(result)).not.toContain("THIS MUST NEVER LEAVE");
+  });
+
+  it("accepts failure diagnostics only when the stage matches the operation and error", async () => {
+    const commitCodes = [
+      "COMMIT_INVALID_LOCK_OPTIONS",
+      "COMMIT_LOCK_ABORTED",
+      "COMMIT_LOCK_IO_ERROR",
+      "COMMIT_LOCK_OWNERSHIP_LOST",
+      "COMMIT_LOCK_TIMEOUT",
+      "COMMIT_UNSAFE_LOCK_PATH",
+    ] as const;
+    const records = [
+      auditRecord(30, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "pre_write",
+        cause_code: "CLI_SPAWN_FAILED",
+      }),
+      auditRecord(31, {
+        operation: "append",
+        status: "failed",
+        error_code: "CHANGE_CONFLICT",
+        failure_stage: "pre_write",
+        cause_code: "CHANGE_CONFLICT",
+      }),
+      auditRecord(32, {
+        status: "failed",
+        error_code: "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+        failure_stage: "write",
+        cause_code: "CLI_NON_ZERO_EXIT",
+      }),
+      auditRecord(33, {
+        operation: "append",
+        status: "failed",
+        error_code: "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED",
+        failure_stage: "verification",
+        cause_code: "POST_WRITE_MISMATCH",
+      }),
+      auditRecord(34, {
+        status: "failed",
+        error_code: commitCodes[0],
+        failure_stage: "commit_lock",
+        cause_code: commitCodes[0],
+      }),
+      ...commitCodes.slice(1).map((code, index) => auditRecord(35 + index, {
+        operation: index % 2 === 0 ? "append" : "create",
+        status: "failed",
+        error_code: code,
+        failure_stage: "commit_lock",
+        cause_code: code,
+      })),
+    ];
+    await writeFile(
+      auditPath,
+      `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+      "utf8",
+    );
+
+    const result = await readAuditDiagnostics(VAULT_ID, {
+      platform: runtimePlatform(),
+      env,
+      limit: 20,
+    });
+
+    expect(result.malformedLines).toBe(0);
+    expect(result.records).toHaveLength(10);
+    expect(result.records.map((record) => record.failureStage)).toEqual([
+      "commit_lock",
+      "commit_lock",
+      "commit_lock",
+      "commit_lock",
+      "commit_lock",
+      "commit_lock",
+      "verification",
+      "write",
+      "pre_write",
+      "pre_write",
+    ]);
+  });
+
+  it("rejects unpaired, committed, unbounded, and semantically mismatched diagnostics", async () => {
+    const records = [
+      auditRecord(40, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "pre_write",
+      }),
+      auditRecord(41, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        cause_code: "CLI_SPAWN_FAILED",
+      }),
+      auditRecord(42, {
+        failure_stage: "verification",
+        cause_code: "CLI_OUTPUT_LIMIT",
+      }),
+      auditRecord(43, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "unknown",
+        cause_code: "CLI_SPAWN_FAILED",
+      }),
+      auditRecord(44, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "commit_lock",
+        cause_code: "lowercase",
+      }),
+      auditRecord(45, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "management",
+        cause_code: "RANGE_ERROR",
+      }),
+      auditRecord(46, {
+        operation: "append",
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "write",
+        cause_code: "CLI_NON_ZERO_EXIT",
+      }),
+      auditRecord(47, {
+        operation: "append",
+        status: "failed",
+        error_code: "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+        failure_stage: "pre_write",
+        cause_code: "CLI_NON_ZERO_EXIT",
+      }),
+      auditRecord(48, {
+        status: "failed",
+        error_code: "VERIFICATION_FAILED_ROLLBACK_FAILED",
+        failure_stage: "commit_lock",
+        cause_code: "POST_WRITE_MISMATCH",
+      }),
+      auditRecord(49, {
+        status: "failed",
+        error_code: "COMMIT_LOCK_TIMEOUT",
+        failure_stage: "verification",
+        cause_code: "COMMIT_LOCK_TIMEOUT",
+      }),
+      auditRecord(50, {
+        status: "failed",
+        error_code: "WRITE_FAILED_ROLLBACK_FAILED",
+        failure_stage: "management",
+        cause_code: "CLI_NON_ZERO_EXIT",
+      }),
+      auditRecord(51, {
+        operation: "replace",
+        authorization_mode: "management",
+        status: "failed",
+        error_code: "COMMIT_LOCK_TIMEOUT",
+        failure_stage: "commit_lock",
+        cause_code: "COMMIT_LOCK_TIMEOUT",
+      }),
+      auditRecord(52, {
+        operation: "move",
+        target_path: "Archive/Renamed.md",
+        authorization_mode: "management",
+        status: "failed",
+        error_code: "MANAGEMENT_WRITE_FAILED",
+        failure_stage: "pre_write",
+        cause_code: "CHANGE_CONFLICT",
+      }),
+      auditRecord(53, {
+        status: "failed",
+        error_code: "COMMIT_LOCK_ARBITRARY",
+        failure_stage: "commit_lock",
+        cause_code: "COMMIT_LOCK_TIMEOUT",
+      }),
+      auditRecord(54, {
+        status: "failed",
+        error_code: "WRITE_FAILED_ROLLBACK_FAILED",
+        failure_stage: "write",
+        cause_code: "ARBITRARY_SAFE_LOOKING_TOKEN",
+      }),
+      auditRecord(55, {
+        status: "failed",
+        error_code: "WRITE_FAILED_PRIVATE_NOTE_TEXT",
+        failure_stage: "write",
+        cause_code: "CLI_REPORTED_ERROR",
+      }),
+      auditRecord(56, {
+        status: "failed",
+        error_code: "VERIFICATION_FAILED_ARBITRARY",
+        failure_stage: "verification",
+        cause_code: "POST_WRITE_VERIFICATION",
+      }),
+    ];
+    await writeFile(
+      auditPath,
+      `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+      "utf8",
+    );
+
+    const result = await readAuditDiagnostics(VAULT_ID, {
+      platform: runtimePlatform(),
+      env,
+      limit: 20,
+    });
+
+    expect(result.malformedLines).toBe(records.length);
+    expect(result.records).toHaveLength(0);
   });
 
   it("classifies management operations and retains a safe move target", async () => {

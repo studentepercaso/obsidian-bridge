@@ -1,17 +1,17 @@
 # Publishing paths
 
-Obsidian Bridge 0.5.0 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
+Obsidian Bridge 0.5.1 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
 
 ## GitHub community distribution
 
 1. Publish the bilingual source and release documentation from the public Git repository.
-2. Expose the Codex plugin through `.agents/plugins/marketplace.json` pinned to tag `0.5.0`.
-3. Publish the guided setup ZIP, companion ZIP, raw Obsidian assets, and `SHA256-0.5.0.txt` in the GitHub release.
-4. Publish the matching `0.5.0` companion tag and release assets in [studentepercaso/bridge-control](https://github.com/studentepercaso/bridge-control).
+2. Expose the Codex plugin through `.agents/plugins/marketplace.json` pinned to tag `0.5.1`.
+3. Publish the guided setup ZIP, companion ZIP, raw Obsidian assets, and `SHA256-0.5.1.txt` in the GitHub release.
+4. Publish the matching `0.5.1` companion tag and release assets in [studentepercaso/bridge-control](https://github.com/studentepercaso/bridge-control).
 5. Smoke-test a clean marketplace install, a guided update from 0.4.1, and a clean installer run with a disposable vault.
 6. Confirm that migration preserves old protected/autonomous choices but grants no Full-management permission.
 
-This route keeps all MCP servers local. Label 0.5.0 as preview software with opt-in vault mutation. Direct testers to use a disposable vault or `Bridge Test`, retain an independent backup, and activate only one Full-management permission at a time during initial testing.
+This route keeps all MCP servers local. Label 0.5.1 as preview software with opt-in vault mutation. Direct testers to use a disposable vault or `Bridge Test`, retain an independent backup, and activate only one Full-management permission at a time during initial testing.
 
 ## OpenAI public plugin submission
 
@@ -34,15 +34,15 @@ Official references:
 
 ## Obsidian Community Plugins
 
-This repository contains the desktop-only **Bridge Control** companion used by the guided installer. Its canonical review-ready source and release assets are also published in the standalone companion repository. Publication there does not imply acceptance by the Obsidian Community Plugins catalog.
+This repository contains the desktop-only **Bridge Control** companion used by the guided installer. Its canonical source and release assets are also published in the standalone companion repository, which is listed in the Obsidian Community Plugins catalog. Each update must still ship matching public metadata and release assets.
 
-The 0.5.0 companion registers one fixed public CLI handler, `bridge-control:commit`, and performs managed operations through public Obsidian APIs. It is not a general vault server: the handler accepts only bounded one-time request IDs and tokens from the private bridge data directory, rechecks the current granular permission, creates a recovery backup, verifies the postcondition, and writes metadata-only audit state. It exposes no shell, `eval`, arbitrary command, command palette, plugin management, or permanent delete.
+The 0.5.1 companion registers one fixed public CLI handler, `bridge-control:commit`, and performs managed operations through public Obsidian APIs. It is not a general vault server: the handler accepts only bounded one-time request IDs and tokens from the private bridge data directory, rechecks the current granular permission, creates a recovery backup, verifies the postcondition, and writes metadata-only audit state. It exposes no shell, `eval`, arbitrary command, command palette, plugin management, or permanent delete.
 
-Before catalog submission, publish the required companion assets, provide public source/support/security information, verify the minimum Obsidian version, satisfy automated and manual review requirements, and independently test activation, update, revocation, and uninstall behavior.
+For every catalog update, publish the required companion assets, retain public source/support/security information, verify the minimum Obsidian version, satisfy automated checks, and independently test activation, update, revocation, and uninstall behavior.
 
 ## Release gate
 
-Do not publish 0.5.0 until all of the following are true:
+Do not publish 0.5.1 until all of the following are true:
 
 - `npm run check:all` passes and generated server and companion bundles are current;
 - a real Obsidian 1.12.7+ smoke test passes in a disposable vault with the official CLI enabled;
@@ -63,6 +63,8 @@ Do not publish 0.5.0 until all of the following are true:
 - rollback is bounded to a known bridge-written state, move reversal is conflict-aware, and trash failure clearly reports manual backup/trash recovery;
 - successful management requires a verified postcondition and metadata-only audit outcome; move audit includes the optional target path;
 - bounded audit readers accept current create/append and management records, enforce the current vault/folder policy, and never return note or backup bodies;
+- failed create/append records preserve bounded `failure_stage` and `cause_code` values without raw exception messages, CLI output, note text, proposed content, or backup bodies;
+- Bridge Control and `obsidian_recent_write_events` expose the matching safe diagnostics, while skill and documentation still require a state reread and explicit human direction before retry;
 - one-time request files are bounded, expiring, token-bound, claimed once, cleaned up, and confined to the fixed bridge data directory;
 - the only management CLI command is `bridge-control:commit`; duplicate or unexpected arguments are rejected;
 - no shell, `eval`, arbitrary Obsidian command, command-palette access, plugin management, direct filesystem note mutation, or permanent deletion is exposed;

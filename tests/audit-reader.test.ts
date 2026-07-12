@@ -90,6 +90,8 @@ describe("bounded metadata-only audit reader", () => {
           operation: "append",
           status: "failed",
           error_code: "WRITE_FAILED_ROLLBACK_FAILED",
+          failure_stage: "write",
+          cause_code: "CLI_NON_ZERO_EXIT",
           rollback_attempted: true,
           rollback_succeeded: false,
           rollback_reason: "restore_too_large",
@@ -107,6 +109,8 @@ describe("bounded metadata-only audit reader", () => {
       authorization_mode: "autonomous",
       status: "failed",
       error_code: "WRITE_FAILED_ROLLBACK_FAILED",
+      failure_stage: "write",
+      cause_code: "CLI_NON_ZERO_EXIT",
       rollback_attempted: true,
       rollback_succeeded: false,
       rollback_reason: "restore_too_large",
@@ -174,6 +178,35 @@ describe("bounded metadata-only audit reader", () => {
     expect(JSON.stringify(result)).not.toContain(HASH_B);
   });
 
+  it("accepts every non-LOCK-prefixed commit diagnostic produced by the writer", async () => {
+    await writeFile(
+      auditPath,
+      `${[
+        auditRecord(14, {
+          status: "failed",
+          error_code: "COMMIT_INVALID_LOCK_OPTIONS",
+          failure_stage: "commit_lock",
+          cause_code: "COMMIT_INVALID_LOCK_OPTIONS",
+        }),
+        auditRecord(15, {
+          status: "failed",
+          error_code: "COMMIT_UNSAFE_LOCK_PATH",
+          failure_stage: "commit_lock",
+          cause_code: "COMMIT_UNSAFE_LOCK_PATH",
+        }),
+      ].map((record) => JSON.stringify(record)).join("\n")}\n`,
+      "utf8",
+    );
+
+    const result = await readAuditTail(dataDirectory);
+    expect(result.events.map((event) => event.error_code)).toEqual([
+      "COMMIT_UNSAFE_LOCK_PATH",
+      "COMMIT_INVALID_LOCK_OPTIONS",
+    ]);
+    expect(result.events.every((event) => event.failure_stage === "commit_lock"))
+      .toBe(true);
+  });
+
   it.each([
     ["a move without its target", auditRecord(20, { operation: "move" })],
     [
@@ -188,6 +221,131 @@ describe("bounded metadata-only audit reader", () => {
       auditRecord(22, {
         operation: "move",
         target_path: "../Outside.md",
+      }),
+    ],
+  ])("fails closed on %s", async (_label, record) => {
+    await writeFile(auditPath, `${JSON.stringify(record)}\n`, "utf8");
+    await expect(readAuditTail(dataDirectory)).rejects.toMatchObject({
+      code: "AUDIT_MALFORMED",
+    });
+  });
+
+  it.each([
+    [
+      "a failure stage without a cause",
+      auditRecord(30, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "pre_write",
+      }),
+    ],
+    [
+      "a cause without a failure stage",
+      auditRecord(31, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        cause_code: "UNEXPECTED_ERROR",
+      }),
+    ],
+    [
+      "failure diagnostics on a committed record",
+      auditRecord(32, {
+        failure_stage: "write",
+        cause_code: "CLI_TIMEOUT",
+      }),
+    ],
+    [
+      "an invalid failure stage",
+      auditRecord(33, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "unknown",
+        cause_code: "UNEXPECTED_ERROR",
+      }),
+    ],
+    [
+      "a cause code containing free text",
+      auditRecord(34, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "pre_write",
+        cause_code: "contains private text",
+      }),
+    ],
+    [
+      "an arbitrary uppercase cause code",
+      auditRecord(35, {
+        status: "failed",
+        error_code: "PRE_WRITE_FAILED",
+        failure_stage: "pre_write",
+        cause_code: "PRIVATE_NOTE_TEXT",
+      }),
+    ],
+    [
+      "a write error labelled as management",
+      auditRecord(36, {
+        operation: "append",
+        status: "failed",
+        error_code: "WRITE_FAILED_ROLLBACK_SUCCEEDED",
+        failure_stage: "management",
+        cause_code: "CLI_TIMEOUT",
+      }),
+    ],
+    [
+      "a managed operation labelled as a writer phase",
+      auditRecord(37, {
+        operation: "replace",
+        status: "failed",
+        error_code: "MANAGEMENT_WRITE_FAILED",
+        failure_stage: "write",
+        cause_code: "UNEXPECTED_ERROR",
+      }),
+    ],
+    [
+      "an unknown transactional error with diagnostics",
+      auditRecord(38, {
+        operation: "create",
+        status: "failed",
+        error_code: "UNKNOWN_FAILURE",
+        failure_stage: "write",
+        cause_code: "UNEXPECTED_ERROR",
+      }),
+    ],
+    [
+      "a managed operation with commit-lock diagnostics",
+      auditRecord(39, {
+        operation: "replace",
+        status: "failed",
+        error_code: "COMMIT_LOCK_TIMEOUT",
+        failure_stage: "commit_lock",
+        cause_code: "COMMIT_LOCK_TIMEOUT",
+      }),
+    ],
+    [
+      "an arbitrary commit error code",
+      auditRecord(40, {
+        status: "failed",
+        error_code: "COMMIT_PRIVATE_NOTE_TEXT",
+        failure_stage: "commit_lock",
+        cause_code: "COMMIT_LOCK_TIMEOUT",
+      }),
+    ],
+    [
+      "an arbitrary write error code",
+      auditRecord(41, {
+        status: "failed",
+        error_code: "WRITE_FAILED_PRIVATE_NOTE_TEXT",
+        failure_stage: "write",
+        cause_code: "CLI_NON_ZERO_EXIT",
+      }),
+    ],
+    [
+      "an arbitrary verification error code",
+      auditRecord(42, {
+        status: "failed",
+        error_code: "VERIFICATION_FAILED_ARBITRARY",
+        failure_stage: "verification",
+        cause_code: "POST_WRITE_MISMATCH",
       }),
     ],
   ])("fails closed on %s", async (_label, record) => {
@@ -277,6 +435,8 @@ describe("bounded metadata-only audit reader", () => {
       auditRecord(1, {
         status: "failed",
         error_code: "PRE_WRITE_FAILED",
+        failure_stage: "pre_write",
+        cause_code: "UNEXPECTED_ERROR",
       }),
       auditRecord(2, {
         path: "Private/Hidden.md",
@@ -341,6 +501,8 @@ describe("bounded metadata-only audit reader", () => {
           path: "Projects/Note-1.md",
           status: "failed",
           error_code: "PRE_WRITE_FAILED",
+          failure_stage: "pre_write",
+          cause_code: "UNEXPECTED_ERROR",
         },
       ],
     });

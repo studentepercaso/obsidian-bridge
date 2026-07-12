@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.0 - READ THIS FIRST
+OBSIDIAN BRIDGE 0.5.1 - READ THIS FIRST
 
 1. Extract the complete ZIP to a normal folder.
 2. Double-click INSTALLA-OBSIDIAN-BRIDGE.cmd.
@@ -7,7 +7,7 @@ OBSIDIAN BRIDGE 0.5.0 - READ THIS FIRST
 5. Keep protected access, enable autonomous access, or explicitly choose the
    individual permissions offered by Full management.
 
-The user interface of the 0.5.0 installer and Bridge Control panel is currently
+The user interface of the 0.5.1 installer and Bridge Control panel is currently
 in Italian. No administrator rights or OpenAI API key are required.
 
 New vaults start with protected mode and no note access. Folder-scoped writing
@@ -30,10 +30,12 @@ Access modes in Bridge Control:
   unavailable. Returning to a lower mode takes effect immediately.
 
 The Recent problems section reads only bounded local audit metadata, never note
-contents. It explains whether a failed write was stopped before applying,
-restored automatically, or needs manual review; it can open an existing affected
-note and remember up to 100 problems marked as reviewed. Check this section
-before retrying a failed change.
+contents. Version 0.5.1 can show a bounded failure stage and safe cause code,
+but never raw exception messages, CLI output, proposed content, or backup bodies.
+It explains whether a failed write was stopped before applying, restored
+automatically, or needs manual review; it can open an existing affected note and
+remember up to 100 problems marked as reviewed. Diagnostics are evidence only:
+check the current note and wait for explicit human direction before retrying.
 
 Shared settings use strict schema version 4 and a stable 16-character vault ID
 from Obsidian's vault registry. Valid schema-v2/v3 configurations migrate
