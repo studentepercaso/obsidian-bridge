@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.3 - 2026-07-12
+
+- Extend settings-backed bounded exact UTF-8 snapshots to every create/append transactional observation: preparation, commit compare-and-swap, backup capture, intermediate chunk checks, final verification, and recovery classification.
+- Keep note mutation on the allowlisted official Obsidian CLI; the new filesystem access is read-only and cannot become a direct write path.
+- Fail closed for the legacy environment-only writer because CLI stdout is not an exact byte-preserving CAS source. Migrate the vault to Bridge Control shared settings before creating or appending.
+- Reject append when the resulting document would exceed 1 MiB, and reject create when the destination parent does not already exist, before any mutation.
+- Remove destructive automatic create/append rollback through the non-atomic CLI. After a post-mutation append or verification failure, preserve the exact backup and audit evidence, leave the observed state untouched, and report `manual_recovery_required=true` with a bounded manual-recovery cause code. Partial create remains `delete_disabled`.
+- Preserve the version-4 settings schema, create/append tool surface, allowlisted CLI mutation path, recovery-backup format, audit privacy boundary, and Bridge Control protocol. This release does not claim atomic rollback or a successful live-vault smoke test.
+
 ## 0.5.2 - 2026-07-12
 
 - Fix false `CHANGE_CONFLICT` failures during managed replacement, literal replacement, frontmatter, move, and trash commits when the source note does not end with a newline.

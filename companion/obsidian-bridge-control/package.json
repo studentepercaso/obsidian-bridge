@@ -1,6 +1,6 @@
 {
   "name": "bridge-control",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Visual, per-vault permission control for Obsidian Bridge.",
   "author": "studentepercaso",
   "license": "MIT",

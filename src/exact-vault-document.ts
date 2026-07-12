@@ -65,7 +65,7 @@ function sameFileSnapshot(left: BigIntStats, right: BigIntStats): boolean {
 function assertBoundedSize(stats: BigIntStats, maxBytes: number): number {
   if (stats.size > BigInt(maxBytes)) {
     throw new RangeError(
-      `managed document must not exceed ${maxBytes} UTF-8 bytes`,
+      `vault document must not exceed ${maxBytes} UTF-8 bytes`,
     );
   }
   return Number(stats.size);

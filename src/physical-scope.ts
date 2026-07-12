@@ -24,6 +24,8 @@ export interface PhysicalScopeOptions {
    * lexical target has been confirmed to remain below the physical vault root.
    */
   readonly allowMissingLeaf?: boolean;
+  /** Permit a missing leaf only when its immediate parent already exists. */
+  readonly requireExistingParent?: boolean;
 }
 
 function isMissingError(error: unknown): boolean {
@@ -165,6 +167,14 @@ export async function assertPhysicalVaultPath(
       if (isMissingError(error)) {
         if (!options.allowMissingLeaf) {
           throw new PhysicalScopeError("path does not exist", { cause: error });
+        }
+        if (
+          options.requireExistingParent === true &&
+          index !== segments.length - 1
+        ) {
+          throw new PhysicalScopeError("path parent does not exist", {
+            cause: error,
+          });
         }
 
         // All remaining components are missing descendants of the last safe,

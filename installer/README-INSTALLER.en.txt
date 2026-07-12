@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.2 - READ THIS FIRST
+OBSIDIAN BRIDGE 0.5.3 - READ THIS FIRST
 
 1. Extract the complete ZIP to a normal folder.
 2. Double-click INSTALLA-OBSIDIAN-BRIDGE.cmd.
@@ -7,7 +7,7 @@ OBSIDIAN BRIDGE 0.5.2 - READ THIS FIRST
 5. Keep protected access, enable autonomous access, or explicitly choose the
    individual permissions offered by Full management.
 
-The user interface of the 0.5.2 installer and Bridge Control panel is currently
+The user interface of the 0.5.3 installer and Bridge Control panel is currently
 in Italian. No administrator rights or OpenAI API key are required.
 
 New vaults start with protected mode and no note access. Folder-scoped writing
@@ -30,14 +30,22 @@ Access modes in Bridge Control:
   unavailable. Returning to a lower mode takes effect immediately.
 
 The Recent problems section reads only bounded local audit metadata, never note
-contents. Version 0.5.2 can show a bounded failure stage and safe cause code,
+contents. Version 0.5.3 can show a bounded failure stage and safe cause code,
 but never raw exception messages, CLI output, proposed content, or backup bodies.
 It explains whether a failed write was stopped before applying, restored
 automatically, or needs manual review; it can open an existing affected note and
-remember up to 100 problems marked as reviewed. For managed operations, version
-0.5.2 derives the conflict hash from an exact UTF-8 snapshot and avoids false
-CHANGE_CONFLICT results when a note has no final newline. Diagnostics are evidence only:
-check the current note and wait for explicit human direction before retrying.
+remember up to 100 problems marked as reviewed. Version 0.5.3 uses the same
+settings-backed exact UTF-8 observation for create/append prepare, conflict
+checks, backup capture, chunk/final verification, and recovery classification.
+Mutations still use only the allowlisted official Obsidian CLI. Append results
+over 1 MiB and create targets with a missing parent folder fail before mutation.
+The environment-only legacy writer now requires migration to Bridge Control.
+
+Create/append never performs a destructive automatic CLI rollback. After a
+post-mutation failure it keeps the exact backup and audit evidence, leaves the
+observed note untouched, and reports manual_recovery_required. A partial create
+remains delete_disabled. Diagnostics are evidence only: check the current note
+and wait for explicit human direction before recovery or retry.
 
 Shared settings use strict schema version 4 and a stable 16-character vault ID
 from Obsidian's vault registry. Valid schema-v2/v3 configurations migrate

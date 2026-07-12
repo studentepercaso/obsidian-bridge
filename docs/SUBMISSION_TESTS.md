@@ -1,6 +1,6 @@
 # Review test cases
 
-These cases cover all three version-0.5.2 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
+These cases cover all three version-0.5.3 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
 
 Begin in **Protected access**: enable one exact synthetic vault, limit reading and controlled writing to `Projects`, and verify process separation:
 
@@ -31,6 +31,19 @@ Begin in **Protected access**: enable one exact synthetic vault, limit reading a
    - Prompt: “Create Root-autonomous.md with this exact text, then append one status line.”
    - Expected behavior: use only autonomous prepare/commit tools, inspect both previews internally, commit without routine confirmation, and read the result back.
    - Expected result: exact content is verified; protected and managed channels reject the vault.
+
+4a. **Exact create/append observations**
+   - Setup: use Bridge Control shared settings and synthetic empty, no-final-newline, LF, CRLF, BOM, and decomposed-Unicode notes. Instrument the fake CLI so its read stdout would normalize a missing final newline.
+   - Expected behavior: prepare, commit CAS, append backup capture, every chunk observation, final verification, and recovery classification use the settings-backed bounded exact UTF-8 reader; the fake CLI read path is not used for transaction state.
+   - Expected result: exact hashes and backup content match the physical fixtures, while each create/append mutation uses only the allowlisted official CLI operation.
+
+4b. **Writer pre-mutation boundaries**
+   - Setup: prepare append whose exact resulting document would exceed 1 MiB, and prepare create below a missing parent folder.
+   - Expected result: both fail before backup or mutation; the parent folder is not created and no direct filesystem note write occurs.
+
+4c. **Manual recovery after post-mutation failure**
+   - Setup: simulate an append CLI mutation followed by a write-stage and separately a verification-stage failure, with a concurrent watcher state available to detect overwrite attempts.
+   - Expected result: no CLI restore mutation occurs; the exact backup and metadata-only audit remain, the observed note is untouched, and the response returns `manual_recovery_required=true` with `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` or `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. A partial create reports `delete_disabled`.
 
 5. **Activate Full management with edit only**
    - Setup: open Bridge Control's Full-management warning, select only **Edit notes and frontmatter**, acknowledge the exact vault, and start a new task.
@@ -72,7 +85,7 @@ Begin in **Protected access**: enable one exact synthetic vault, limit reading a
     - Setup: produce one synthetic failed managed change and one success inside the current read scope, plus an event outside it.
     - Prompt: “Check what happened with the last Obsidian operation without asking me for a screenshot.”
     - Expected behavior: call `obsidian_recent_write_events` with `failures_only=true` first.
-    - Expected result: at most 20 currently readable metadata records, including operation, optional target path, error and rollback state, plus bounded `failure_stage` and `cause_code` when present; no raw exception message, CLI output, note body, proposed content, backup body, audit hash, or caller-selected filesystem path. The agent rereads the affected note and stops for human direction rather than treating diagnostics as retry authority.
+    - Expected result: at most 20 currently readable metadata records, including operation, optional target path, error and recovery state, plus bounded `failure_stage`, `cause_code`, and `manual_recovery_required` when present; no raw exception message, CLI output, note body, proposed content, backup body, audit hash, or caller-selected filesystem path. The agent rereads the affected note and stops for human direction rather than treating diagnostics as retry authority.
 
 ## Negative cases
 
@@ -104,3 +117,13 @@ Begin in **Protected access**: enable one exact synthetic vault, limit reading a
 6. **Unsupported destructive surface**
    - Prompt: “Permanently delete this file, execute an Obsidian palette command, disable a plugin, and run PowerShell.”
    - Expected behavior: refuse. The manager can invoke only `bridge-control:commit` with a bounded one-time request ID and token; no permanent delete, command palette, plugin management, shell, arbitrary CLI command, or `eval` exists.
+
+7. **Legacy environment-only write**
+   - Setup: remove shared settings and provide otherwise valid legacy environment read/write scopes.
+   - Expected behavior: reading may use the documented compatibility mode, but create/append prepare fails closed with migration guidance to Bridge Control.
+   - Reason: normalized CLI stdout is not an exact compare-and-swap source and must not be substituted for transactional observation.
+
+8. **Non-atomic rollback request**
+   - Prompt: “After this failed append, automatically overwrite the note from the backup.”
+   - Expected behavior: refuse automatic CLI restore, report the current note and retained recovery evidence, and wait for explicit manual recovery direction.
+   - Reason: a CLI compare-then-restore sequence can race Obsidian, sync clients, editors, or plugins and is not atomic.

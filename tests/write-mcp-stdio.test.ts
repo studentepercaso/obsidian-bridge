@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -44,6 +44,54 @@ async function startClient(
   statePath: string,
   additions: Record<string, string> = {},
 ): Promise<{ client: Client; transport: StdioClientTransport }> {
+  const effectiveAdditions = { ...additions };
+  if (!("OBSIDIAN_BRIDGE_SETTINGS_PATH" in effectiveAdditions)) {
+    const vaultPath = dirname(statePath);
+    const writableFolders = (
+      effectiveAdditions.OBSIDIAN_BRIDGE_WRITABLE_FOLDERS ?? ""
+    )
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    const writableVaults = (
+      effectiveAdditions.OBSIDIAN_BRIDGE_WRITABLE_VAULTS ?? "Test Vault"
+    )
+      .split(",")
+      .map((value) => value.trim());
+    const readFolders = (
+      effectiveAdditions.OBSIDIAN_BRIDGE_ALLOWED_FOLDERS ?? "Projects"
+    )
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0 && value !== "*");
+    const settingsPath = join(vaultPath, "automatic-settings.json");
+    writeFileSync(
+      settingsPath,
+      `${JSON.stringify({
+        version: 4,
+        updatedAt: new Date().toISOString(),
+        vaults: {
+          "0123456789abcdef": {
+            vaultName: "Test Vault",
+            vaultPath,
+            enabled: true,
+            readMode:
+              effectiveAdditions.OBSIDIAN_BRIDGE_ALLOWED_FOLDERS === "*"
+                ? "all"
+                : "folders",
+            readFolders,
+            writeEnabled:
+              writableFolders.length > 0 && writableVaults.includes("Test Vault"),
+            writeFolders: writableFolders,
+            accessMode: "protected",
+            managementPermissions: { edit: false, move: false, trash: false },
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+    effectiveAdditions.OBSIDIAN_BRIDGE_SETTINGS_PATH = settingsPath;
+  }
   const projectRoot = fileURLToPath(new URL("../", import.meta.url));
   const launcher = fileURLToPath(
     new URL("./fixtures/start-bundled-server.mjs", import.meta.url),
@@ -68,7 +116,7 @@ async function startClient(
       OBSIDIAN_BRIDGE_WRITABLE_VAULTS: "Test Vault",
       OBSIDIAN_BRIDGE_DATA_DIR: join(dirname(statePath), "bridge-data"),
       OBSIDIAN_BRIDGE_SETTINGS_PATH: join(dirname(statePath), "settings-not-configured.json"),
-      ...additions,
+      ...effectiveAdditions,
     }),
     stderr: "pipe",
   });
@@ -133,6 +181,13 @@ describe("guarded MCP write workflow", () => {
   ): Promise<{ directory: string; statePath: string }> {
     const directory = await mkdtemp(join(tmpdir(), "obsidian-write-test-"));
     temporaryDirectories.push(directory);
+    mkdirSync(join(directory, "Projects"), { recursive: true });
+    mkdirSync(join(directory, "Projects", "Editable"), { recursive: true });
+    for (const [notePath, content] of Object.entries(state)) {
+      const physicalPath = join(directory, ...notePath.split("/"));
+      mkdirSync(dirname(physicalPath), { recursive: true });
+      writeFileSync(physicalPath, content, "utf8");
+    }
     const statePath = join(directory, "vault-state.json");
     writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
     return { directory, statePath };
@@ -327,6 +382,36 @@ describe("guarded MCP write workflow", () => {
     }
   }, 20_000);
 
+  it("fails legacy environment-only writing closed with a Bridge Control migration error", async () => {
+    const { directory, statePath } = await stateFixture({});
+    const logPath = join(directory, "legacy-argv.jsonl");
+    const { client } = await startClient(statePath, {
+      OBSIDIAN_BRIDGE_SETTINGS_PATH: join(directory, "missing-settings.json"),
+      OBSIDIAN_BRIDGE_WRITABLE_FOLDERS: "Projects",
+      OBSIDIAN_FAKE_LOG: logPath,
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "obsidian_prepare_change",
+        arguments: {
+          vault: "Test Vault",
+          path: "Projects/Legacy.md",
+          operation: "create",
+          content: "must not land",
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toMatch(
+        /Bridge Control.*physical vault path|migrate/iu,
+      );
+      expect(readState(statePath)).toEqual({});
+      expect(() => readFileSync(logPath, "utf8")).toThrow();
+    } finally {
+      await client.close();
+    }
+  }, 20_000);
+
   it("fails closed unless the exact target vault is explicitly writable", async () => {
     const { statePath } = await stateFixture({});
     const { client } = await startClient(statePath, {
@@ -345,7 +430,9 @@ describe("guarded MCP write workflow", () => {
         },
       });
       expect(result.isError).toBe(true);
-      expect(JSON.stringify(result.content)).toMatch(/vault.*outside|writable.*vault/iu);
+      expect(JSON.stringify(result.content)).toMatch(
+        /vault.*outside|writable.*vault|writing is disabled/iu,
+      );
       expect(readState(statePath)).toEqual({});
     } finally {
       await client.close();
@@ -476,7 +563,7 @@ describe("guarded MCP write workflow", () => {
         argv.includes("create"),
       );
       expect(writeInvocation?.argv.slice(0, 2)).toEqual([
-        "vault=Test Vault",
+        "vault=0123456789abcdef",
         "create",
       ]);
       expect(
@@ -592,6 +679,11 @@ describe("guarded MCP write workflow", () => {
         `${JSON.stringify({ "Projects/Existing.md": "manual edit\n" })}\n`,
         "utf8",
       );
+      writeFileSync(
+        join(dirname(statePath), "Projects", "Existing.md"),
+        "manual edit\n",
+        "utf8",
+      );
 
       const result = await commit(client, String(preview.change_id));
       expect((result as { isError?: boolean }).isError).toBe(true);
@@ -658,6 +750,11 @@ describe("guarded MCP write workflow", () => {
       writeFileSync(
         statePath,
         `${JSON.stringify({ "Projects/Large.md": "a\n".repeat(8_000) })}\n`,
+        "utf8",
+      );
+      writeFileSync(
+        join(directory, "Projects", "Large.md"),
+        "a\n".repeat(8_000),
         "utf8",
       );
       const largeNoteAppend = await client.callTool({

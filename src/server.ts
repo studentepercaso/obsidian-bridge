@@ -57,7 +57,7 @@ import {
 } from "./write-workflow.js";
 
 export const SERVER_NAME = "obsidian-bridge";
-export const SERVER_VERSION = "0.5.2";
+export const SERVER_VERSION = "0.5.3";
 
 export type ServerMode = "read" | "write" | "autonomous" | "management";
 
@@ -710,6 +710,12 @@ export function createToolHandlers(runtime: ToolRuntime) {
             ...(event.rollback_reason === undefined
               ? {}
               : { rollback_reason: event.rollback_reason }),
+            ...(event.rollback_reason === "manual_recovery_required" ||
+            event.error_code === "WRITE_FAILED_MANUAL_RECOVERY_REQUIRED" ||
+            event.error_code ===
+              "VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED"
+              ? { manual_recovery_required: true }
+              : {}),
             ...(event.backup_id === undefined
               ? {}
               : { backup_id: event.backup_id }),
