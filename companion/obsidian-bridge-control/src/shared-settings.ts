@@ -18,8 +18,10 @@ import { cliReportsDisabled, cliReportsVersion } from "./cli-status";
 
 export type DesktopPlatform = "windows" | "macos" | "linux";
 export type ReadMode = "off" | "all" | "folders";
+export type AccessMode = "protected" | "full";
 
 export interface VaultBridgeSettings {
+  accessMode: AccessMode;
   enabled: boolean;
   readMode: ReadMode;
   readFolders: string[];
@@ -28,7 +30,7 @@ export interface VaultBridgeSettings {
 }
 
 export interface SharedSettingsFile {
-  version: 2;
+  version: 3;
   updatedAt: string;
   vaults: Record<string, SharedVaultSettings>;
 }
@@ -42,6 +44,25 @@ export interface VaultIdentity {
   id: string;
   name: string;
   path: string;
+}
+
+export interface MergeVaultSettingsOptions {
+  /** Required only for a protected/missing -> full transition under the file lock. */
+  readonly fullAccessConfirmed?: boolean;
+  /** @internal Deterministic fault injection used only by the test suite. */
+  readonly testAfterWrite?: (
+    attempt: "primary" | "revocation-reassert",
+  ) => Promise<void>;
+  /** @internal Shortens lock contention tests; production callers omit it. */
+  readonly testLockWaitMs?: number;
+  /** @internal Runs after verification and before releasing the test lock. */
+  readonly testBeforeRelease?: () => Promise<void>;
+}
+
+export interface MergeVaultSettingsResult {
+  readonly settings: VaultBridgeSettings;
+  readonly lockReleased: boolean;
+  readonly warning?: string;
 }
 
 export interface FolderListResult {
@@ -66,7 +87,7 @@ export interface CliDiagnostic {
 
 const SHARED_SETTINGS_MAX_BYTES = 64 * 1024;
 const LOCK_WAIT_MS = 3_000;
-const LOCK_STALE_MS = 30_000;
+const LOCK_OWNER_MAX_BYTES = 4_096;
 const VAULT_ID = /^[0-9a-f]{16}$/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -181,9 +202,12 @@ function validateFolders(value: unknown): string[] | undefined {
   return result;
 }
 
-function validateVaultEntry(value: unknown): SharedVaultSettings | undefined {
+function validateVaultEntry(
+  value: unknown,
+  version: 2 | 3,
+): SharedVaultSettings | undefined {
   if (!isRecord(value)) return undefined;
-  if (!hasExactKeys(value, [
+  const expectedKeys = [
     "vaultName",
     "vaultPath",
     "enabled",
@@ -191,7 +215,9 @@ function validateVaultEntry(value: unknown): SharedVaultSettings | undefined {
     "readFolders",
     "writeEnabled",
     "writeFolders",
-  ])) return undefined;
+    ...(version === 3 ? ["accessMode"] : []),
+  ];
+  if (!hasExactKeys(value, expectedKeys)) return undefined;
   if (
     typeof value.vaultName !== "string" ||
     value.vaultName.length === 0 ||
@@ -213,8 +239,14 @@ function validateVaultEntry(value: unknown): SharedVaultSettings | undefined {
   const writeFolders = validateFolders(value.writeFolders);
   if (readFolders === undefined || writeFolders === undefined) return undefined;
   if (typeof value.writeEnabled !== "boolean") return undefined;
+  if (
+    version === 3 &&
+    value.accessMode !== "protected" &&
+    value.accessMode !== "full"
+  ) return undefined;
 
   return {
+    accessMode: version === 3 ? value.accessMode as AccessMode : "protected",
     vaultName: value.vaultName,
     vaultPath: normalize(value.vaultPath),
     enabled: value.enabled,
@@ -257,7 +289,7 @@ async function readSharedRoot(filePath: string): Promise<SharedSettingsFile | un
     if (!isRecord(parsed) || !hasExactKeys(parsed, ["version", "updatedAt", "vaults"])) {
       throw new Error("Il file condiviso non rispetta lo schema previsto.");
     }
-    if (parsed.version !== 2) {
+    if (parsed.version !== 2 && parsed.version !== 3) {
       throw new Error(`Versione del file condiviso non supportata: ${String(parsed.version)}.`);
     }
     if (
@@ -273,11 +305,11 @@ async function readSharedRoot(filePath: string): Promise<SharedSettingsFile | un
     const vaults: Record<string, SharedVaultSettings> = {};
     for (const [vaultId, rawEntry] of Object.entries(parsed.vaults)) {
       if (!VAULT_ID.test(vaultId)) throw new Error("Il file contiene un ID vault non valido.");
-      const entry = validateVaultEntry(rawEntry);
+      const entry = validateVaultEntry(rawEntry, parsed.version);
       if (entry === undefined) throw new Error(`Configurazione non valida per il vault ${vaultId}.`);
       vaults[vaultId] = entry;
     }
-    return { version: 2, updatedAt: parsed.updatedAt, vaults };
+    return { version: 3, updatedAt: parsed.updatedAt, vaults };
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new Error("Il file condiviso contiene JSON non valido; non è stato sovrascritto.");
@@ -288,12 +320,67 @@ async function readSharedRoot(filePath: string): Promise<SharedSettingsFile | un
   }
 }
 
-async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
+function sameFileIdentity(
+  first: { readonly dev: number; readonly ino: number },
+  second: { readonly dev: number; readonly ino: number },
+): boolean {
+  return first.dev === second.dev && first.ino === second.ino;
+}
+
+async function readLockOwnerToken(ownerPath: string): Promise<string> {
+  const initial = await lstat(ownerPath);
+  if (
+    initial.isSymbolicLink() ||
+    !initial.isFile() ||
+    initial.size > LOCK_OWNER_MAX_BYTES
+  ) {
+    throw new Error("Il proprietario del lock non è un file sicuro.");
+  }
+  const handle = await open(
+    ownerPath,
+    process.platform === "win32"
+      ? "r"
+      : constants.O_RDONLY | constants.O_NOFOLLOW,
+  );
+  try {
+    const opened = await handle.stat();
+    if (
+      !opened.isFile() ||
+      opened.size > LOCK_OWNER_MAX_BYTES ||
+      !sameFileIdentity(initial, opened)
+    ) {
+      throw new Error("Il proprietario del lock è cambiato durante la lettura.");
+    }
+    const bytes = await handle.readFile();
+    if (bytes.byteLength > LOCK_OWNER_MAX_BYTES) {
+      throw new Error("Il proprietario del lock supera il limite previsto.");
+    }
+    const parsed: unknown = JSON.parse(bytes.toString("utf8"));
+    if (
+      !isRecord(parsed) ||
+      Object.keys(parsed).length !== 3 ||
+      typeof parsed.token !== "string" ||
+      !/^[0-9a-f-]{36}$/iu.test(parsed.token) ||
+      !Number.isSafeInteger(parsed.pid) ||
+      typeof parsed.createdAt !== "string"
+    ) {
+      throw new Error("Il proprietario del lock non è valido.");
+    }
+    return parsed.token;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function acquireLock(
+  lockPath: string,
+  waitMs = LOCK_WAIT_MS,
+): Promise<() => Promise<void>> {
   const startedAt = Date.now();
   const token = randomUUID();
   const ownerPath = join(lockPath, "owner.json");
 
-  while (Date.now() - startedAt < LOCK_WAIT_MS) {
+  while (Date.now() - startedAt < waitMs) {
     try {
       await mkdir(lockPath, { mode: 0o700 });
       try {
@@ -311,16 +398,29 @@ async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
         await rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
         throw error;
       }
+      const acquiredStat = await lstat(lockPath);
+      if (acquiredStat.isSymbolicLink() || !acquiredStat.isDirectory()) {
+        throw new Error("Il lock appena acquisito non è una directory sicura.");
+      }
       return async () => {
-        try {
-          const owner = JSON.parse(await readFile(ownerPath, "utf8")) as { token?: unknown };
-          if (owner.token !== token) return;
-          const releasePath = `${lockPath}.release-${token}`;
-          await rename(lockPath, releasePath);
-          await rm(releasePath, { recursive: true, force: true });
-        } catch (error) {
-          if (errorCode(error) !== "ENOENT") throw error;
+        const currentStat = await lstat(lockPath);
+        if (
+          currentStat.isSymbolicLink() ||
+          !currentStat.isDirectory() ||
+          !sameFileIdentity(acquiredStat, currentStat)
+        ) {
+          throw new Error("La proprietà del lock è cambiata prima del rilascio.");
         }
+        if (await readLockOwnerToken(ownerPath) !== token) {
+          throw new Error("Il token del lock è cambiato prima del rilascio.");
+        }
+        const releasePath = `${lockPath}.release-${token}`;
+        await rename(lockPath, releasePath);
+        const movedStat = await lstat(releasePath);
+        if (!sameFileIdentity(acquiredStat, movedStat)) {
+          throw new Error("Il lock rinominato non corrisponde a quello acquisito.");
+        }
+        await rm(releasePath, { recursive: true, force: true });
       };
     } catch (error) {
       if (errorCode(error) !== "EEXIST") throw error;
@@ -329,12 +429,6 @@ async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
         if (lockStat.isSymbolicLink() || !lockStat.isDirectory()) {
           throw new Error("Il lock della configurazione non è una directory sicura.");
         }
-        if (Date.now() - lockStat.mtimeMs > LOCK_STALE_MS) {
-          const stalePath = `${lockPath}.stale-${randomUUID()}`;
-          await rename(lockPath, stalePath);
-          await rm(stalePath, { recursive: true, force: true });
-          continue;
-        }
       } catch (lockError) {
         if (errorCode(lockError) !== "ENOENT") throw lockError;
       }
@@ -342,7 +436,9 @@ async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
     }
   }
 
-  throw new Error("Configurazione occupata da un altro processo. Riprova tra qualche secondo.");
+  throw new Error(
+    "Configurazione occupata da un altro processo. Se Obsidian si è chiuso durante un salvataggio, riavvialo e rimuovi il lock soltanto dopo aver verificato che nessun altro processo stia configurando il bridge.",
+  );
 }
 
 async function writeJsonAtomically(filePath: string, value: SharedSettingsFile): Promise<void> {
@@ -374,28 +470,78 @@ async function writeJsonAtomically(filePath: string, value: SharedSettingsFile):
   }
 }
 
+function activeRevocationOrScopeChange(
+  current: SharedVaultSettings | undefined,
+  next: VaultBridgeSettings,
+): boolean {
+  if (current === undefined || !current.enabled) return false;
+  if (!next.enabled) return true;
+  if (current.accessMode === "full" && next.accessMode === "protected") {
+    return true;
+  }
+  if (
+    current.accessMode === "protected" &&
+    next.accessMode === "protected"
+  ) {
+    return (
+      current.readMode !== next.readMode ||
+      current.writeEnabled !== next.writeEnabled ||
+      current.readFolders.length !== next.readFolders.length ||
+      current.writeFolders.length !== next.writeFolders.length ||
+      current.readFolders.some(
+        (folder, index) => folder !== next.readFolders[index],
+      ) ||
+      current.writeFolders.some(
+        (folder, index) => folder !== next.writeFolders[index],
+      )
+    );
+  }
+  return false;
+}
+
 export async function mergeVaultSettings(
   filePath: string,
   vaultId: string,
   vaultName: string,
   vaultPath: string,
   settings: VaultBridgeSettings,
-): Promise<void> {
+  options: MergeVaultSettingsOptions = {},
+): Promise<MergeVaultSettingsResult> {
   if (!VAULT_ID.test(vaultId)) throw new Error("L'ID stabile del vault non è disponibile.");
   const normalizedName = vaultName.trim().normalize("NFC");
   if (!normalizedName) throw new Error("Il nome del vault non è disponibile.");
   const physicalVaultPath = await realpath(vaultPath);
+  const lockWaitMs = options.testLockWaitMs ?? LOCK_WAIT_MS;
+  if (!Number.isSafeInteger(lockWaitMs) || lockWaitMs < 1 || lockWaitMs > LOCK_WAIT_MS) {
+    throw new Error("Il tempo di attesa del lock non è valido.");
+  }
   await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
-  const release = await acquireLock(`${filePath}.lock`);
+  const release = await acquireLock(
+    `${filePath}.lock`,
+    lockWaitMs,
+  );
+  let operationError: unknown;
+  let result: MergeVaultSettingsResult | undefined;
 
   try {
     const existing = await readSharedRoot(filePath);
+    const currentEntry = existing?.vaults[vaultId];
+    if (
+      settings.accessMode === "full" &&
+      currentEntry?.accessMode !== "full" &&
+      options.fullAccessConfirmed !== true
+    ) {
+      throw new Error(
+        "L'accesso completo deve essere attivato dalla finestra di conferma dedicata.",
+      );
+    }
     const merged: SharedSettingsFile = {
-      version: 2,
+      version: 3,
       updatedAt: new Date().toISOString(),
       vaults: {
         ...(existing?.vaults ?? {}),
         [vaultId]: {
+          accessMode: settings.accessMode,
           vaultName: normalizedName,
           vaultPath: physicalVaultPath,
           enabled: settings.enabled,
@@ -406,10 +552,151 @@ export async function mergeVaultSettings(
         },
       },
     };
-    await writeJsonAtomically(filePath, merged);
-  } finally {
-    await release();
+    const verifyMerged = async (): Promise<void> => {
+      const verified = await readSharedRoot(filePath);
+      const verifiedEntry = verified?.vaults[vaultId];
+      if (
+        verifiedEntry === undefined ||
+        verifiedEntry.accessMode !== settings.accessMode ||
+        verifiedEntry.vaultName !== normalizedName ||
+        verifiedEntry.vaultPath !== physicalVaultPath ||
+        verifiedEntry.enabled !== settings.enabled ||
+        verifiedEntry.readMode !== settings.readMode ||
+        verifiedEntry.writeEnabled !== settings.writeEnabled ||
+        verifiedEntry.readFolders.length !== settings.readFolders.length ||
+        verifiedEntry.writeFolders.length !== settings.writeFolders.length ||
+        !verifiedEntry.readFolders.every(
+          (folder, index) => folder === settings.readFolders[index],
+        ) ||
+        !verifiedEntry.writeFolders.every(
+          (folder, index) => folder === settings.writeFolders[index],
+        )
+      ) {
+        throw new Error("Verifica atomica del file condiviso non riuscita.");
+      }
+    };
+    let verificationWarning: string | undefined;
+    try {
+      await writeJsonAtomically(filePath, merged);
+      await options.testAfterWrite?.("primary");
+      await verifyMerged();
+    } catch (writeOrVerifyError) {
+      if (activeRevocationOrScopeChange(currentEntry, settings)) {
+        try {
+          // Never restore a more permissive policy after the user revoked or
+          // narrowed access. Reassert the target once while the lock is held.
+          await writeJsonAtomically(filePath, merged);
+          await options.testAfterWrite?.("revocation-reassert");
+          await verifyMerged();
+          verificationWarning =
+            "La prima verifica non è riuscita; la revoca/riduzione è stata riscritta e verificata sotto lock.";
+        } catch (revocationError) {
+          const quarantinePath = `${filePath}.revoked-${Date.now()}-${randomUUID()}.json`;
+          let quarantined = false;
+          try {
+            await rename(filePath, quarantinePath);
+            quarantined = (await readSharedRoot(filePath)) === undefined;
+          } catch (quarantineError) {
+            if (errorCode(quarantineError) === "ENOENT") {
+              quarantined = (await readSharedRoot(filePath)) === undefined;
+            } else {
+              throw new Error(
+                `Stato della revoca incerto: chiudi Codex e Obsidian e controlla immediatamente il file condiviso. Dettagli: ${
+                  revocationError instanceof Error
+                    ? revocationError.message
+                    : String(revocationError)
+                }; ${
+                  quarantineError instanceof Error
+                    ? quarantineError.message
+                    : String(quarantineError)
+                }`,
+              );
+            }
+          }
+          if (quarantined) {
+            throw new Error(
+              `La revoca non è stata verificabile: il file condiviso è stato messo in quarantena in ${quarantinePath}. L'accesso completo è disabilitato in modo prudente; riapri il pannello per riconfigurare i vault.`,
+            );
+          }
+          throw new Error(
+            "Stato della revoca incerto: chiudi Codex e Obsidian e controlla immediatamente il file condiviso.",
+          );
+        }
+      } else {
+      try {
+        if (existing === undefined) {
+          await unlink(filePath).catch((error) => {
+            if (errorCode(error) !== "ENOENT") throw error;
+          });
+          if (await readSharedRoot(filePath) !== undefined) {
+            throw new Error("Il nuovo file condiviso non è stato rimosso.");
+          }
+        } else {
+          await writeJsonAtomically(filePath, existing);
+          const restored = await readSharedRoot(filePath);
+          if (JSON.stringify(restored) !== JSON.stringify(existing)) {
+            throw new Error("La configurazione precedente non è stata ripristinata.");
+          }
+        }
+      } catch (rollbackError) {
+        throw new Error(
+          `Stato della configurazione incerto: salvataggio/verifica e revoca di sicurezza non sono riusciti. Disattiva il bridge e controlla il file condiviso. Dettagli: ${
+            writeOrVerifyError instanceof Error
+              ? writeOrVerifyError.message
+              : String(writeOrVerifyError)
+          }; ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        );
+      }
+      throw writeOrVerifyError;
+      }
+    }
+
+    result = {
+      settings: {
+        accessMode: settings.accessMode,
+        enabled: settings.enabled,
+        readMode: settings.readMode,
+        readFolders: [...settings.readFolders],
+        writeEnabled: settings.writeEnabled,
+        writeFolders: [...settings.writeFolders],
+      },
+      lockReleased: true,
+      ...(verificationWarning === undefined
+        ? {}
+        : { warning: verificationWarning }),
+    };
+  } catch (error) {
+    operationError = error;
   }
+
+  try {
+    await options.testBeforeRelease?.();
+  } catch (error) {
+    operationError ??= error;
+  }
+
+  try {
+    await release();
+  } catch (releaseError) {
+    if (operationError !== undefined) {
+      throw new Error(
+        `${operationError instanceof Error ? operationError.message : String(operationError)} Inoltre il lock della configurazione non è stato rilasciato: ${
+          releaseError instanceof Error ? releaseError.message : String(releaseError)
+        }`,
+      );
+    }
+    return {
+      ...result!,
+      lockReleased: false,
+      warning: [
+        result?.warning,
+        "Configurazione verificata, ma il lock locale non è stato rilasciato: riavvia Obsidian prima di altre modifiche.",
+      ].filter((value): value is string => value !== undefined).join(" "),
+    };
+  }
+
+  if (operationError !== undefined) throw operationError;
+  return result!;
 }
 
 export async function readVaultSettings(
@@ -420,6 +707,7 @@ export async function readVaultSettings(
   const entry = root?.vaults[vaultId];
   if (entry === undefined) return undefined;
   return {
+    accessMode: entry.accessMode,
     enabled: entry.enabled,
     readMode: entry.readMode,
     readFolders: [...entry.readFolders],

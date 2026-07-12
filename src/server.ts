@@ -12,6 +12,10 @@ import {
   type CliInvocationOptions,
   type ObsidianCliRunner,
 } from "./cli.js";
+import {
+  AUDIT_RESULT_MAX_RECORDS,
+  readAuditTail,
+} from "./audit-reader.js";
 import { loadBridgeConfig, type BridgeConfig } from "./config.js";
 import {
   assertPathAllowed,
@@ -44,12 +48,13 @@ import {
   PreparedChangeStore,
   WriteToolInputSchemas,
   type ChangeStorage,
+  type WriteAuthorizationMode,
 } from "./write-workflow.js";
 
 export const SERVER_NAME = "obsidian-bridge";
-export const SERVER_VERSION = "0.3.4";
+export const SERVER_VERSION = "0.4.0";
 
-export type ServerMode = "read" | "write" | "all";
+export type ServerMode = "read" | "write" | "autonomous";
 
 export const READ_ONLY_TOOL_ANNOTATIONS: ToolAnnotations = Object.freeze({
   readOnlyHint: true,
@@ -148,6 +153,20 @@ export const ToolInputSchemas = Object.freeze({
       limit: z.number().int().min(1).max(100).default(20),
     })
     .strict(),
+  recentWriteEvents: z
+    .object({
+      vault: VaultName.optional().describe(
+        "Optional configured vault name or stable vault ID. Omit to inspect every currently readable configured vault.",
+      ),
+      failures_only: z.boolean().default(true),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .default(10)
+        .describe("Maximum results; values above 20 are capped to 20."),
+    })
+    .strict(),
   prepareChange: WriteToolInputSchemas.prepareChange,
   commitChange: WriteToolInputSchemas.commitChange,
 });
@@ -160,6 +179,9 @@ export type NoteOutlineInput = z.infer<typeof ToolInputSchemas.noteOutline>;
 export type NoteLinksInput = z.infer<typeof ToolInputSchemas.noteLinks>;
 export type NoteTagsInput = z.infer<typeof ToolInputSchemas.noteTags>;
 export type RecentNotesInput = z.infer<typeof ToolInputSchemas.recentNotes>;
+export type RecentWriteEventsInput = z.infer<
+  typeof ToolInputSchemas.recentWriteEvents
+>;
 export type PrepareChangeInput = z.infer<typeof ToolInputSchemas.prepareChange>;
 export type CommitChangeInput = z.infer<typeof ToolInputSchemas.commitChange>;
 
@@ -167,6 +189,8 @@ export interface ToolRuntime {
   readonly runner: ObsidianCliRunner;
   readonly policy: PathPolicy;
   readonly resolveAccess?: VaultAccessResolver;
+  /** Fixed local directory containing the metadata-only audit. */
+  readonly dataDirectory?: string;
 }
 
 async function stdout(
@@ -186,6 +210,7 @@ export function createToolHandlers(runtime: ToolRuntime) {
           readPolicy: runtime.policy,
           writablePolicy: createWritablePathPolicy({ allowedFolders: [] }),
           writeEnabled: false,
+          accessMode: "protected",
           vaultSelector: vault,
           vaultName: vault,
           source: "environment",
@@ -250,7 +275,11 @@ export function createToolHandlers(runtime: ToolRuntime) {
     ): Promise<CallToolResult> {
       const output = await stdout(runner, ["vaults"], options);
       const discovered = parseVaultList(output).map(({ name }) => ({ name }));
-      const vaults: Array<{ readonly name: string; readonly id?: string }> = [];
+      const vaults: Array<{
+        readonly name: string;
+        readonly id?: string;
+        readonly access_mode: "protected" | "full";
+      }> = [];
       for (const vault of discovered) {
         const access = await readAccess(vault.name);
         const policy = access.readPolicy;
@@ -261,8 +290,12 @@ export function createToolHandlers(runtime: ToolRuntime) {
           await assertVaultIdentity(runner, access, options);
           vaults.push(
             access.source === "settings"
-              ? { name: access.vaultName, id: access.vaultSelector }
-              : vault,
+              ? {
+                  name: access.vaultName,
+                  id: access.vaultSelector,
+                  access_mode: access.accessMode,
+                }
+              : { ...vault, access_mode: "protected" },
           );
         }
       }
@@ -528,6 +561,139 @@ export function createToolHandlers(runtime: ToolRuntime) {
       ).slice(0, input.limit);
       return jsonResult({ vault: input.vault, count: notes.length, notes });
     },
+
+    async recentWriteEvents(
+      input: RecentWriteEventsInput,
+      _options: CliInvocationOptions = {},
+    ): Promise<CallToolResult> {
+      if (runtime.dataDirectory === undefined) {
+        throw new Error("audit data directory is not configured");
+      }
+
+      const initialRequestedAccess =
+        input.vault === undefined ? undefined : await readAccess(input.vault);
+      if (initialRequestedAccess !== undefined) {
+        assertReadEnabled(initialRequestedAccess.readPolicy);
+      }
+
+      const audit = await readAuditTail(runtime.dataDirectory);
+      const limit = Math.min(input.limit, AUDIT_RESULT_MAX_RECORDS);
+      const events: Array<Record<string, unknown>> = [];
+      const initialAccesses = new Map<string, VaultAccess>();
+
+      if (initialRequestedAccess !== undefined) {
+        initialAccesses.set(
+          initialRequestedAccess.vaultSelector,
+          initialRequestedAccess,
+        );
+      } else {
+        for (const event of audit.events) {
+          if (input.failures_only && event.status !== "failed") continue;
+          if (initialAccesses.has(event.vault)) continue;
+          const access = await readAccess(event.vault);
+          if (
+            access.readPolicy.allowedFolders !== null &&
+            access.readPolicy.allowedFolders.length === 0
+          ) {
+            continue;
+          }
+          if (
+            access.source === "settings" &&
+            event.vault !== access.vaultSelector
+          ) {
+            continue;
+          }
+          initialAccesses.set(event.vault, access);
+        }
+      }
+
+      // Re-read every relevant grant after the bounded audit read. No path is
+      // disclosed using a permission snapshot that may have been revoked while
+      // the file was being inspected.
+      const currentAccesses = new Map<string, VaultAccess>();
+      for (const [auditVault, initialAccess] of initialAccesses) {
+        const lookup = input.vault ?? auditVault;
+        const currentAccess = await readAccess(lookup);
+        try {
+          assertSameVault(initialAccess, currentAccess);
+          assertReadEnabled(currentAccess.readPolicy);
+        } catch (error) {
+          if (input.vault !== undefined) throw error;
+          continue;
+        }
+        if (
+          currentAccess.source === "settings" &&
+          auditVault !== currentAccess.vaultSelector
+        ) {
+          continue;
+        }
+        currentAccesses.set(auditVault, currentAccess);
+      }
+
+      let eligibleCount = 0;
+
+      for (const event of audit.events) {
+        if (input.failures_only && event.status !== "failed") continue;
+
+        if (
+          initialRequestedAccess !== undefined &&
+          event.vault !== initialRequestedAccess.vaultSelector
+        ) continue;
+        const access = currentAccesses.get(event.vault);
+        if (access === undefined) continue;
+
+        let notePath: string;
+        try {
+          notePath = assertPathAllowed(event.path, access.readPolicy);
+        } catch {
+          // Revoked folders and denied paths must not remain visible through
+          // audit metadata after their read grant is removed.
+          continue;
+        }
+
+        eligibleCount += 1;
+        if (events.length < limit) {
+          events.push({
+            timestamp: event.timestamp,
+            change_id: event.change_id,
+            vault: access.vaultName,
+            ...(access.source === "settings"
+              ? { vault_id: access.vaultSelector }
+              : {}),
+            path: notePath,
+            operation: event.operation,
+            authorization_mode: event.authorization_mode,
+            status: event.status,
+            ...(event.error_code === undefined
+              ? {}
+              : { error_code: event.error_code }),
+            ...(event.rollback_attempted === undefined
+              ? {}
+              : { rollback_attempted: event.rollback_attempted }),
+            ...(event.rollback_succeeded === undefined
+              ? {}
+              : { rollback_succeeded: event.rollback_succeeded }),
+            ...(event.rollback_reason === undefined
+              ? {}
+              : { rollback_reason: event.rollback_reason }),
+            ...(event.backup_id === undefined
+              ? {}
+              : { backup_id: event.backup_id }),
+          });
+        }
+      }
+
+      const resultsTruncated = eligibleCount > events.length;
+      return jsonResult({
+        failures_only: input.failures_only,
+        limit,
+        count: events.length,
+        audit_tail_truncated: audit.truncated,
+        results_truncated: resultsTruncated,
+        truncated: audit.truncated || resultsTruncated,
+        events,
+      });
+    },
   };
 }
 
@@ -649,6 +815,21 @@ export function registerObsidianTools(
     async (input, extra) =>
       await safelyInvoke(() => handlers.recentNotes(input, { signal: extra.signal })),
   );
+
+  server.registerTool(
+    "obsidian_recent_write_events",
+    {
+      title: "Read recent Obsidian write events",
+      description:
+        "Read a bounded metadata-only tail of recent bridge write failures and outcomes for currently readable configured vaults. Never returns note or backup bodies.",
+      inputSchema: ToolInputSchemas.recentWriteEvents,
+      annotations,
+    },
+    async (input, extra) =>
+      await safelyInvoke(() =>
+        handlers.recentWriteEvents(input, { signal: extra.signal }),
+      ),
+  );
 }
 
 export interface WriteToolRegistrationRuntime extends ToolRuntime {
@@ -657,6 +838,8 @@ export interface WriteToolRegistrationRuntime extends ToolRuntime {
   readonly store: PreparedChangeStore;
   readonly storage: ChangeStorage;
   readonly now?: () => number;
+  readonly authorizationMode?: WriteAuthorizationMode;
+  readonly dataDirectory?: string;
 }
 
 export function registerObsidianWriteTools(
@@ -673,15 +856,31 @@ export function registerObsidianWriteTools(
       : { resolveAccess: runtime.resolveAccess }),
     store: runtime.store,
     storage: runtime.storage,
+    authorizationMode: runtime.authorizationMode ?? "protected",
+    ...(runtime.dataDirectory === undefined
+      ? {}
+      : { dataDirectory: runtime.dataDirectory }),
     ...(runtime.now === undefined ? {} : { now: runtime.now }),
   });
 
+  const autonomous = runtime.authorizationMode === "autonomous";
+  const prepareToolName = autonomous
+    ? "obsidian_prepare_autonomous_change"
+    : "obsidian_prepare_change";
+  const commitToolName = autonomous
+    ? "obsidian_commit_autonomous_change"
+    : "obsidian_commit_change";
+
   server.registerTool(
-    "obsidian_prepare_change",
+    prepareToolName,
     {
-      title: "Prepare an Obsidian note change",
+      title: autonomous
+        ? "Prepare an autonomous Obsidian note change"
+        : "Prepare an Obsidian note change",
       description:
-        "Prepare a bounded create or append in an explicitly writable vault and folder. Returns the exact proposed content, a diff, and a short-lived single-use change_id without modifying the vault.",
+        autonomous
+          ? "Prepare a bounded create or append only for a vault explicitly set to Accesso completo. Returns an internally reviewable preview and single-use change_id without modifying the vault."
+          : "Prepare a bounded create or append in an explicitly writable protected vault and folder. Returns the exact proposed content, a diff, and a short-lived single-use change_id without modifying the vault.",
       inputSchema: ToolInputSchemas.prepareChange,
       annotations: PREPARE_TOOL_ANNOTATIONS,
     },
@@ -692,11 +891,15 @@ export function registerObsidianWriteTools(
   );
 
   server.registerTool(
-    "obsidian_commit_change",
+    commitToolName,
     {
-      title: "Commit an Obsidian note change",
+      title: autonomous
+        ? "Commit an autonomous Obsidian note change"
+        : "Commit an Obsidian note change",
       description:
-        "Consume one prepared change_id, reject conflicts, back up existing content, modify through the allowlisted Obsidian CLI, and verify the result.",
+        autonomous
+          ? "Consume one autonomous change_id only while Accesso completo remains active, reject conflicts, back up existing content, write through the allowlisted Obsidian CLI, and verify the result."
+          : "Consume one protected change_id after user confirmation, reject conflicts, back up existing content, modify through the allowlisted Obsidian CLI, and verify the result.",
       inputSchema: ToolInputSchemas.commitChange,
       annotations: COMMIT_TOOL_ANNOTATIONS,
     },
@@ -739,25 +942,30 @@ export function createObsidianServer(
   const runner =
     options.runner ??
     createObsidianCliRunner(config, undefined, {
-      allowWrites: mode === "write" || mode === "all",
+      allowWrites: mode !== "read",
     });
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       instructions:
         mode === "read"
-          ? "Read-only access to local Obsidian vaults. Cite note paths and the line numbers returned by obsidian_read_note. Never claim that a note was changed."
-          : "Obsidian changes require obsidian_prepare_change followed by explicit user approval and obsidian_commit_change. Never skip the diff, reuse a change_id, or claim success unless commit returns verified=true.",
+          ? "Read-only access to local Obsidian vaults. Check obsidian_recent_write_events before an autonomous write sequence and after any write error so recovery state can be understood without asking for screenshots. Cite note paths and the line numbers returned by obsidian_read_note. Never claim that a note was changed."
+          : mode === "autonomous"
+            ? "Autonomous Obsidian changes are allowed only for a vault explicitly set to Accesso completo. Use obsidian_prepare_autonomous_change, inspect its exact preview internally, then use obsidian_commit_autonomous_change in the same task. Stop on any ambiguity, conflict, revocation, or failure; never reuse a change_id or claim success unless verified=true."
+            : "Protected Obsidian changes require obsidian_prepare_change followed by explicit user approval and obsidian_commit_change. Never skip the diff, reuse a change_id, or claim success unless commit returns verified=true.",
     },
   );
-  if (mode === "read" || mode === "all") {
+  if (mode === "read") {
     registerObsidianTools(server, {
       runner,
       policy,
+      ...(config.dataDirectory === undefined
+        ? {}
+        : { dataDirectory: config.dataDirectory }),
       ...(resolveAccess === undefined ? {} : { resolveAccess }),
     });
   }
-  if (mode === "write" || mode === "all") {
+  if (mode === "write" || mode === "autonomous") {
     const writablePolicy =
       options.writablePolicy ??
       createWritablePathPolicy({
@@ -787,6 +995,8 @@ export function createObsidianServer(
         options.writableVaults ?? config.writableVaults ?? [],
       store,
       storage,
+      authorizationMode: mode === "autonomous" ? "autonomous" : "protected",
+      ...(dataDirectory === undefined ? {} : { dataDirectory }),
       ...(resolveAccess === undefined ? {} : { resolveAccess }),
       ...(options.now === undefined ? {} : { now: options.now }),
     });
@@ -801,8 +1011,12 @@ export function parseServerMode(args: readonly string[]): ServerMode {
       throw new Error(`unknown argument: ${argument}`);
     }
     const value = argument.slice("--mode=".length);
-    if (value !== "read" && value !== "write" && value !== "all") {
-      throw new Error("--mode must be read, write, or all");
+    if (
+      value !== "read" &&
+      value !== "write" &&
+      value !== "autonomous"
+    ) {
+      throw new Error("--mode must be read, write, or autonomous");
     }
     mode = value;
   }

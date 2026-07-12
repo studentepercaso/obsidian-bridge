@@ -22,14 +22,22 @@ import { assertPhysicalVaultPath } from "./physical-scope.js";
 import type { VaultAccess, VaultAccessResolver } from "./shared-settings.js";
 import { jsonResult } from "./tool-helpers.js";
 import { assertVaultIdentity } from "./vault-identity.js";
+import {
+  CommitLockError,
+  CommitLockReleaseAfterOperationError,
+  deriveCommitLockKey,
+  withCommitLock as withFileCommitLock,
+} from "./commit-lock.js";
 
 export const MAX_CHANGE_CONTENT_BYTES = 8_192;
 export const MAX_DOCUMENT_BYTES = 16_384;
 export const MAX_PREVIEW_BYTES = 16_384;
 export const DEFAULT_BACKUP_RETENTION = 20;
 export const DEFAULT_MAX_PENDING_CHANGES = 100;
+export const MAX_CONSECUTIVE_AUTONOMOUS_FAILURES = 3;
 
 export type ChangeOperation = "create" | "append";
+export type WriteAuthorizationMode = "protected" | "autonomous";
 
 const controlCharactersExceptNewlineAndTab = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
 
@@ -86,6 +94,9 @@ export interface PreparedChange {
   readonly vaultLabel: string;
   readonly notePath: string;
   readonly operation: ChangeOperation;
+  readonly authorizationMode: WriteAuthorizationMode;
+  /** Preserve the path-comparison semantics used by the authorizing policy. */
+  readonly lockCaseSensitive: boolean;
   readonly before: DocumentState;
   readonly afterContent: string;
   readonly commandContent: string;
@@ -200,10 +211,14 @@ export interface AuditEvent {
   readonly path: string;
   readonly operation: ChangeOperation;
   readonly status: "committed" | "failed";
+  readonly authorization_mode: WriteAuthorizationMode;
   readonly before_sha256: string;
   readonly after_sha256: string;
   readonly backup_id?: string;
   readonly error_code?: string;
+  readonly rollback_attempted?: boolean;
+  readonly rollback_succeeded?: boolean;
+  readonly rollback_reason?: string;
 }
 
 export interface ChangeStorage {
@@ -564,6 +579,7 @@ async function attemptRollback(
   change: PreparedChange,
   options: CliInvocationOptions,
   bridgeWrittenHashes: ReadonlySet<string>,
+  verifyRecoveryGrant: (allowMissingLeaf: boolean) => Promise<void>,
 ): Promise<{
   readonly attempted: boolean;
   readonly succeeded: boolean;
@@ -574,9 +590,20 @@ async function attemptRollback(
     | "delete_disabled"
     | "restore_unrepresentable"
     | "restore_too_large"
+    | "recovery_scope_changed"
     | "read_failed"
     | "restore_failed";
 }> {
+  try {
+    await verifyRecoveryGrant(change.operation === "create");
+  } catch {
+    return {
+      attempted: false,
+      succeeded: false,
+      reason: "recovery_scope_changed",
+    };
+  }
+
   let current: DocumentState;
   try {
     current = await readDocument(
@@ -649,6 +676,15 @@ async function attemptRollback(
   }
 
   try {
+    try {
+      await verifyRecoveryGrant(false);
+    } catch {
+      return {
+        attempted: false,
+        succeeded: false,
+        reason: "recovery_scope_changed",
+      };
+    }
     await runner(
       buildWriteVaultArgs(change.vault, "create", [
         `path=${change.notePath}`,
@@ -686,11 +722,72 @@ export interface WriteToolRuntime {
   readonly storage: ChangeStorage;
   readonly now?: () => number;
   readonly resolveAccess?: VaultAccessResolver;
+  /** The prompt-approved or separately auto-approved MCP writer channel. */
+  readonly authorizationMode?: WriteAuthorizationMode;
+  /** Enables serialization across protected and autonomous MCP processes. */
+  readonly dataDirectory?: string;
+}
+
+interface LockedOperationResult<T> {
+  readonly result: T;
+  readonly releaseError?: CommitLockError;
+}
+
+function annotateCommitLockResult(
+  result: CallToolResult,
+  releaseError: CommitLockError | undefined,
+): CallToolResult {
+  const first = result.content.length === 1 ? result.content[0] : undefined;
+  if (first?.type !== "text") return result;
+
+  try {
+    const parsed = JSON.parse(first.text) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return result;
+    }
+    const annotated = jsonResult({
+      ...(parsed as Record<string, unknown>),
+      lock_released: releaseError === undefined,
+      ...(releaseError === undefined
+        ? {}
+        : { lock_release_error: releaseError.code }),
+    });
+    return { ...result, content: annotated.content };
+  } catch {
+    // Every internal commit outcome is JSON. Preserve it rather than turning a
+    // completed vault operation into a new error if that invariant is broken.
+    return result;
+  }
 }
 
 export function createWriteToolHandlers(runtime: WriteToolRuntime) {
   const now = runtime.now ?? Date.now;
+  const authorizationMode = runtime.authorizationMode ?? "protected";
   const commitLocks = new Map<string, Promise<void>>();
+  let consecutiveAutonomousFailures = 0;
+  let autonomousWritesPaused = false;
+
+  function assertAutonomousCircuitOpen(): void {
+    if (authorizationMode !== "autonomous" || !autonomousWritesPaused) return;
+    throw new Error(
+      "autonomous writing is paused after three consecutive failures; inspect Problemi recenti, switch to protected access, and start a new task before enabling it again",
+    );
+  }
+
+  function recordAutonomousSuccess(): void {
+    if (authorizationMode !== "autonomous") return;
+    consecutiveAutonomousFailures = 0;
+  }
+
+  function recordAutonomousFailure(): void {
+    if (authorizationMode !== "autonomous") return;
+    consecutiveAutonomousFailures += 1;
+    if (
+      consecutiveAutonomousFailures >= MAX_CONSECUTIVE_AUTONOMOUS_FAILURES
+    ) {
+      autonomousWritesPaused = true;
+    }
+  }
 
   async function effectiveAccess(vault: string): Promise<VaultAccess> {
     if (runtime.resolveAccess !== undefined) {
@@ -700,6 +797,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
       readPolicy: runtime.readPolicy,
       writablePolicy: runtime.writablePolicy,
       writeEnabled: runtime.writableVaults.includes(vault),
+      accessMode: "protected",
       vaultSelector: vault,
       vaultName: vault,
       source: "environment",
@@ -711,6 +809,15 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
     notePath: string,
   ): Promise<{ readonly notePath: string; readonly access: VaultAccess }> {
     const access = await effectiveAccess(vault);
+    const requiredAccessMode =
+      authorizationMode === "autonomous" ? "full" : "protected";
+    if (access.accessMode !== requiredAccessMode) {
+      throw new Error(
+        authorizationMode === "autonomous"
+          ? "autonomous writing requires Accesso completo for this vault in Bridge Control"
+          : "this vault uses Accesso completo; use the autonomous writer channel or return to protected access",
+      );
+    }
     if (!access.writeEnabled) {
       if (access.source === "environment") {
         throw new Error(
@@ -722,7 +829,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
       throw new Error("writing is disabled for this vault in shared settings");
     }
     if (
-      access.writablePolicy.allowedFolders === null ||
+      access.writablePolicy.allowedFolders !== null &&
       access.writablePolicy.allowedFolders.length === 0
     ) {
       throw new Error(
@@ -762,9 +869,13 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
   }
 
   async function withCommitLock<T>(
-    key: string,
+    vault: string,
+    notePath: string,
+    caseSensitive: boolean,
+    signal: AbortSignal | undefined,
     operation: () => Promise<T>,
-  ): Promise<T> {
+  ): Promise<LockedOperationResult<T>> {
+    const key = deriveCommitLockKey(vault, notePath, caseSensitive);
     const previous = commitLocks.get(key) ?? Promise.resolve();
     let release!: () => void;
     const current = new Promise<void>((resolve) => {
@@ -773,7 +884,31 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
     commitLocks.set(key, current);
     await previous;
     try {
-      return await operation();
+      if (runtime.dataDirectory === undefined) {
+        return { result: await operation() };
+      }
+      try {
+        return {
+          result: await withFileCommitLock(
+            {
+              dataDirectory: runtime.dataDirectory,
+              vault,
+              notePath,
+              caseSensitive,
+              ...(signal === undefined ? {} : { signal }),
+            },
+            operation,
+          ),
+        };
+      } catch (error) {
+        if (error instanceof CommitLockReleaseAfterOperationError) {
+          return {
+            result: error.operationResult as T,
+            releaseError: error.releaseError,
+          };
+        }
+        throw error;
+      }
     } finally {
       release();
       if (commitLocks.get(key) === current) commitLocks.delete(key);
@@ -785,6 +920,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
       input: PrepareChangeInput,
       options: CliInvocationOptions = {},
     ): Promise<CallToolResult> {
+      assertAutonomousCircuitOpen();
+      try {
       const vault = input.vault;
       const initial = await assertChangeAllowed(vault, input.path);
       const notePath = initial.notePath;
@@ -843,6 +980,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
         vaultLabel: initial.access.vaultName,
         notePath,
         operation: input.operation,
+        authorizationMode,
+        lockCaseSensitive: initial.access.writablePolicy.caseSensitive,
         before,
         afterContent,
         commandContent,
@@ -859,6 +998,8 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
         vault: change.vaultLabel,
         path: change.notePath,
         operation: change.operation,
+        authorization_mode: change.authorizationMode,
+        approval_required: change.authorizationMode === "protected",
         before_sha256: change.before.sha256,
         after_sha256: change.afterSha256,
         preview: {
@@ -869,24 +1010,60 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
           after_line_count: change.afterLineCount,
         },
       });
+      } catch (error) {
+        recordAutonomousFailure();
+        throw error;
+      }
     },
 
     async commitChange(
       input: CommitChangeInput,
       options: CliInvocationOptions = {},
     ): Promise<CallToolResult> {
-      const change = runtime.store.take(input.change_id);
-      return await withCommitLock(
-        `${change.vault}\u0000${change.notePath}`,
-        async () => {
+      assertAutonomousCircuitOpen();
+      let auditChange: PreparedChange | undefined;
+      try {
+        const change = runtime.store.take(input.change_id);
+        auditChange = change;
+        if (change.authorizationMode !== authorizationMode) {
+          throw new Error(
+            "change_id belongs to a different writer authorization channel",
+          );
+        }
+        const locked = await withCommitLock(
+          change.vault,
+          change.notePath,
+          change.lockCaseSensitive,
+          options.signal,
+          async () => {
           let backupId: string | undefined;
           let writeAttempted = false;
+          let recoveryAccess: VaultAccess | undefined;
           const bridgeWrittenHashes = new Set<string>([change.afterSha256]);
+          const verifyRecoveryGrant = async (
+            allowMissingLeaf: boolean,
+          ): Promise<void> => {
+            if (recoveryAccess === undefined) {
+              throw new Error("commit authorization was not established");
+            }
+            const currentGrant = await assertChangeAllowed(
+              change.vault,
+              change.notePath,
+            );
+            assertSameVault(recoveryAccess, currentGrant.access);
+            await verifyPhysicalGrant(
+              currentGrant.access,
+              change.notePath,
+              {},
+              allowMissingLeaf,
+            );
+          };
 
           try {
         // Re-read GUI settings after preview. A revoked vault or folder grant
         // must stop the commit before any vault read, backup, or mutation.
         const initial = await assertChangeAllowed(change.vault, change.notePath);
+        recoveryAccess = initial.access;
         await verifyPhysicalGrant(
           initial.access,
           change.notePath,
@@ -977,6 +1154,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
             change,
             {},
             bridgeWrittenHashes,
+            verifyRecoveryGrant,
           );
           let auditRecorded = true;
           try {
@@ -986,6 +1164,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
               vault: change.vault,
               path: change.notePath,
               operation: change.operation,
+              authorization_mode: change.authorizationMode,
               status: "failed",
               before_sha256: change.before.sha256,
               after_sha256: change.afterSha256,
@@ -993,6 +1172,9 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
               error_code: rollback.succeeded
                 ? "VERIFICATION_FAILED_ROLLBACK_SUCCEEDED"
                 : "VERIFICATION_FAILED_ROLLBACK_FAILED",
+              rollback_attempted: rollback.attempted,
+              rollback_succeeded: rollback.succeeded,
+              rollback_reason: rollback.reason,
             });
           } catch {
             auditRecorded = false;
@@ -1004,6 +1186,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
             vault: change.vaultLabel,
             path: change.notePath,
             operation: change.operation,
+            authorization_mode: change.authorizationMode,
             error: "post_write_verification_failed",
             verified: false,
             rollback_attempted: rollback.attempted,
@@ -1021,6 +1204,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
           vault: change.vault,
           path: change.notePath,
           operation: change.operation,
+          authorization_mode: change.authorizationMode,
           status: "committed",
           before_sha256: change.before.sha256,
           after_sha256: change.afterSha256,
@@ -1039,6 +1223,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
           vault: change.vaultLabel,
           path: change.notePath,
           operation: change.operation,
+          authorization_mode: change.authorizationMode,
           before_sha256: change.before.sha256,
           after_sha256: change.afterSha256,
           verified: true,
@@ -1052,6 +1237,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
             change,
             {},
             bridgeWrittenHashes,
+            verifyRecoveryGrant,
           );
           let auditRecorded = true;
           try {
@@ -1061,6 +1247,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
               vault: change.vault,
               path: change.notePath,
               operation: change.operation,
+              authorization_mode: change.authorizationMode,
               status: "failed",
               before_sha256: change.before.sha256,
               after_sha256: change.afterSha256,
@@ -1068,6 +1255,9 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
               error_code: rollback.succeeded
                 ? "WRITE_FAILED_ROLLBACK_SUCCEEDED"
                 : "WRITE_FAILED_ROLLBACK_FAILED",
+              rollback_attempted: rollback.attempted,
+              rollback_succeeded: rollback.succeeded,
+              rollback_reason: rollback.reason,
             });
           } catch {
             auditRecorded = false;
@@ -1079,6 +1269,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
             vault: change.vaultLabel,
             path: change.notePath,
             operation: change.operation,
+            authorization_mode: change.authorizationMode,
             error: "write_failed",
             verified: false,
             rollback_attempted: rollback.attempted,
@@ -1097,6 +1288,7 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
             vault: change.vault,
             path: change.notePath,
             operation: change.operation,
+            authorization_mode: change.authorizationMode,
             status: "failed",
             before_sha256: change.before.sha256,
             after_sha256: change.afterSha256,
@@ -1111,8 +1303,40 @@ export function createWriteToolHandlers(runtime: WriteToolRuntime) {
         }
             throw error;
           }
-        },
-      );
+          },
+        );
+        const result = annotateCommitLockResult(
+          locked.result,
+          locked.releaseError,
+        );
+        if (result.isError === true) {
+          recordAutonomousFailure();
+        } else {
+          recordAutonomousSuccess();
+        }
+        return result;
+      } catch (error) {
+        recordAutonomousFailure();
+        if (auditChange !== undefined && error instanceof CommitLockError) {
+          try {
+            await runtime.storage.appendAudit({
+              timestamp: new Date(now()).toISOString(),
+              change_id: auditChange.changeId,
+              vault: auditChange.vault,
+              path: auditChange.notePath,
+              operation: auditChange.operation,
+              authorization_mode: auditChange.authorizationMode,
+              status: "failed",
+              before_sha256: auditChange.before.sha256,
+              after_sha256: auditChange.afterSha256,
+              error_code: `COMMIT_${error.code}`,
+            });
+          } catch {
+            // Preserve the lock failure; audit contains no note content.
+          }
+        }
+        throw error;
+      }
     },
   };
 }

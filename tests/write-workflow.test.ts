@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +12,7 @@ import {
   encodeCliContent,
   type ObsidianCliRunner,
 } from "../src/cli.js";
+import { commitLockPath } from "../src/commit-lock.js";
 import {
   createPathPolicy,
   createWritablePathPolicy,
@@ -116,6 +117,10 @@ function runtime(
   storage: ChangeStorage,
   store = fixedStore(),
   resolveAccess?: VaultAccessResolver,
+  options: {
+    authorizationMode?: "protected" | "autonomous";
+    dataDirectory?: string;
+  } = {},
 ) {
   return createWriteToolHandlers({
     runner,
@@ -127,6 +132,12 @@ function runtime(
     store,
     storage,
     ...(resolveAccess === undefined ? {} : { resolveAccess }),
+    ...(options.authorizationMode === undefined
+      ? {}
+      : { authorizationMode: options.authorizationMode }),
+    ...(options.dataDirectory === undefined
+      ? {}
+      : { dataDirectory: options.dataDirectory }),
     now: () => 1_000,
   });
 }
@@ -234,6 +245,8 @@ describe("write workflow schemas and storage", () => {
       vaultLabel: "Test Vault",
       notePath: "Projects/Editable/Note.md",
       operation: "create",
+      authorizationMode: "protected",
+      lockCaseSensitive: true,
       before: { exists: false, sha256: hashDocumentState(false) },
       afterContent: "new",
       commandContent: "new",
@@ -253,6 +266,8 @@ describe("write workflow schemas and storage", () => {
       vaultLabel: "Test Vault",
       notePath: "Projects/Editable/Note.md",
       operation: "create",
+      authorizationMode: "protected",
+      lockCaseSensitive: true,
       before: { exists: false, sha256: hashDocumentState(false) },
       afterContent: "new",
       commandContent: "new",
@@ -849,6 +864,237 @@ describe("write workflow schemas and storage", () => {
     expect(notes["Projects/Editable/Note.md"]).toBe("original\nfirst\n");
   });
 
+  it("uses case-insensitive policy identity for the in-process commit lock", async () => {
+    const canonicalPath = "Projects/Editable/Case.md";
+    const notes = { [canonicalPath]: "original\n" };
+    const invocations: string[][] = [];
+    const memoryRunner = createMemoryRunner(notes, invocations);
+    const runner: ObsidianCliRunner = async (args, options) =>
+      await memoryRunner(
+        args.map((argument) =>
+          argument.startsWith("path=") &&
+          argument.slice("path=".length).toLocaleLowerCase("en-US") ===
+            canonicalPath.toLocaleLowerCase("en-US")
+            ? `path=${canonicalPath}`
+            : argument,
+        ),
+        options,
+      );
+    const readPolicy = createPathPolicy({
+      allowedFolders: ["Projects"],
+      caseSensitive: false,
+    });
+    const writePolicy = createWritablePathPolicy({
+      allowedFolders: ["Projects/Editable"],
+      caseSensitive: false,
+    });
+    const resolveAccess: VaultAccessResolver = async () => ({
+      readPolicy,
+      writablePolicy: writePolicy,
+      writeEnabled: true,
+      accessMode: "protected",
+      vaultSelector: "Test Vault",
+      vaultName: "Test Vault",
+      source: "settings",
+    });
+    let releaseFirstBackup!: () => void;
+    const firstBackupMayFinish = new Promise<void>((resolve) => {
+      releaseFirstBackup = resolve;
+    });
+    let backupCalls = 0;
+    const handlers = runtime(
+      runner,
+      {
+        async createBackup() {
+          backupCalls += 1;
+          if (backupCalls === 1) await firstBackupMayFinish;
+          return { backupId: `case-backup-${backupCalls}` };
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      resolveAccess,
+    );
+    const first = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: canonicalPath,
+        operation: "append",
+        content: "first\n",
+      }),
+    );
+    const second = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: "projects/editable/case.md",
+        operation: "append",
+        content: "second\n",
+      }),
+    );
+
+    const firstCommit = handlers.commitChange({
+      change_id: String(first.change_id),
+    });
+    while (backupCalls === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const secondCommit = handlers.commitChange({
+      change_id: String(second.change_id),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(backupCalls).toBe(1);
+    releaseFirstBackup();
+
+    const outcomes = await Promise.allSettled([firstCommit, secondCommit]);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(notes[canonicalPath]).toBe("original\nfirst\n");
+  });
+
+  it("serializes independent writer runtimes through the shared filesystem lock", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const notes = { "Projects/Editable/Cross process.md": "original\n" };
+    const runner = createMemoryRunner(notes, []);
+    const storage: ChangeStorage = {
+      async createBackup() {
+        return { backupId: "cross-process-backup" };
+      },
+      async appendAudit() {},
+    };
+    const firstHandlers = runtime(
+      runner,
+      storage,
+      fixedStore(),
+      undefined,
+      { dataDirectory },
+    );
+    const secondHandlers = runtime(
+      runner,
+      storage,
+      fixedStore(),
+      undefined,
+      { dataDirectory },
+    );
+    const first = resultJson(
+      await firstHandlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/Cross process.md",
+          operation: "append",
+          content: "first\n",
+        }),
+      ),
+    );
+    const second = resultJson(
+      await secondHandlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/Cross process.md",
+          operation: "append",
+          content: "second\n",
+        }),
+      ),
+    );
+
+    const outcomes = await Promise.allSettled([
+      firstHandlers.commitChange(
+        WriteToolInputSchemas.commitChange.parse({ change_id: first.change_id }),
+      ),
+      secondHandlers.commitChange(
+        WriteToolInputSchemas.commitChange.parse({ change_id: second.change_id }),
+      ),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+    expect(notes["Projects/Editable/Cross process.md"]).toMatch(
+      /^original\n(?:first|second)\n$/u,
+    );
+  });
+
+  it("reports a verified commit without a contradictory failed audit when lock release fails", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const notePath = "Projects/Editable/Release warning.md";
+    const notes = { [notePath]: "original\n" };
+    const invocations: string[][] = [];
+    const memoryRunner = createMemoryRunner(notes, invocations);
+    const caseSensitive = createWritablePathPolicy({
+      allowedFolders: ["Projects/Editable"],
+    }).caseSensitive;
+    let ownerChanged = false;
+    const runner: ObsidianCliRunner = async (args, options) => {
+      const result = await memoryRunner(args, options);
+      if (!ownerChanged && (args[1] === "create" || args[1] === "append")) {
+        ownerChanged = true;
+        const ownerPath = join(
+          commitLockPath(
+            dataDirectory,
+            "Test Vault",
+            notePath,
+            caseSensitive,
+          ),
+          "owner.json",
+        );
+        const owner = JSON.parse(await readFile(ownerPath, "utf8")) as Record<
+          string,
+          unknown
+        >;
+        await writeFile(
+          ownerPath,
+          `${JSON.stringify({
+            ...owner,
+            token: "00000000-0000-4000-8000-000000000002",
+          })}\n`,
+          "utf8",
+        );
+      }
+      return result;
+    };
+    const audits: AuditEvent[] = [];
+    const handlers = runtime(
+      runner,
+      {
+        async createBackup() {
+          return { backupId: "release-warning-backup" };
+        },
+        async appendAudit(event) {
+          audits.push(event);
+        },
+      },
+      fixedStore(),
+      undefined,
+      { dataDirectory },
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: notePath,
+          operation: "append",
+          content: "added\n",
+        }),
+      ),
+    );
+
+    const result = await handlers.commitChange(
+      WriteToolInputSchemas.commitChange.parse({
+        change_id: prepared.change_id,
+      }),
+    );
+    expect(result.isError).not.toBe(true);
+    expect(resultJson(result)).toMatchObject({
+      status: "committed",
+      verified: true,
+      lock_released: false,
+      lock_release_error: "LOCK_OWNERSHIP_LOST",
+    });
+    expect(notes[notePath]).toBe("original\nadded\n");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ status: "committed" });
+  });
+
   it("rechecks panel revocation immediately before the mutating CLI call", async () => {
     const notes = { "Projects/Editable/Note.md": "original\n" };
     const invocations: string[][] = [];
@@ -865,6 +1111,7 @@ describe("write workflow schemas and storage", () => {
         readPolicy: allowedRead,
         writablePolicy: revoked ? deniedWrite : allowedWrite,
         writeEnabled: !revoked,
+        accessMode: "protected",
         vaultSelector: "Test Vault",
         vaultName: "Test Vault",
         source: "settings",
@@ -903,6 +1150,261 @@ describe("write workflow schemas and storage", () => {
     expect(invocations.some((args) => args[1] === "append")).toBe(false);
   });
 
+  it("refuses rollback after full access is revoked between write chunks", async () => {
+    const notePath = "Autonomous rollback.md";
+    const notes = { [notePath]: "original\n" };
+    const fullPolicy = createPathPolicy({ allowedFolders: null });
+    const deniedPolicy = createWritablePathPolicy({ allowedFolders: [] });
+    let accessCalls = 0;
+    const resolveAccess: VaultAccessResolver = async () => {
+      accessCalls += 1;
+      const revoked = accessCalls >= 5;
+      return {
+        readPolicy: revoked ? deniedPolicy : fullPolicy,
+        writablePolicy: revoked ? deniedPolicy : fullPolicy,
+        writeEnabled: !revoked,
+        accessMode: revoked ? "protected" : "full",
+        vaultSelector: "0123456789abcdef",
+        vaultName: "Test Vault",
+        source: "settings",
+      };
+    };
+    const audits: AuditEvent[] = [];
+    const handlers = runtime(
+      createMemoryRunner(notes, []),
+      {
+        async createBackup() {
+          return { backupId: "revoked-recovery-backup" };
+        },
+        async appendAudit(event) {
+          audits.push(event);
+        },
+      },
+      fixedStore(),
+      resolveAccess,
+      { authorizationMode: "autonomous" },
+    );
+    const content = "x".repeat(7_000);
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: notePath,
+          operation: "append",
+          content,
+        }),
+      ),
+    );
+
+    const result = await handlers.commitChange(
+      WriteToolInputSchemas.commitChange.parse({
+        change_id: prepared.change_id,
+      }),
+    );
+    expect(result.isError).toBe(true);
+    expect(resultJson(result)).toMatchObject({
+      status: "failed",
+      rollback_attempted: false,
+      rollback_succeeded: false,
+      rollback_reason: "recovery_scope_changed",
+      lock_released: true,
+    });
+    expect(notes[notePath]).toMatch(/^original\nx+/u);
+    expect(notes[notePath]).not.toBe(`original\n${content}`);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      status: "failed",
+      rollback_reason: "recovery_scope_changed",
+    });
+  });
+
+  it("pauses one autonomous writer process after three consecutive failures", async () => {
+    const notes = { "Autonomous note.md": "original\n" };
+    const fullPolicy = createPathPolicy({
+      allowedFolders: null,
+      deniedFolders: [".obsidian", ".trash"],
+    });
+    const resolveAccess: VaultAccessResolver = async () => ({
+      readPolicy: fullPolicy,
+      writablePolicy: fullPolicy,
+      writeEnabled: true,
+      accessMode: "full",
+      vaultSelector: "0123456789abcdef",
+      vaultName: "Test Vault",
+      source: "settings",
+    });
+    const handlers = runtime(
+      createMemoryRunner(notes, []),
+      {
+        async createBackup() {
+          throw new Error("simulated backup failure");
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      resolveAccess,
+      { authorizationMode: "autonomous" },
+    );
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const prepared = resultJson(
+        await handlers.prepareChange(
+          WriteToolInputSchemas.prepareChange.parse({
+            vault: "Test Vault",
+            path: "Autonomous note.md",
+            operation: "append",
+            content: `attempt ${attempt}\n`,
+          }),
+        ),
+      );
+      await expect(
+        handlers.commitChange(
+          WriteToolInputSchemas.commitChange.parse({
+            change_id: prepared.change_id,
+          }),
+        ),
+      ).rejects.toThrow("simulated backup failure");
+    }
+
+    await expect(
+      handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Another autonomous note.md",
+          operation: "create",
+          content: "must be paused",
+        }),
+      ),
+    ).rejects.toThrow(/paused.*three consecutive failures/iu);
+    expect(notes["Autonomous note.md"]).toBe("original\n");
+  });
+
+  it("counts autonomous prepare failures toward the circuit breaker", async () => {
+    const notes: Record<string, string> = {};
+    const fullPolicy = createPathPolicy({ allowedFolders: null });
+    const resolveAccess: VaultAccessResolver = async () => ({
+      readPolicy: fullPolicy,
+      writablePolicy: fullPolicy,
+      writeEnabled: true,
+      accessMode: "full",
+      vaultSelector: "0123456789abcdef",
+      vaultName: "Test Vault",
+      source: "settings",
+    });
+    const handlers = runtime(
+      createMemoryRunner(notes, []),
+      {
+        async createBackup() {
+          return { backupId: "unused" };
+        },
+        async appendAudit() {},
+      },
+      fixedStore(),
+      resolveAccess,
+      { authorizationMode: "autonomous" },
+    );
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(
+        handlers.prepareChange(
+          WriteToolInputSchemas.prepareChange.parse({
+            vault: "Test Vault",
+            path: `Missing-${attempt}.md`,
+            operation: "append",
+            content: "cannot append",
+          }),
+        ),
+      ).rejects.toThrow(/requires an existing note/iu);
+    }
+    await expect(
+      handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Would otherwise work.md",
+          operation: "create",
+          content: "blocked by circuit",
+        }),
+      ),
+    ).rejects.toThrow(/paused.*three consecutive failures/iu);
+  });
+
+  it("counts store and channel failures once before pausing autonomy", async () => {
+    const notes: Record<string, string> = {};
+    const store = fixedStore();
+    const foreign = store.create({
+      vault: "0123456789abcdef",
+      vaultLabel: "Test Vault",
+      notePath: "Foreign.md",
+      operation: "create",
+      authorizationMode: "protected",
+      lockCaseSensitive: false,
+      before: { exists: false, sha256: hashDocumentState(false) },
+      afterContent: "foreign",
+      commandContent: "foreign",
+      afterSha256: hashDocumentState(true, "foreign"),
+      previewDiff: "+foreign",
+      beforeLineCount: 0,
+      afterLineCount: 1,
+    });
+    const fullPolicy = createPathPolicy({ allowedFolders: null });
+    const resolveAccess: VaultAccessResolver = async () => ({
+      readPolicy: fullPolicy,
+      writablePolicy: fullPolicy,
+      writeEnabled: true,
+      accessMode: "full",
+      vaultSelector: "0123456789abcdef",
+      vaultName: "Test Vault",
+      source: "settings",
+    });
+    const handlers = runtime(
+      createMemoryRunner(notes, []),
+      {
+        async createBackup() {
+          return { backupId: "unused" };
+        },
+        async appendAudit() {},
+      },
+      store,
+      resolveAccess,
+      { authorizationMode: "autonomous" },
+    );
+
+    await expect(
+      handlers.commitChange({ change_id: foreign.changeId }),
+    ).rejects.toThrow(/different writer authorization channel/iu);
+    await expect(
+      handlers.commitChange({
+        change_id: "00000000-0000-4000-8000-000000009998",
+      }),
+    ).rejects.toThrow(/unknown|expired|consumed/iu);
+
+    const stillAllowed = await handlers.prepareChange(
+      WriteToolInputSchemas.prepareChange.parse({
+        vault: "Test Vault",
+        path: "Still allowed after two.md",
+        operation: "create",
+        content: "prepared",
+      }),
+    );
+    expect(stillAllowed.isError).not.toBe(true);
+
+    await expect(
+      handlers.commitChange({
+        change_id: "00000000-0000-4000-8000-000000009999",
+      }),
+    ).rejects.toThrow(/unknown|expired|consumed/iu);
+    await expect(
+      handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Paused.md",
+          operation: "create",
+          content: "blocked",
+        }),
+      ),
+    ).rejects.toThrow(/paused.*three consecutive failures/iu);
+  });
+
   it("stores plaintext backups separately while audit NDJSON contains no note body", async () => {
     const directory = await temporaryDirectory();
     const storage = new FileChangeStorage(directory, 20);
@@ -921,6 +1423,7 @@ describe("write workflow schemas and storage", () => {
       path: "Projects/Editable/Note.md",
       operation: "append",
       status: "committed",
+      authorization_mode: "protected",
       before_sha256: hashDocumentState(true, distinctiveBody),
       after_sha256: hashDocumentState(true, `${distinctiveBody}x`),
       backup_id: backupId,

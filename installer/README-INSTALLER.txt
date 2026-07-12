@@ -1,12 +1,15 @@
-OBSIDIAN BRIDGE - INSTALLER WINDOWS
-===================================
+OBSIDIAN BRIDGE 0.4.0 - INSTALLER WINDOWS
+=========================================
 
 Installazione semplice
 ----------------------
 1. Estrai tutto lo ZIP in una cartella locale.
 2. Fai doppio clic su INSTALLA-OBSIDIAN-BRIDGE.cmd.
 3. Scegli il vault, conferma e premi Installa Bridge.
-4. In Obsidian apri Bridge Control, premi Scegli cartelle e spunta Leggi/Scrivi.
+4. In Obsidian apri Bridge Control e scegli una modalita:
+   - Accesso protetto: seleziona le cartelle Leggi/Scrivi e salva.
+   - Accesso completo: leggi l avviso con attenzione e attivalo solo
+     confermando l autorizzazione dedicata per quel vault.
 
 Non servono diritti di amministratore. Nessuna API key richiesta: il bridge
 usa la CLI locale ufficiale di Obsidian.
@@ -26,13 +29,16 @@ La casella autorizza l installazione e abilitazione del plugin community
 "Bridge Control" nel vault selezionato e la copia stabile del connettore
 locale per Codex. Le cartelle non si digitano nell installer: si scelgono
 dal pannello visuale dentro Obsidian. Una nuova installazione non concede
-accesso alle note; un aggiornamento conserva le autorizzazioni esistenti.
+accesso alle note e parte in Accesso protetto. L installer non abilita mai
+Accesso completo: richiede sempre l attivazione esplicita dentro Bridge Control.
+Un aggiornamento conserva le autorizzazioni e gli errori gia segnati come
+controllati.
 
 Cosa viene installato
 ---------------------
 - Il companion Bridge Control nel solo vault selezionato.
 - Nessuna nota o cartella viene creata nella configurazione iniziale predefinita.
-- La configurazione condivisa schema v2, legata all ID stabile a 16 caratteri
+- La configurazione condivisa schema v3, legata all ID stabile a 16 caratteri
   registrato in obsidian.json e non soltanto al nome visualizzato del vault.
 - Una copia stabile del plugin Codex in:
 
@@ -43,6 +49,27 @@ come fallback se il link codex:// non si apre. Dopo il primo avvio, Bridge
 Control apre automaticamente il pannello dei permessi dentro Obsidian, dove
 un selettore ricercabile mostra soltanto le cartelle realmente presenti.
 
+Modalita di accesso in Bridge Control
+-------------------------------------
+- Accesso protetto (consigliato): usa soltanto gli scope di lettura e scrittura
+  scelti. Ogni creazione o aggiunta richiede anteprima e conferma separata.
+- Accesso completo (opt-in): dopo un avviso e una conferma esplicita per il
+  singolo vault, consente lettura, creazione e aggiunta autonome sulle note
+  visibili. Non abilita eliminazione, rinomina, spostamento, shell o
+  sovrascrittura arbitraria. Restano attivi controlli di percorso, hash,
+  backup, lock e audit.
+- Tornare ad Accesso protetto e immediato e conserva le precedenti scelte per
+  cartella.
+
+Problemi recenti
+----------------
+Bridge Control include la sezione Problemi recenti. Legge in sola lettura i
+metadati locali del registro audit, senza mostrare il contenuto delle note, e
+indica se una scrittura e stata fermata, ripristinata o richiede un controllo
+manuale. Permette di aprire la nota coinvolta, se esiste, e segnare il problema
+come controllato. Prima di riprovare una modifica fallita, aggiorna questo
+controllo e verifica lo stato attuale della nota.
+
 Percorso configurazione condivisa
 ---------------------------------
 Il valore predefinito e:
@@ -51,8 +78,10 @@ Il valore predefinito e:
 
 Se OBSIDIAN_BRIDGE_SETTINGS_PATH e valorizzata, deve essere un percorso
 assoluto valido e diventa il percorso usato sia dall installer sia dal bridge.
-Il file accetta soltanto lo schema esatto versione 2. File v1, JSON malformato,
-campi aggiuntivi o limiti superati vengono rifiutati senza sovrascrittura.
+Il file usa lo schema esatto versione 3. Una configurazione valida v2 viene
+migrata in modo prudente a v3 con Accesso protetto; la migrazione non concede
+mai Accesso completo. File v1, JSON malformato, campi aggiuntivi o limiti
+superati vengono rifiutati senza sovrascrittura.
 
 Sicurezza e recupero
 --------------------
@@ -84,6 +113,6 @@ Da PowerShell puoi controllare un vault senza scrivere file:
 
 DryRun non acquisisce lock, non crea cartelle e non modifica file. Per un vault
 nuovo mostra scope prudente; per uno gia configurato mostra le autorizzazioni
-che un aggiornamento conserverebbe. Il report include anche lo stato di Node.js,
-ma una dipendenza mancante non rende il DryRun distruttivo ne tenta installazioni
-automatiche.
+che un aggiornamento conserverebbe, inclusa la modalita accessMode. Il report
+include anche lo stato di Node.js, ma una dipendenza mancante non rende il
+DryRun distruttivo ne tenta installazioni automatiche.

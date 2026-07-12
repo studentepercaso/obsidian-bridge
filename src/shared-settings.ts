@@ -39,7 +39,7 @@ const VaultPath = z
     message: "vault path contains control characters",
   });
 
-export const VaultSettingsSchema = z
+const LegacyVaultSettingsSchema = z
   .object({
     vaultName: VaultName,
     vaultPath: VaultPath,
@@ -51,16 +51,41 @@ export const VaultSettingsSchema = z
   })
   .strict();
 
-export const SharedSettingsSchema = z
+export const VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
+  accessMode: z.enum(["protected", "full"]),
+}).strict();
+
+const SharedSettingsFields = {
+  updatedAt: z
+    .string()
+    .min(1)
+    .max(64)
+    .refine((value) => Number.isFinite(Date.parse(value)), {
+      message: "updatedAt must be a valid date-time",
+    }),
+} as const;
+
+const LegacySharedSettingsSchema = z
   .object({
     version: z.literal(2),
-    updatedAt: z
-      .string()
-      .min(1)
-      .max(64)
-      .refine((value) => Number.isFinite(Date.parse(value)), {
-        message: "updatedAt must be a valid date-time",
-      }),
+    ...SharedSettingsFields,
+    vaults: z.record(VaultId, LegacyVaultSettingsSchema),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (Object.keys(value.vaults).length > 256) {
+      context.addIssue({
+        code: "custom",
+        path: ["vaults"],
+        message: "at most 256 vault entries are allowed",
+      });
+    }
+  });
+
+export const SharedSettingsSchema = z
+  .object({
+    version: z.literal(3),
+    ...SharedSettingsFields,
     vaults: z.record(VaultId, VaultSettingsSchema),
   })
   .strict()
@@ -198,14 +223,34 @@ export async function readSharedSettings(
       });
     }
 
-    const result = SharedSettingsSchema.safeParse(parsed);
-    if (!result.success) {
+    const current = SharedSettingsSchema.safeParse(parsed);
+    const legacy = current.success
+      ? undefined
+      : LegacySharedSettingsSchema.safeParse(parsed);
+    if (!current.success && (legacy === undefined || !legacy.success)) {
       throw new SharedSettingsError("shared settings do not match schema", {
-        cause: result.error,
+        cause: current.error,
       });
     }
-    validatePolicyFolders(result.data);
-    return { status: "loaded", settings: result.data };
+    let settings: SharedSettings;
+    if (current.success) {
+      settings = current.data;
+    } else if (legacy?.success) {
+      settings = {
+        version: 3,
+        updatedAt: legacy.data.updatedAt,
+        vaults: Object.fromEntries(
+          Object.entries(legacy.data.vaults).map(([vaultId, entry]) => [
+            vaultId,
+            { ...entry, accessMode: "protected" as const },
+          ]),
+        ),
+      };
+    } else {
+      throw new SharedSettingsError("shared settings do not match schema");
+    }
+    validatePolicyFolders(settings);
+    return { status: "loaded", settings };
   } catch (error) {
     if (error instanceof SharedSettingsError) throw error;
     throw new SharedSettingsError("shared settings cannot be read", {
@@ -220,6 +265,8 @@ export interface VaultAccess {
   readonly readPolicy: PathPolicy;
   readonly writablePolicy: PathPolicy;
   readonly writeEnabled: boolean;
+  /** Selects the prompt-approved or separately auto-approved writer channel. */
+  readonly accessMode: "protected" | "full";
   /** Stable Obsidian vault ID used for every CLI call. */
   readonly vaultSelector: string;
   readonly vaultName: string;
@@ -251,8 +298,9 @@ function accessFromEntry(
   entry: VaultSettings,
   deniedFolders: readonly string[],
 ): VaultAccess {
+  const fullAccess = entry.enabled && entry.accessMode === "full";
   const readPolicy =
-    entry.enabled && entry.readMode === "all"
+    fullAccess || (entry.enabled && entry.readMode === "all")
       ? createPathPolicy({ allowedFolders: null, deniedFolders })
       : entry.enabled && entry.readMode === "folders"
         ? createWritablePathPolicy({
@@ -260,19 +308,26 @@ function accessFromEntry(
             deniedFolders,
           })
         : denyPolicy(deniedFolders);
-  const writeEnabled = entry.enabled && entry.writeEnabled;
-  const writablePolicy = writeEnabled
-    ? createWritablePathPolicy({
-        allowedFolders: entry.writeFolders,
+  const writeEnabled = fullAccess || (entry.enabled && entry.writeEnabled);
+  const writablePolicy = fullAccess
+    ? createPathPolicy({
+        allowedFolders: null,
         deniedFolders,
         caseSensitive: readPolicy.caseSensitive,
       })
-    : denyPolicy(deniedFolders);
+    : writeEnabled
+      ? createWritablePathPolicy({
+          allowedFolders: entry.writeFolders,
+          deniedFolders,
+          caseSensitive: readPolicy.caseSensitive,
+        })
+      : denyPolicy(deniedFolders);
 
   return Object.freeze({
     readPolicy,
     writablePolicy,
     writeEnabled,
+    accessMode: fullAccess ? "full" : "protected",
     vaultSelector: vaultId,
     vaultName: entry.vaultName,
     vaultPath: entry.vaultPath,
@@ -288,6 +343,7 @@ function unconfiguredSettingsAccess(
     readPolicy: denyPolicy(deniedFolders),
     writablePolicy: denyPolicy(deniedFolders),
     writeEnabled: false,
+    accessMode: "protected",
     vaultSelector: vault,
     vaultName: vault,
     source: "settings" as const,
@@ -317,6 +373,7 @@ function environmentAccess(
     readPolicy,
     writablePolicy,
     writeEnabled,
+    accessMode: "protected",
     vaultSelector: vault,
     vaultName: vault,
     source: "environment" as const,

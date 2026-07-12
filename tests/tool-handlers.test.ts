@@ -17,6 +17,7 @@ import { createPathPolicy } from "../src/path-policy.js";
 import {
   ToolInputSchemas,
   createToolHandlers,
+  parseServerMode,
 } from "../src/server.js";
 
 const fakeCliPath = fileURLToPath(
@@ -55,6 +56,16 @@ describe("tool schemas and handlers", () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     await rm(temporaryDirectory, { recursive: true, force: true });
+  });
+
+  it("keeps every public server mode in one authorization domain", () => {
+    expect(parseServerMode([])).toBe("read");
+    expect(parseServerMode(["--mode=read"])).toBe("read");
+    expect(parseServerMode(["--mode=write"])).toBe("write");
+    expect(parseServerMode(["--mode=autonomous"])).toBe("autonomous");
+    expect(() => parseServerMode(["--mode=all"])).toThrow(
+      "--mode must be read, write, or autonomous",
+    );
   });
 
   it("bounds search queries and result limits", () => {

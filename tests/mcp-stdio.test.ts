@@ -67,6 +67,7 @@ describe("MCP stdio integration", () => {
         OBSIDIAN_BRIDGE_ALLOWED_FOLDERS: "Projects",
         OBSIDIAN_BRIDGE_DENIED_FOLDERS: "Projects/Private",
         OBSIDIAN_BRIDGE_SETTINGS_PATH: join(directory, "settings-not-configured.json"),
+        OBSIDIAN_BRIDGE_DATA_DIR: join(directory, "bridge-data"),
       }),
       stderr: "pipe",
     });
@@ -76,7 +77,7 @@ describe("MCP stdio integration", () => {
 
       expect(client.getServerVersion()).toMatchObject({
         name: "obsidian-bridge",
-        version: "0.3.4",
+        version: "0.4.0",
       });
       expect(client.getInstructions()).toContain("Read-only access");
 
@@ -90,6 +91,7 @@ describe("MCP stdio integration", () => {
         "obsidian_note_links",
         "obsidian_note_tags",
         "obsidian_recent_notes",
+        "obsidian_recent_write_events",
       ]);
       for (const tool of listed.tools) {
         expect(tool.annotations).toMatchObject({
@@ -105,7 +107,21 @@ describe("MCP stdio integration", () => {
         arguments: {},
       });
       expect(parseTextPayload(vaults)).toEqual({
-        vaults: [{ name: "Test Vault" }],
+        vaults: [{ name: "Test Vault", access_mode: "protected" }],
+      });
+
+      const writeEvents = await client.callTool({
+        name: "obsidian_recent_write_events",
+        arguments: { vault: "Test Vault" },
+      });
+      expect(parseTextPayload(writeEvents)).toEqual({
+        failures_only: true,
+        limit: 10,
+        count: 0,
+        audit_tail_truncated: false,
+        results_truncated: false,
+        truncated: false,
+        events: [],
       });
 
       const search = await client.callTool({
@@ -215,7 +231,13 @@ describe("MCP stdio integration", () => {
         arguments: {},
       });
       expect(parseTextPayload(configuredVaults)).toEqual({
-        vaults: [{ name: "Test Vault", id: "0123456789abcdef" }],
+        vaults: [
+          {
+            name: "Test Vault",
+            id: "0123456789abcdef",
+            access_mode: "protected",
+          },
+        ],
       });
       const allowed = await client.callTool({
         name: "obsidian_read_note",

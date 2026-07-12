@@ -89,6 +89,17 @@ describe("bridge configuration", () => {
     ).toThrow("absolute path");
   });
 
+  it("uses a deterministic platform data directory instead of host-only plugin data", () => {
+    const hostOnly = resolve("host-only-plugin-data");
+    const config = loadBridgeConfig({
+      PLUGIN_DATA: hostOnly,
+      LOCALAPPDATA: resolve("local-app-data"),
+      XDG_DATA_HOME: resolve("xdg-data"),
+    });
+    expect(config.dataDirectory).not.toBe(resolve(hostOnly, "obsidian-bridge"));
+    expect(config.dataDirectory).toMatch(/obsidian-bridge$/u);
+  });
+
   it("uses bounded timeout and output defaults", () => {
     const config = loadBridgeConfig({});
     expect(config.timeoutMs).toBe(DEFAULT_TIMEOUT_MS);

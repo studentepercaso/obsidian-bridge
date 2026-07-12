@@ -16,7 +16,7 @@ import {
 
 function document(vaults: Record<string, VaultSettings>): string {
   return `${JSON.stringify({
-    version: 2,
+    version: 3,
     updatedAt: "2026-07-11T10:00:00.000Z",
     vaults,
   })}\n`;
@@ -31,6 +31,7 @@ function entry(overrides: Partial<VaultSettings> = {}): VaultSettings {
     readFolders: ["Panel Read"],
     writeEnabled: true,
     writeFolders: ["Panel Write"],
+    accessMode: "protected",
     ...overrides,
   };
 }
@@ -79,6 +80,90 @@ describe("shared GUI settings", () => {
     expect(isPathAllowed("Environment Write/A.md", access.writablePolicy)).toBe(
       true,
     );
+    expect(access.accessMode).toBe("protected");
+  });
+
+  it("migrates strict version-2 settings to protected access in memory", async () => {
+    const { settingsPath } = await fixture();
+    await writeFile(
+      settingsPath,
+      `${JSON.stringify({
+        version: 2,
+        updatedAt: "2026-07-11T10:00:00.000Z",
+        vaults: {
+          [TEST_VAULT_ID]: {
+            vaultName: "Test Vault",
+            vaultPath: join(tmpdir(), "Test Vault"),
+            enabled: true,
+            readMode: "folders",
+            readFolders: ["Panel Read"],
+            writeEnabled: true,
+            writeFolders: ["Panel Write"],
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    const snapshot = await readSharedSettings(settingsPath);
+    expect(snapshot).toMatchObject({
+      status: "loaded",
+      settings: {
+        version: 3,
+        vaults: {
+          [TEST_VAULT_ID]: { accessMode: "protected" },
+        },
+      },
+    });
+    expect((await resolver(settingsPath)("Test Vault")).accessMode).toBe(
+      "protected",
+    );
+  });
+
+  it("grants full visible-vault read and write only from an enabled full entry", async () => {
+    const { settingsPath } = await fixture();
+    await writeFile(
+      settingsPath,
+      document({
+        [TEST_VAULT_ID]: entry({
+          accessMode: "full",
+          readMode: "off",
+          readFolders: [],
+          writeEnabled: false,
+          writeFolders: [],
+        }),
+      }),
+      "utf8",
+    );
+
+    const access = await resolver(settingsPath)("Test Vault");
+    expect(access.accessMode).toBe("full");
+    expect(access.writeEnabled).toBe(true);
+    expect(isPathAllowed("Root note.md", access.readPolicy)).toBe(true);
+    expect(isPathAllowed("Root note.md", access.writablePolicy)).toBe(true);
+    expect(isPathAllowed("Any/Nested note.md", access.writablePolicy)).toBe(true);
+    expect(isPathAllowed(".obsidian/plugins/unsafe.md", access.writablePolicy)).toBe(
+      false,
+    );
+    expect(isPathAllowed("Always Denied/unsafe.md", access.writablePolicy)).toBe(
+      false,
+    );
+
+    await writeFile(
+      settingsPath,
+      document({
+        [TEST_VAULT_ID]: entry({
+          accessMode: "full",
+          enabled: false,
+          readMode: "all",
+        }),
+      }),
+      "utf8",
+    );
+    const disabled = await resolver(settingsPath)("Test Vault");
+    expect(disabled.accessMode).toBe("protected");
+    expect(disabled.writeEnabled).toBe(false);
+    expect(isPathAllowed("Root note.md", disabled.readPolicy)).toBe(false);
   });
 
   it("denies legacy read access when no GUI file or read environment exists", async () => {
@@ -169,6 +254,13 @@ describe("shared GUI settings", () => {
         vaults: { [TEST_VAULT_ID]: { ...entry(), unexpected: true } },
       }),
       document({ [TEST_VAULT_ID]: entry({ readFolders: ["../Outside"] }) }),
+      JSON.stringify({
+        version: 3,
+        updatedAt: "2026-07-11T10:00:00.000Z",
+        vaults: {
+          [TEST_VAULT_ID]: { ...entry(), accessMode: "unrestricted" },
+        },
+      }),
       "x".repeat(MAX_SETTINGS_BYTES + 1),
     ]) {
       await writeFile(settingsPath, invalid, "utf8");

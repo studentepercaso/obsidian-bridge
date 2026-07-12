@@ -23,7 +23,7 @@ const requestedMode = process.env.OBSIDIAN_BRIDGE_MODE ?? "read";
 if (
   requestedMode !== "read" &&
   requestedMode !== "write" &&
-  requestedMode !== "all"
+  requestedMode !== "autonomous"
 ) {
   throw new Error("invalid OBSIDIAN_BRIDGE_MODE in test fixture");
 }
