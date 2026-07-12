@@ -14,10 +14,12 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  MAX_CLI_IPC_FRAME_BYTES,
   assertReadOnlyCliArgs,
   assertWriteEnabledCliArgs,
   buildVaultArgs,
   buildWriteVaultArgs,
+  cliIpcFrameBytes,
   createObsidianCliRunner,
   encodeCliContent,
   type SpawnImplementation,
@@ -198,6 +200,42 @@ describe("read-only Obsidian CLI runner", () => {
         "silent",
       ]),
     ).toThrowError(expect.objectContaining({ code: "INVALID_ARGUMENTS" }));
+  });
+
+  it("measures the complete Obsidian IPC frame including cwd and framing metadata", () => {
+    const args = [
+      "vault=Test Vault",
+      "create",
+      "path=Projects/New.md",
+      'content=quoted "value" and é',
+    ];
+    const cwd = "C:\\Bridge Test";
+    expect(cliIpcFrameBytes(args, cwd)).toBe(
+      Buffer.byteLength(
+        `${JSON.stringify({ argv: args, tty: false, cwd })}\n`,
+        "utf8",
+      ),
+    );
+  });
+
+  it("rejects an oversized IPC frame before spawning the Obsidian CLI", async () => {
+    const spawnSpy = vi.fn<SpawnImplementation>();
+    const runner = createObsidianCliRunner(config(), spawnSpy, {
+      allowWrites: true,
+    });
+    const args = [
+      "vault=Test Vault",
+      "create",
+      "path=Projects/New.md",
+      `content=${"x".repeat(MAX_CLI_IPC_FRAME_BYTES)}`,
+    ];
+
+    expect(cliIpcFrameBytes(args)).toBeGreaterThan(MAX_CLI_IPC_FRAME_BYTES);
+    await expect(runner(args)).rejects.toMatchObject({
+      code: "INVALID_ARGUMENTS",
+      message: expect.stringMatching(/IPC frame/iu),
+    });
+    expect(spawnSpy).not.toHaveBeenCalled();
   });
 
   it("encodes newline, tab, and carriage returns while preserving ordinary backslashes", () => {

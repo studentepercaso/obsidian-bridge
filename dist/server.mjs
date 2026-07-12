@@ -31208,6 +31208,14 @@ var WRITE_CLI_COMMANDS = Object.freeze([
   "create",
   "append"
 ]);
+var MAX_CLI_IPC_FRAME_BYTES = 3072;
+function cliIpcFrameBytes(args, cwd = process.cwd()) {
+  return Buffer.byteLength(
+    `${JSON.stringify({ argv: args, tty: false, cwd })}
+`,
+    "utf8"
+  );
+}
 var COMMAND_ARGUMENTS = Object.freeze({
   vaults: { parameters: [], flags: ["verbose"] },
   vault: { parameters: ["info"], flags: [] },
@@ -31313,6 +31321,13 @@ function assertCliArgs(args, allowWrites) {
     if (key !== "content" && /[\u0001-\u001f\u007f]/u.test(argument)) {
       throw new ObsidianCliError("INVALID_ARGUMENTS", "invalid CLI argument");
     }
+  }
+  const frameBytes = cliIpcFrameBytes(args);
+  if (frameBytes > MAX_CLI_IPC_FRAME_BYTES) {
+    throw new ObsidianCliError(
+      "INVALID_ARGUMENTS",
+      `CLI IPC frame must not exceed ${MAX_CLI_IPC_FRAME_BYTES} UTF-8 bytes; split long content into smaller commands`
+    );
   }
 }
 function buildVaultArgs(vault, command, args = []) {
@@ -32276,6 +32291,12 @@ var ChangeConflictError = class extends Error {
     this.name = "ChangeConflictError";
   }
 };
+var PostWriteVerificationError = class extends Error {
+  constructor(message, options) {
+    super(message, options);
+    this.name = "PostWriteVerificationError";
+  }
+};
 var PreparedChangeStore = class {
   #ttlMs;
   #now;
@@ -32399,6 +32420,42 @@ async function setPrivateFileMode(file2) {
 function normalizeContent(content) {
   return content.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 }
+function splitCliWriteContent(vault, notePath, content) {
+  const normalized = normalizeContent(content);
+  assertCliContentRepresentable(normalized);
+  const fits = (candidate) => cliIpcFrameBytes([
+    `vault=${vault}`,
+    "create",
+    `path=${notePath}`,
+    `content=${encodeCliContent(candidate)}`,
+    "overwrite"
+  ]) <= MAX_CLI_IPC_FRAME_BYTES;
+  if (normalized.length === 0) {
+    if (!fits("")) {
+      throw new RangeError("vault and note path leave no safe CLI payload capacity");
+    }
+    return [""];
+  }
+  const chunks = [];
+  let current = "";
+  for (const codePoint of normalized) {
+    const candidate = `${current}${codePoint}`;
+    if (fits(candidate)) {
+      current = candidate;
+      continue;
+    }
+    if (current.length === 0) {
+      throw new RangeError("one content character cannot fit the safe CLI IPC frame");
+    }
+    chunks.push(current);
+    current = codePoint;
+    if (!fits(current)) {
+      throw new RangeError("one content character cannot fit the safe CLI IPC frame");
+    }
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
 function hashDocumentState(exists, content = "") {
   const hash2 = createHash("sha256");
   hash2.update(exists ? "present\0" : "missing\0", "utf8");
@@ -32500,7 +32557,59 @@ function assertSameState(expected, actual) {
     );
   }
 }
-async function attemptRollback(runner, change, options) {
+async function writePreparedChangeInChunks(runner, change, options, bridgeWrittenHashes, beforeChunk, onWriteAttempt) {
+  const content = change.operation === "create" ? change.afterContent : change.commandContent;
+  const chunks = splitCliWriteContent(change.vault, change.notePath, content);
+  let expectedContent = change.operation === "append" ? change.before.content : "";
+  if (expectedContent === void 0) {
+    throw new Error("append change is missing its prepared source content");
+  }
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    const firstCreate = change.operation === "create" && index === 0;
+    await beforeChunk(firstCreate);
+    expectedContent = `${expectedContent}${chunk}`;
+    const expectedHash = hashDocumentState(true, expectedContent);
+    bridgeWrittenHashes.add(expectedHash);
+    onWriteAttempt();
+    await runner(
+      firstCreate ? buildWriteVaultArgs(change.vault, "create", [
+        `path=${change.notePath}`,
+        `content=${encodeCliContent(chunk)}`
+      ]) : buildWriteVaultArgs(change.vault, "append", [
+        `path=${change.notePath}`,
+        `content=${encodeCliContent(chunk)}`,
+        "inline"
+      ]),
+      options
+    );
+    let observed;
+    try {
+      observed = await readDocument(
+        runner,
+        change.vault,
+        change.notePath,
+        options
+      );
+    } catch (error51) {
+      throw new PostWriteVerificationError(
+        "chunked CLI write could not be read back",
+        { cause: error51 }
+      );
+    }
+    if (!observed.exists || observed.sha256 !== expectedHash) {
+      throw new PostWriteVerificationError(
+        "chunked CLI write did not match its expected intermediate hash"
+      );
+    }
+  }
+  if (hashDocumentState(true, expectedContent) !== change.afterSha256) {
+    throw new PostWriteVerificationError(
+      "chunked CLI write did not reconstruct the prepared content"
+    );
+  }
+}
+async function attemptRollback(runner, change, options, bridgeWrittenHashes) {
   let current;
   try {
     current = await readDocument(
@@ -32515,7 +32624,7 @@ async function attemptRollback(runner, change, options) {
   if (current.exists === change.before.exists && current.sha256 === change.before.sha256) {
     return { attempted: false, succeeded: true, reason: "unchanged" };
   }
-  if (!current.exists || current.sha256 !== change.afterSha256) {
+  if (!current.exists || !bridgeWrittenHashes.has(current.sha256)) {
     return {
       attempted: false,
       succeeded: false,
@@ -32532,7 +32641,21 @@ async function attemptRollback(runner, change, options) {
       reason: "restore_unrepresentable"
     };
   }
-  if (Buffer.byteLength(change.before.content, "utf8") > MAX_CHANGE_CONTENT_BYTES) {
+  let rollbackChunks;
+  try {
+    rollbackChunks = splitCliWriteContent(
+      change.vault,
+      change.notePath,
+      change.before.content
+    );
+  } catch {
+    return {
+      attempted: false,
+      succeeded: false,
+      reason: "restore_too_large"
+    };
+  }
+  if (rollbackChunks.length !== 1) {
     return {
       attempted: false,
       succeeded: false,
@@ -32543,7 +32666,7 @@ async function attemptRollback(runner, change, options) {
     await runner(
       buildWriteVaultArgs(change.vault, "create", [
         `path=${change.notePath}`,
-        `content=${encodeCliContent(change.before.content)}`,
+        `content=${encodeCliContent(rollbackChunks[0])}`,
         "overwrite"
       ]),
       options
@@ -32717,6 +32840,7 @@ function createWriteToolHandlers(runtime) {
         async () => {
           let backupId;
           let writeAttempted = false;
+          const bridgeWrittenHashes = /* @__PURE__ */ new Set([change.afterSha256]);
           try {
             const initial = await assertChangeAllowed(change.vault, change.notePath);
             await verifyPhysicalGrant(
@@ -32749,38 +32873,41 @@ function createWriteToolHandlers(runtime) {
               );
               assertSameState(change.before, afterBackup);
             }
-            const beforeWrite = await assertChangeAllowed(
-              change.vault,
-              change.notePath
-            );
-            assertSameVault(initial.access, beforeWrite.access);
-            await verifyPhysicalGrant(
-              beforeWrite.access,
-              change.notePath,
-              options,
-              change.operation === "create"
-            );
-            writeAttempted = true;
-            if (change.operation === "create") {
-              await runtime.runner(
-                buildWriteVaultArgs(change.vault, "create", [
-                  `path=${change.notePath}`,
-                  `content=${encodeCliContent(change.afterContent)}`
-                ]),
-                options
+            let chunkVerificationFailed = false;
+            try {
+              await writePreparedChangeInChunks(
+                runtime.runner,
+                change,
+                options,
+                bridgeWrittenHashes,
+                async (allowMissingLeaf) => {
+                  const currentGrant = await assertChangeAllowed(
+                    change.vault,
+                    change.notePath
+                  );
+                  assertSameVault(initial.access, currentGrant.access);
+                  await verifyPhysicalGrant(
+                    currentGrant.access,
+                    change.notePath,
+                    options,
+                    allowMissingLeaf
+                  );
+                },
+                () => {
+                  writeAttempted = true;
+                }
               );
-            } else {
-              await runtime.runner(
-                buildWriteVaultArgs(change.vault, "append", [
-                  `path=${change.notePath}`,
-                  `content=${encodeCliContent(change.commandContent)}`,
-                  "inline"
-                ]),
-                options
-              );
+            } catch (error51) {
+              if (!(error51 instanceof PostWriteVerificationError)) throw error51;
+              chunkVerificationFailed = true;
             }
             let verificationSucceeded = false;
             try {
+              if (chunkVerificationFailed) {
+                throw new PostWriteVerificationError(
+                  "an intermediate chunk failed verification"
+                );
+              }
               const verified = await readDocument(
                 runtime.runner,
                 change.vault,
@@ -32795,7 +32922,8 @@ function createWriteToolHandlers(runtime) {
               const rollback = await attemptRollback(
                 runtime.runner,
                 change,
-                {}
+                {},
+                bridgeWrittenHashes
               );
               let auditRecorded2 = true;
               try {
@@ -32864,7 +32992,8 @@ function createWriteToolHandlers(runtime) {
               const rollback = await attemptRollback(
                 runtime.runner,
                 change,
-                {}
+                {},
+                bridgeWrittenHashes
               );
               let auditRecorded = true;
               try {
@@ -32924,7 +33053,7 @@ function createWriteToolHandlers(runtime) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.3.3";
+var SERVER_VERSION = "0.3.4";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
@@ -33185,12 +33314,12 @@ function createToolHandlers(runtime) {
       const notePath = assertPathAllowed(input.path, policy);
       await assertVaultIdentity(runner, access, options);
       await assertPhysicalPath(access, notePath);
-      const outgoingPromise = input.direction === "incoming" ? void 0 : stdout(
+      const outgoingOutput = input.direction === "incoming" ? void 0 : await stdout(
         runner,
         buildVaultArgs(access.vaultSelector, "links", [`path=${notePath}`]),
         options
       );
-      const incomingPromise = input.direction === "outgoing" ? void 0 : stdout(
+      const incomingOutput = input.direction === "outgoing" ? void 0 : await stdout(
         runner,
         buildVaultArgs(access.vaultSelector, "backlinks", [
           `path=${notePath}`,
@@ -33198,10 +33327,6 @@ function createToolHandlers(runtime) {
         ]),
         options
       );
-      const [outgoingOutput, incomingOutput] = await Promise.all([
-        outgoingPromise,
-        incomingPromise
-      ]);
       const currentAccess = await readAccess(input.vault);
       assertSameVault(access, currentAccess);
       await assertVaultIdentity(runner, currentAccess, options);

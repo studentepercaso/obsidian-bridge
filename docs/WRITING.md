@@ -55,7 +55,7 @@ Examples:
 }
 ```
 
-Preparation validates the operation, vault and folder write scopes, path, size, and current target state. Content must contain 1-8192 UTF-8 bytes. It calculates the proposed result and returns `status=prepared`, a bounded diff, `proposed_content_json`, line counts, before/after SHA-256 hashes, expiry time, and opaque `change_id`. Preview output is capped at 16384 bytes. The diff explicitly marks a changed end-of-file newline, while `proposed_content_json` makes whitespace and backslashes unambiguous. Preparation does not modify the vault.
+Preparation validates the operation, vault and folder write scopes, path, size, and current target state. Content must contain 1-8192 UTF-8 bytes. It calculates the proposed result and returns `status=prepared`, a bounded diff, `proposed_content_json`, line counts, before/after SHA-256 hashes, expiry time, and opaque `change_id`. Preview output is capped at 16384 bytes. The diff explicitly marks a changed end-of-file newline, while `proposed_content_json` makes whitespace and backslashes unambiguous. Preparation does not modify the vault. At commit time, long content is automatically split into complete CLI IPC frames of at most 3072 UTF-8 bytes; each Unicode-safe chunk is reread and hash-verified before the next chunk.
 
 `create` fails if the target exists. `append` fails if it does not exist.
 
@@ -92,9 +92,9 @@ The commit consumes the change ID before side effects, then rechecks writable sc
 
 For append, commit first creates a plaintext backup of the original. Create has no original to back up. The writer keeps the newest 20 backups under the absolute `OBSIDIAN_BRIDGE_DATA_DIR`, or the documented platform fallback data directory. It rereads the written note and verifies the expected after-hash.
 
-If verification or the CLI call fails, the writer rereads before recovery. An unchanged note is left alone, and an unknown concurrent state is never overwritten. When the current note is exactly the expected after-state, automatic rollback is limited to one overwrite attempt and occurs only when the original is representable by the official CLI, contains no CR/CRLF line endings that its content argument would normalize, and is at most 8192 UTF-8 bytes. Otherwise the plaintext backup remains the manual recovery source and `rollback_reason` is `restore_unrepresentable` or `restore_too_large`. A newly created note is not automatically deleted. The result reports `rollback_attempted`, `rollback_succeeded`, and `rollback_reason`.
+If verification or a CLI call fails, the writer rereads before recovery. An unchanged note is left alone, and an unknown concurrent state is never overwritten. Recovery may recognize either the full expected after-state or an exact intermediate hash produced by a verified/tentative chunk. Automatic rollback is limited to one overwrite attempt and occurs only when the original is representable by the official CLI, contains no CR/CRLF line endings that its content argument would normalize, and fits one safe IPC frame. Otherwise the plaintext backup remains the manual recovery source and `rollback_reason` is `restore_unrepresentable` or `restore_too_large`. A newly created note is not automatically deleted. The result reports `rollback_attempted`, `rollback_succeeded`, and `rollback_reason`.
 
-The pre-write source check and official CLI append are not atomic. Another application can edit the note in between, so the approved addition may land on a concurrent state and verification may then fail. The bridge does not perform a replacement overwrite in that case. Reread the note before deciding whether to prepare another append, and never assume a failed append left the note unchanged.
+The pre-write source check and official CLI mutation are not atomic. Chunked changes add a bounded sequence of individually verified mutations, so another application can edit the note between stages. The approved addition may land on a concurrent state, or a partial create may remain when a later chunk fails because delete is deliberately unavailable. The bridge does not perform a replacement overwrite in that case. Reread the note before deciding whether to prepare another change, and never assume a failed change left the note unchanged.
 
 After a successful write, the writer appends a metadata-only NDJSON audit record without note content. The result reports `status=committed`, `verified`, optional `backup_id`, and `audit_recorded`.
 
@@ -114,7 +114,7 @@ Use synthetic data and verify the vault directly after each step.
 | Append preview and commit | Existing content preserved; addition appears once. |
 | Append recovery | Plaintext original backup exists; newest 20 are retained. |
 | Rollback of small representable original | At most one overwrite is attempted. |
-| Original unrepresentable or over 8192 bytes | No automatic overwrite; result reports `restore_unrepresentable` or `restore_too_large`. |
+| Original unrepresentable or too large for one safe IPC frame | No automatic overwrite; result reports `restore_unrepresentable` or `restore_too_large`. |
 | Successful commit audit | NDJSON entry exists without note body or proposed content. |
 | Manual edit after preview | Commit rejects a source-hash conflict. |
 | Concurrent edit racing an append | Commit can report verification failure after the append lands; reread before retry and do not overwrite. |

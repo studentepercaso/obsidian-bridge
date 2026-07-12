@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  MAX_CLI_IPC_FRAME_BYTES,
   ObsidianCliError,
+  cliIpcFrameBytes,
+  encodeCliContent,
   type ObsidianCliRunner,
 } from "../src/cli.js";
 import {
@@ -20,6 +23,7 @@ import {
   WriteToolInputSchemas,
   createWriteToolHandlers,
   hashDocumentState,
+  splitCliWriteContent,
   type AuditEvent,
   type BackupInput,
   type ChangeStorage,
@@ -49,7 +53,9 @@ function createMemoryRunner(
   invocations: string[][],
   corruptNextWrite = false,
   throwAfterNextWrite = false,
+  throwOnWriteNumber?: number,
 ): ObsidianCliRunner {
+  let writeNumber = 0;
   return async (args) => {
     invocations.push([...args]);
     const command = args[1];
@@ -65,18 +71,20 @@ function createMemoryRunner(
 
     const content = decodeCliContent(parameter(args, "content") ?? "");
     if (command === "create") {
+      writeNumber += 1;
       if (notePath in notes && !args.includes("overwrite")) {
         throw new ObsidianCliError("NON_ZERO_EXIT", "Note already exists", 3);
       }
       notes[notePath] = corruptNextWrite ? `${content}CORRUPTED` : content;
       corruptNextWrite = false;
-      if (throwAfterNextWrite) {
+      if (throwAfterNextWrite || writeNumber === throwOnWriteNumber) {
         throwAfterNextWrite = false;
         throw new ObsidianCliError("NON_ZERO_EXIT", "error after side effect", 7);
       }
       return { stdout: notePath, stderr: "", exitCode: 0 };
     }
     if (command === "append") {
+      writeNumber += 1;
       if (!(notePath in notes)) {
         throw new ObsidianCliError("NON_ZERO_EXIT", "Note not found", 2);
       }
@@ -84,7 +92,7 @@ function createMemoryRunner(
         corruptNextWrite ? "CORRUPTED" : ""
       }`;
       corruptNextWrite = false;
-      if (throwAfterNextWrite) {
+      if (throwAfterNextWrite || writeNumber === throwOnWriteNumber) {
         throwAfterNextWrite = false;
         throw new ObsidianCliError("NON_ZERO_EXIT", "error after side effect", 7);
       }
@@ -185,6 +193,37 @@ describe("write workflow schemas and storage", () => {
       WriteToolInputSchemas.commitChange.safeParse({ change_id: "guessable" })
         .success,
     ).toBe(false);
+  });
+
+  it("splits long Unicode content into complete, IPC-safe code-point chunks", () => {
+    const content = "Titolo 😀\nRiga con accenti èòà e tab\t".repeat(180);
+    const chunks = splitCliWriteContent(
+      "0123456789abcdef",
+      "Projects/Editable/Long note.md",
+      content,
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("")).toBe(content);
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index]!;
+      const args = [
+        "vault=0123456789abcdef",
+        "create",
+        "path=Projects/Editable/Long note.md",
+        `content=${encodeCliContent(chunk)}`,
+        "overwrite",
+      ];
+      expect(cliIpcFrameBytes(args)).toBeLessThanOrEqual(
+        MAX_CLI_IPC_FRAME_BYTES,
+      );
+      if (index < chunks.length - 1) {
+        const last = chunk.charCodeAt(chunk.length - 1);
+        const next = chunks[index + 1]!.charCodeAt(0);
+        expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
+        expect(next >= 0xdc00 && next <= 0xdfff).toBe(false);
+      }
+    }
   });
 
   it("expires IDs with an injected clock and consumes every ID once", () => {
@@ -368,6 +407,188 @@ describe("write workflow schemas and storage", () => {
     expect(JSON.stringify(audits)).not.toContain("SECRET-AFTER");
     const appendIndex = invocations.findIndex((args) => args[1] === "append");
     expect(appendIndex).toBeGreaterThan(1);
+  });
+
+  it("creates a long note through verified IPC-safe create and append chunks", async () => {
+    const notes: Record<string, string> = {};
+    const invocations: string[][] = [];
+    const content = "Voce chunked 😀 con accenti è.\n".repeat(180);
+    const handlers = runtime(createMemoryRunner(notes, invocations), {
+      async createBackup() {
+        throw new Error("create must not make a backup");
+      },
+      async appendAudit() {},
+    });
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/Long create.md",
+          operation: "create",
+          content,
+        }),
+      ),
+    );
+
+    const committed = resultJson(
+      await handlers.commitChange(
+        WriteToolInputSchemas.commitChange.parse({
+          change_id: prepared.change_id,
+        }),
+      ),
+    );
+    const writes = invocations.filter(
+      (args) => args[1] === "create" || args[1] === "append",
+    );
+
+    expect(committed).toMatchObject({ status: "committed", verified: true });
+    expect(notes["Projects/Editable/Long create.md"]).toBe(content);
+    expect(writes.filter((args) => args[1] === "create")).toHaveLength(1);
+    expect(writes.filter((args) => args[1] === "append").length).toBeGreaterThan(0);
+    expect(writes.every((args) => cliIpcFrameBytes(args) <= MAX_CLI_IPC_FRAME_BYTES)).toBe(true);
+    expect(
+      writes
+        .filter((args) => args[1] === "append")
+        .every((args) => args.includes("inline")),
+    ).toBe(true);
+  });
+
+  it("appends long content in verified chunks while creating one backup", async () => {
+    const notes = { "Projects/Editable/Long append.md": "original\n" };
+    const invocations: string[][] = [];
+    const backups: BackupInput[] = [];
+    const content = "Aggiunta chunked 😀 con accenti è.\n".repeat(170);
+    const handlers = runtime(createMemoryRunner(notes, invocations), {
+      async createBackup(input) {
+        backups.push(input);
+        return { backupId: "long-backup" };
+      },
+      async appendAudit() {},
+    });
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/Long append.md",
+          operation: "append",
+          content,
+        }),
+      ),
+    );
+
+    const committed = resultJson(
+      await handlers.commitChange(
+        WriteToolInputSchemas.commitChange.parse({
+          change_id: prepared.change_id,
+        }),
+      ),
+    );
+    const appends = invocations.filter((args) => args[1] === "append");
+
+    expect(committed).toMatchObject({
+      status: "committed",
+      verified: true,
+      backup_id: "long-backup",
+    });
+    expect(backups).toHaveLength(1);
+    expect(notes["Projects/Editable/Long append.md"]).toBe(`original\n${content}`);
+    expect(appends.length).toBeGreaterThan(1);
+    expect(appends.every((args) => args.includes("inline"))).toBe(true);
+    expect(appends.every((args) => cliIpcFrameBytes(args) <= MAX_CLI_IPC_FRAME_BYTES)).toBe(true);
+  });
+
+  it("recognizes a failed intermediate chunk and restores a small original", async () => {
+    const notes = { "Projects/Editable/Chunk failure.md": "original\n" };
+    const invocations: string[][] = [];
+    const content = "Second-stage failure payload 😀.\n".repeat(180);
+    const handlers = runtime(
+      createMemoryRunner(notes, invocations, false, false, 2),
+      {
+        async createBackup() {
+          return { backupId: "chunk-failure-backup" };
+        },
+        async appendAudit() {},
+      },
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/Chunk failure.md",
+          operation: "append",
+          content,
+        }),
+      ),
+    );
+
+    const result = await handlers.commitChange(
+      WriteToolInputSchemas.commitChange.parse({
+        change_id: prepared.change_id,
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(resultJson(result)).toMatchObject({
+      status: "failed",
+      error: "write_failed",
+      rollback_attempted: true,
+      rollback_succeeded: true,
+      rollback_reason: "restored",
+      backup_id: "chunk-failure-backup",
+    });
+    expect(notes["Projects/Editable/Chunk failure.md"]).toBe("original\n");
+    expect(invocations.filter((args) => args[1] === "append").length).toBe(2);
+  });
+
+  it("reports a partial long create for manual review when deletion is disabled", async () => {
+    const notes: Record<string, string> = {};
+    const invocations: string[][] = [];
+    const audits: AuditEvent[] = [];
+    const content = "Creazione parziale controllata 😀.\n".repeat(180);
+    const handlers = runtime(
+      createMemoryRunner(notes, invocations, false, false, 2),
+      {
+        async createBackup() {
+          throw new Error("create must not make a backup");
+        },
+        async appendAudit(event) {
+          audits.push(event);
+        },
+      },
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/Partial create.md",
+          operation: "create",
+          content,
+        }),
+      ),
+    );
+
+    const result = await handlers.commitChange(
+      WriteToolInputSchemas.commitChange.parse({
+        change_id: prepared.change_id,
+      }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(resultJson(result)).toMatchObject({
+      status: "failed",
+      error: "write_failed",
+      verified: false,
+      rollback_attempted: false,
+      rollback_succeeded: false,
+      rollback_reason: "delete_disabled",
+    });
+    expect(notes["Projects/Editable/Partial create.md"]).toBeDefined();
+    expect(notes["Projects/Editable/Partial create.md"]).not.toBe(content);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      status: "failed",
+      error_code: "WRITE_FAILED_ROLLBACK_FAILED",
+    });
   });
 
   it("does not mutate when creating the pre-write backup fails", async () => {

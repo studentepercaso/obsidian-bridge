@@ -64,7 +64,7 @@ The writer exposes only preparation and commit. Its per-vault write toggle and w
 
 Delete, rename, move, arbitrary overwrite, arbitrary Obsidian commands, shell access, plugin commands, and `eval` are unavailable.
 
-Write content is limited to 8192 UTF-8 bytes and preview output to 16384 bytes. The official CLI cannot represent literal backslash sequences `\n` and `\t` losslessly in content arguments, so the bridge rejects proposals containing those two sequences. Ordinary backslashes are passed through unchanged. The bundled plugin uses separate `--mode=read` and `--mode=write` processes. A combined `--mode=all` exists for controlled development/testing only and must never be placed under automatic approval.
+Write content is limited to 8192 UTF-8 bytes and preview output to 16384 bytes. To avoid the Obsidian 1.12.7 IPC framing defect for long CLI arguments, every complete CLI request frame is capped at 3072 UTF-8 bytes. Long create and append content is divided on Unicode code-point boundaries, each chunk is appended inline, and every intermediate state is read back and hash-verified before the next mutation. The official CLI cannot represent literal backslash sequences `\n` and `\t` losslessly in content arguments, so the bridge rejects proposals containing those two sequences. Ordinary backslashes are passed through unchanged. The bundled plugin uses separate `--mode=read` and `--mode=write` processes. A combined `--mode=all` exists for controlled development/testing only and must never be placed under automatic approval.
 
 The normal policy source is the versioned local settings file maintained by Bridge Control and the installer. It is size-bounded, decoded as strict UTF-8, schema-validated in full and read without a long-lived permission cache. Revocation therefore takes effect on the next operation. Legacy environment variables are an advanced compatibility fallback only when the shared file is absent; once that file exists, its vault map is authoritative.
 
@@ -78,7 +78,7 @@ Preparation validates the vault-relative target and write policy, obtains the cu
 
 A prepared change has a five-minute default time-to-live, configurable from one to thirty minutes through `OBSIDIAN_BRIDGE_CHANGE_TTL_MS`, and belongs only to the writer process that created it. Restarting that process invalidates pending changes.
 
-After a write, the bridge verifies the resulting hash. A verification or CLI failure triggers a deliberately narrow rollback only when the current note is exactly the expected after-state. The bridge makes at most one overwrite attempt, and only when the original content is representable by the official CLI, contains no CR/CRLF line endings that its content argument would normalize, and is at most 8192 UTF-8 bytes. Otherwise the plaintext backup is the manual recovery source and the result reports `restore_unrepresentable` or `restore_too_large`. An unchanged note requires no overwrite, an unknown third hash is treated as a concurrent edit and is never overwritten, and a newly created note is not automatically deleted. The result always reports the rollback outcome and reason.
+After a write, the bridge verifies the resulting hash. A verification or CLI failure triggers a deliberately narrow rollback only when the current note exactly matches the full prepared state or a known intermediate chunk hash. The bridge makes at most one overwrite attempt, and only when the original content is representable by the official CLI, contains no CR/CRLF line endings that its content argument would normalize, and fits one safe IPC frame. Otherwise the plaintext backup is the manual recovery source and the result reports `restore_unrepresentable` or `restore_too_large`. An unchanged note requires no overwrite, an unknown third hash is treated as a concurrent edit and is never overwritten, and a newly created note is not automatically deleted. The result always reports the rollback outcome and reason.
 
 ### Human confirmation
 
@@ -101,7 +101,7 @@ Commit accepts only an unexpired prepared change ID. The bridge revalidates the 
 
 If the source changed before the commit-time check, the target appeared, the change expired, or policy changed, commit fails closed. Prepare a new change and ask again; never force or silently merge it.
 
-That source check and the official CLI append are not atomic. Another application can modify a note in the gap, so an approved append may land on a concurrent state and post-write verification may then fail. The bridge does not replace that unknown state. Reread the note before preparing any retry, and never infer that a failed append left the note unchanged.
+The source check and official CLI mutation are not atomic. Chunked changes add a bounded sequence of individually verified mutations, so another application can modify a note between stages. An approved append may land on a concurrent state and a partial create may remain when a later chunk fails because delete is deliberately unavailable. The bridge does not replace an unknown state. Reread the note before preparing any retry, and never infer that a failed change left the note unchanged.
 
 Every change ID is single-use. A commit attempt consumes it before any side effect whether the operation later succeeds or fails, preventing replay with altered local state.
 

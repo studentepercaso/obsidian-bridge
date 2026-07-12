@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.4 - 2026-07-12
+
+- Cap every complete Obsidian CLI IPC request at 3072 UTF-8 bytes to avoid the Windows main-process JSON framing crash observed with long `content=` arguments.
+- Split long create and append content on Unicode code-point boundaries, verify every intermediate hash, and recheck vault permission, identity, and physical scope before every bounded mutation.
+- Keep the public 8192-byte proposed-content limit while refusing any request whose non-content metadata leaves no safe IPC payload capacity.
+- Recognize exact intermediate bridge-written states during recovery without overwriting an unknown concurrent edit.
+- Keep rollback to one safe overwrite; partial creates are reported for manual review because delete remains unavailable.
+- Serialize incoming and outgoing link CLI calls within one request to reduce concurrent pressure on Obsidian's local IPC channel.
+
 ## 0.3.3 - 2026-07-11
 
 - Publish the standalone, bilingual [Bridge Control](https://github.com/studentepercaso/bridge-control) repository and release assets for Obsidian Community Plugins review.

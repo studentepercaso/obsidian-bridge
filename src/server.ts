@@ -47,7 +47,7 @@ import {
 } from "./write-workflow.js";
 
 export const SERVER_NAME = "obsidian-bridge";
-export const SERVER_VERSION = "0.3.3";
+export const SERVER_VERSION = "0.3.4";
 
 export type ServerMode = "read" | "write" | "all";
 
@@ -424,18 +424,18 @@ export function createToolHandlers(runtime: ToolRuntime) {
       const notePath = assertPathAllowed(input.path, policy);
       await assertVaultIdentity(runner, access, options);
       await assertPhysicalPath(access, notePath);
-      const outgoingPromise =
+      const outgoingOutput =
         input.direction === "incoming"
           ? undefined
-          : stdout(
+          : await stdout(
               runner,
               buildVaultArgs(access.vaultSelector, "links", [`path=${notePath}`]),
               options,
             );
-      const incomingPromise =
+      const incomingOutput =
         input.direction === "outgoing"
           ? undefined
-          : stdout(
+          : await stdout(
               runner,
               buildVaultArgs(access.vaultSelector, "backlinks", [
                 `path=${notePath}`,
@@ -443,11 +443,6 @@ export function createToolHandlers(runtime: ToolRuntime) {
               ]),
               options,
             );
-
-      const [outgoingOutput, incomingOutput] = await Promise.all([
-        outgoingPromise,
-        incomingPromise,
-      ]);
       const currentAccess = await readAccess(input.vault);
       assertSameVault(access, currentAccess);
       await assertVaultIdentity(runner, currentAccess, options);

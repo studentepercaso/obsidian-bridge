@@ -1,6 +1,6 @@
 # Publishing paths
 
-Obsidian Bridge 0.3.3 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
+Obsidian Bridge 0.3.4 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
 
 ## GitHub community distribution
 
@@ -51,7 +51,7 @@ Do not call a release production-ready until all of the following are true:
 - create and append pass preview, confirmation, conflict, expiry, replay, and out-of-scope tests;
 - preparation is proven non-mutating and commit requires a previously prepared opaque change ID;
 - previews include both the diff and `proposed_content_json`, and explicitly mark final-newline changes;
-- append backup creation, 20-file retention, after-hash verification, non-atomic append races, bounded single-overwrite rollback, manual-recovery reasons, and content-free audit records are tested;
+- append backup creation, 20-file retention, Unicode-safe IPC chunking, intermediate and final hash verification, non-atomic mutation races, bounded single-overwrite rollback, partial-create reporting, manual-recovery reasons, and content-free audit records are tested;
 - literal `\n` and `\t` sequences are rejected while ordinary backslashes remain unchanged;
 - line replacement remains unavailable until the official CLI provides an atomic compare-and-swap or an equivalent reviewed safety control;
 - delete, rename, move, arbitrary commands, command-palette access, shell access, plugin management, and `eval` remain unavailable;

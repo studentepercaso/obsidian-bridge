@@ -92,7 +92,9 @@ Prepared changes are held temporarily by the writer process so a reviewed previe
 
 A successful write intentionally persists the approved content in the user's Obsidian vault. Before append, the writer also persists a plaintext copy of the original note as a managed recovery backup. Create has no original to back up. The bridge retains the newest 20 backup files.
 
-If post-write verification fails, the writer attempts at most one automatic overwrite, and only when the original content is representable by the official CLI, contains no CR/CRLF line endings that its content argument would normalize, and is at most 8192 UTF-8 bytes. Otherwise the plaintext backup is retained for manual recovery and the result reports `restore_unrepresentable` or `restore_too_large`. An unknown concurrent state is never overwritten.
+Long approved content is sent through multiple bounded CLI requests rather than one large process argument. Every complete IPC frame is capped at 3072 UTF-8 bytes, chunks are split on Unicode code-point boundaries, and each intermediate state is read back and hash-verified. This does not create additional stored copies beyond the normal backup and final note.
+
+If post-write verification fails, the writer attempts at most one automatic overwrite, and only when the current note matches a known bridge-produced chunk state and the original content is representable by the official CLI, contains no CR/CRLF line endings that its content argument would normalize, and fits one safe IPC frame. Otherwise the plaintext backup is retained for manual recovery and the result reports `restore_unrepresentable` or `restore_too_large`. An unknown concurrent state is never overwritten.
 
 Successful commits append an NDJSON audit record containing operation metadata but no note body or proposed content. The commit result reports whether the audit entry was recorded and includes a backup ID when applicable.
 
@@ -120,7 +122,7 @@ The agent must display the prepared preview and wait for explicit human confirma
 
 The user should verify the vault, relative path, operation, and exact proposed content. If the note changes before the commit-time source check, the source-hash check rejects the change and a fresh preview is required.
 
-The source check and official CLI append are not atomic. A concurrent edit can occur in between, the append can land on that state, and verification can then report failure. The bridge does not overwrite the unknown state; reread the note before retrying. The official CLI also cannot represent literal backslash sequences `\n` and `\t` losslessly in content arguments, so proposals containing them are rejected. Ordinary backslashes remain unchanged.
+The source check and official CLI mutation are not atomic. Chunked changes add a bounded sequence of individually verified mutations, so a concurrent edit can occur between stages, an append can land on that state, or a partial create can remain when a later chunk fails because delete is deliberately unavailable. The bridge does not overwrite an unknown state; reread the note before retrying. The official CLI also cannot represent literal backslash sequences `\n` and `\t` losslessly in content arguments, so proposals containing them are rejected. Ordinary backslashes remain unchanged.
 
 ## User choices
 

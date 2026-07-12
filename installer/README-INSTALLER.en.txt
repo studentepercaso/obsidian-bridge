@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.3.3 - READ THIS FIRST
+OBSIDIAN BRIDGE 0.3.4 - READ THIS FIRST
 
 1. Extract the complete ZIP to a normal folder.
 2. Double-click INSTALLA-OBSIDIAN-BRIDGE.cmd.
@@ -6,7 +6,7 @@ OBSIDIAN BRIDGE 0.3.3 - READ THIS FIRST
 4. Open Obsidian > Settings > Community plugins > Bridge Control.
 5. Choose the folders that Codex may read and, optionally, write.
 
-The user interface of the 0.3.3 installer and Bridge Control panel is currently
+The user interface of the 0.3.4 installer and Bridge Control panel is currently
 in Italian. No administrator rights or OpenAI API key are required.
 
 New vaults start with no note access. Writing is disabled until it is explicitly

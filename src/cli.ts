@@ -28,6 +28,21 @@ export const WRITE_CLI_COMMANDS = Object.freeze([
   "append",
 ] as const);
 
+// Obsidian 1.12.7 on Windows can hand JSON.parse an incomplete named-pipe
+// chunk when the CLI IPC frame approaches 4 KiB. Keep a full KiB of headroom
+// and split write content before it reaches this defense-in-depth guard.
+export const MAX_CLI_IPC_FRAME_BYTES = 3_072;
+
+export function cliIpcFrameBytes(
+  args: readonly string[],
+  cwd: string = process.cwd(),
+): number {
+  return Buffer.byteLength(
+    `${JSON.stringify({ argv: args, tty: false, cwd })}\n`,
+    "utf8",
+  );
+}
+
 type ReadOnlyCliCommand = (typeof READ_ONLY_CLI_COMMANDS)[number];
 type WriteCliCommand = (typeof WRITE_CLI_COMMANDS)[number];
 type AllowedCliCommand = ReadOnlyCliCommand | WriteCliCommand;
@@ -203,6 +218,14 @@ function assertCliArgs(args: readonly string[], allowWrites: boolean): void {
     ) {
       throw new ObsidianCliError("INVALID_ARGUMENTS", "invalid CLI argument");
     }
+  }
+
+  const frameBytes = cliIpcFrameBytes(args);
+  if (frameBytes > MAX_CLI_IPC_FRAME_BYTES) {
+    throw new ObsidianCliError(
+      "INVALID_ARGUMENTS",
+      `CLI IPC frame must not exceed ${MAX_CLI_IPC_FRAME_BYTES} UTF-8 bytes; split long content into smaller commands`,
+    );
   }
 }
 
