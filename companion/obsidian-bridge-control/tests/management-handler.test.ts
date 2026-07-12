@@ -568,7 +568,8 @@ describe("managed mutation companion handler", () => {
   it("rejects symlink request files without reading their target", async () => {
     const before = "non leggere il target";
     const target = path.join(sandbox, "target.json");
-    await writeFile(target, JSON.stringify(baseRequest("trash", before, {})), "utf8");
+    const targetContents = JSON.stringify(baseRequest("trash", before, {}));
+    await writeFile(target, targetContents, "utf8");
     const requestFile = managementRequestPath(dataDirectory, REQUEST_ID);
     await mkdir(path.dirname(requestFile), { recursive: true });
     try {
@@ -587,7 +588,7 @@ describe("managed mutation companion handler", () => {
       error_code: "UNSAFE_REQUEST_FILE",
       audit_recorded: false,
     });
-    expect(await readFile(target, "utf8")).toContain(before);
+    expect(await readFile(target, "utf8")).toBe(targetContents);
   });
 
   it("allows exactly one commit attempt for a request under concurrency", async () => {
