@@ -2,7 +2,7 @@
 
 [English](README.md) · [Italiano](README.it.md)
 
-Bridge Control è il companion desktop di Obsidian Bridge. La versione 0.5.1 aggiunge una diagnostica strutturata e composta soltanto da metadati ai profili **Gestione completa**, Accesso protetto e Accesso autonomo introdotti nelle release precedenti.
+Bridge Control è il companion desktop di Obsidian Bridge. La versione 0.5.2 evita falsi `CHANGE_CONFLICT` quando una nota gestita non termina con una nuova riga, mantenendo i profili espliciti **Gestione completa**, Accesso protetto e Accesso autonomo.
 
 ## Comportamento iniziale
 
@@ -33,13 +33,15 @@ Obsidian Bridge prepara un'anteprima limitata e una richiesta monouso con scaden
 - `Vault.rename()` per rinomina e spostamento senza riscrivere silenziosamente altre note o trasformare il permesso Sposta in Modifica;
 - `FileManager.trashFile()` per una cancellazione recuperabile.
 
+Il bridge 0.5.2 corrispondente ricava l'hash sorgente preparato da uno snapshot UTF-8 esatto anziché dall'output di lettura normalizzato dalla CLI. Bridge Control può così confrontare la stessa rappresentazione della nota anche quando il file non termina con una nuova riga; una vera modifica concorrente continua a chiudere l'operazione in modo prudente. Questa patch non aggiunge comandi, permessi, campi di protocollo o percorsi di scrittura diretta delle note.
+
 Prima della modifica, l'handler salva un backup locale di recupero. Poi verifica il risultato, registra i metadati nell'audit condiviso e tenta un rollback limitato se un'operazione applicata solo in parte non raggiunge la condizione attesa. Le richieste sono serializzate e consumate una sola volta.
 
 Non esistono volutamente operazioni di cancellazione permanente, valutazione JavaScript, accesso alla shell, esecuzione di comandi Obsidian arbitrari, gestione dei plugin o accesso filesystem senza limiti. Gestione completa non è una capacità `eval` o terminale.
 
 ## Impostazioni condivise
 
-Bridge Control 0.5.1 mantiene atomicamente il formato rigoroso versione 4:
+Bridge Control 0.5.2 mantiene atomicamente il formato rigoroso versione 4:
 
 - Windows: `%LOCALAPPDATA%\ObsidianBridge\settings.json`
 - macOS: `~/Library/Application Support/ObsidianBridge/settings.json`
@@ -77,6 +79,6 @@ Per una prova manuale copia `main.js`, `manifest.json` e `styles.css` in:
 <vault>/.obsidian/plugins/bridge-control/
 ```
 
-Poi ricarica Obsidian e abilita **Bridge Control** tra i plugin della community. Le operazioni gestite richiedono Obsidian 1.12.7 o successivo, la CLI ufficiale abilitata e la versione corrispondente Obsidian Bridge 0.5.1.
+Poi ricarica Obsidian e abilita **Bridge Control** tra i plugin della community. Le operazioni gestite richiedono Obsidian 1.12.7 o successivo, la CLI ufficiale abilitata e la versione corrispondente Obsidian Bridge 0.5.2.
 
 Questo progetto è indipendente e non è affiliato né approvato da Obsidian.

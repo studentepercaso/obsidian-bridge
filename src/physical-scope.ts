@@ -3,6 +3,10 @@ import path from "node:path";
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
 const WINDOWS_DRIVE_PREFIX = /^[a-zA-Z]:/u;
+const WINDOWS_RESERVED_BASENAME =
+  /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
+const WINDOWS_INVALID_CHARACTERS = /[<>:"|?*]/u;
+const WINDOWS_SHORT_NAME_ALIAS = /~[0-9]+(?:\.|$)/iu;
 
 export class PhysicalScopeError extends Error {
   readonly code = "PHYSICAL_PATH_NOT_ALLOWED";
@@ -45,6 +49,33 @@ function assertContained(root: string, candidate: string): void {
   throw new PhysicalScopeError("path resolves outside the physical vault root");
 }
 
+export function assertWindowsSafePathSegment(segment: string): void {
+  if (
+    WINDOWS_INVALID_CHARACTERS.test(segment) ||
+    WINDOWS_SHORT_NAME_ALIAS.test(segment) ||
+    /[. ]$/u.test(segment) ||
+    WINDOWS_RESERVED_BASENAME.test(segment)
+  ) {
+    throw new PhysicalScopeError(
+      "path contains non-canonical or reserved Windows syntax",
+    );
+  }
+}
+
+export function assertCanonicalWindowsPathSegment(
+  requested: string,
+  canonical: string,
+): void {
+  if (
+    requested.toLocaleLowerCase("en-US") !==
+    canonical.toLocaleLowerCase("en-US")
+  ) {
+    throw new PhysicalScopeError(
+      "path uses a non-canonical Windows filesystem alias",
+    );
+  }
+}
+
 function normalizeRelativePath(value: string): readonly string[] {
   if (typeof value !== "string") {
     throw new PhysicalScopeError("path must be a string");
@@ -72,6 +103,9 @@ function normalizeRelativePath(value: string): readonly string[] {
   }
   if (segments.some((segment) => segment === "." || segment === "..")) {
     throw new PhysicalScopeError("path contains traversal segments");
+  }
+  if (process.platform === "win32") {
+    for (const segment of segments) assertWindowsSafePathSegment(segment);
   }
 
   return segments;
@@ -160,7 +194,22 @@ export async function assertPhysicalVaultPath(
       throw new PhysicalScopeError("path ancestor is not a directory");
     }
 
-    current = candidate;
+    let physicalCandidate: string;
+    try {
+      physicalCandidate = await realpath(candidate);
+    } catch (error) {
+      throw new PhysicalScopeError("path cannot be resolved", {
+        cause: error,
+      });
+    }
+    assertContained(physicalRoot, physicalCandidate);
+    if (process.platform === "win32") {
+      assertCanonicalWindowsPathSegment(
+        segment,
+        path.basename(physicalCandidate),
+      );
+    }
+    current = physicalCandidate;
   }
 
   let physicalTarget: string;

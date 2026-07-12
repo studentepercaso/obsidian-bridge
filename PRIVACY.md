@@ -2,7 +2,7 @@
 
 Effective date: 2026-07-12
 
-Obsidian Bridge is local, open-source software. Version 0.5.1 has no hosted service, account system, advertising, analytics, or project-operated telemetry. Bridge Control and the guided installer operate on local files and do not publish or upload a vault.
+Obsidian Bridge is local, open-source software. Version 0.5.2 has no hosted service, account system, advertising, analytics, or project-operated telemetry. Bridge Control and the guided installer operate on local files and do not publish or upload a vault.
 
 This notice covers the bridge itself. Obsidian, Obsidian Sync, the MCP host, ChatGPT/Codex, the selected model provider, and other community plugins have separate privacy terms and data flows.
 
@@ -37,6 +37,7 @@ Protected or autonomous create/append tools can additionally access and return:
 When the user explicitly activates Full management and the matching granular permission, the manager can additionally access and return:
 
 - complete existing and replacement Markdown content for `replace` or `replace_text`;
+- a bounded exact UTF-8 source snapshot used to build the managed preview and compare-and-swap hash without newline or line-ending normalization;
 - literal find/replacement values and expected occurrence count;
 - selected frontmatter keys and scalar or scalar-array values;
 - source and destination paths for move/rename;
@@ -64,18 +65,19 @@ autonomous create/append:
   internally checked preview -> separately gated auto-approved commit
 
 managed operation:
-  internally checked preview -> one-time private request file
+  exact local UTF-8 source snapshot -> internally checked preview
+  -> one-time private request file
   -> fixed bridge-control:commit handler inside Obsidian
   -> fixed public Obsidian API surface -> verified note, isolated move, or trash result
 ```
 
-The project separates reader, protected writer, autonomous writer, and manager processes. The reader has no mutating tool. The manager has only managed prepare and commit and invokes only the fixed custom CLI handler. This reduces accidental capability mixing but does not change what the MCP host or model provider may retain.
+The project separates reader, protected writer, autonomous writer, and manager processes. The reader has no mutating tool. The manager has only managed prepare and commit and invokes only the fixed custom CLI handler. Version 0.5.2 reads the already authorized managed source as a bounded exact UTF-8 snapshot for conflict detection; this adds no direct note write, new persistent snapshot, permission, or network flow. This separation reduces accidental capability mixing but does not change what the MCP host or model provider may retain.
 
 The bridge does not upload data itself. The host decides whether tool inputs and outputs are sent to a model service, displayed, logged, retained, or included in diagnostics. Review those controls before exposing personal, regulated, client, or confidential notes.
 
 ## Network activity
 
-At runtime, version 0.5.1:
+At runtime, version 0.5.2:
 
 - opens no HTTP listener;
 - does not call OpenAI, Obsidian, analytics, or update endpoints;

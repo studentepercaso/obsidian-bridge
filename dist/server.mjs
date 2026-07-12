@@ -410,11 +410,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants5) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants4);
+          this.rhs = optimizeExpr(this.rhs, names, constants5);
         return this;
       }
       get names() {
@@ -431,10 +431,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants5) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants4);
+        this.rhs = optimizeExpr(this.rhs, names, constants5);
         return this;
       }
       get names() {
@@ -495,8 +495,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants4) {
-        this.code = optimizeExpr(this.code, names, constants4);
+      optimizeNames(names, constants5) {
+        this.code = optimizeExpr(this.code, names, constants5);
         return this;
       }
       get names() {
@@ -525,12 +525,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants5) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants4))
+          if (n.optimizeNames(names, constants5))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -583,12 +583,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants5) {
         var _a3;
-        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants4);
-        if (!(super.optimizeNames(names, constants4) || this.else))
+        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants5);
+        if (!(super.optimizeNames(names, constants5) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants4);
+        this.condition = optimizeExpr(this.condition, names, constants5);
         return this;
       }
       get names() {
@@ -611,10 +611,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants4) {
-        if (!super.optimizeNames(names, constants4))
+      optimizeNames(names, constants5) {
+        if (!super.optimizeNames(names, constants5))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants4);
+        this.iteration = optimizeExpr(this.iteration, names, constants5);
         return this;
       }
       get names() {
@@ -650,10 +650,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants4) {
-        if (!super.optimizeNames(names, constants4))
+      optimizeNames(names, constants5) {
+        if (!super.optimizeNames(names, constants5))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants4);
+        this.iterable = optimizeExpr(this.iterable, names, constants5);
         return this;
       }
       get names() {
@@ -695,11 +695,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants4) {
+      optimizeNames(names, constants5) {
         var _a3, _b;
-        super.optimizeNames(names, constants4);
-        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants4);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants4);
+        super.optimizeNames(names, constants5);
+        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants5);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants5);
         return this;
       }
       get names() {
@@ -1000,7 +1000,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants4) {
+    function optimizeExpr(expr, names, constants5) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1015,14 +1015,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants4[n.str];
+        const c = constants5[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants4[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants5[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -32097,9 +32097,9 @@ async function readAuditTail(dataDirectory) {
 import { randomBytes, randomUUID as randomUUID3 } from "node:crypto";
 import {
   chmod as chmod2,
-  lstat as lstat4,
+  lstat as lstat5,
   mkdir as mkdir3,
-  open as open3,
+  open as open4,
   rename as rename2,
   unlink as unlink2
 } from "node:fs/promises";
@@ -32607,15 +32607,18 @@ async function withCommitLock(options, operation) {
   return result;
 }
 
-// src/management-protocol.ts
-var MANAGEMENT_PROTOCOL_VERSION = 1;
-var MAX_MANAGEMENT_REQUEST_BYTES = 1048576;
+// src/exact-vault-document.ts
+import { constants as constants3 } from "node:fs";
+import { lstat as lstat4, open as open3 } from "node:fs/promises";
 
 // src/physical-scope.ts
 import { lstat as lstat3, realpath } from "node:fs/promises";
 import path5 from "node:path";
 var CONTROL_CHARACTERS3 = /[\u0000-\u001f\u007f]/u;
 var WINDOWS_DRIVE_PREFIX2 = /^[a-zA-Z]:/u;
+var WINDOWS_RESERVED_BASENAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
+var WINDOWS_INVALID_CHARACTERS = /[<>:"|?*]/u;
+var WINDOWS_SHORT_NAME_ALIAS = /~[0-9]+(?:\.|$)/iu;
 var PhysicalScopeError = class extends Error {
   code = "PHYSICAL_PATH_NOT_ALLOWED";
   constructor(message, options) {
@@ -32632,6 +32635,20 @@ function assertContained(root, candidate) {
     return;
   }
   throw new PhysicalScopeError("path resolves outside the physical vault root");
+}
+function assertWindowsSafePathSegment(segment) {
+  if (WINDOWS_INVALID_CHARACTERS.test(segment) || WINDOWS_SHORT_NAME_ALIAS.test(segment) || /[. ]$/u.test(segment) || WINDOWS_RESERVED_BASENAME.test(segment)) {
+    throw new PhysicalScopeError(
+      "path contains non-canonical or reserved Windows syntax"
+    );
+  }
+}
+function assertCanonicalWindowsPathSegment(requested, canonical) {
+  if (requested.toLocaleLowerCase("en-US") !== canonical.toLocaleLowerCase("en-US")) {
+    throw new PhysicalScopeError(
+      "path uses a non-canonical Windows filesystem alias"
+    );
+  }
 }
 function normalizeRelativePath2(value) {
   if (typeof value !== "string") {
@@ -32653,6 +32670,9 @@ function normalizeRelativePath2(value) {
   }
   if (segments.some((segment) => segment === "." || segment === "..")) {
     throw new PhysicalScopeError("path contains traversal segments");
+  }
+  if (process.platform === "win32") {
+    for (const segment of segments) assertWindowsSafePathSegment(segment);
   }
   return segments;
 }
@@ -32717,7 +32737,22 @@ async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
     if (!isLeaf && !candidateStats.isDirectory()) {
       throw new PhysicalScopeError("path ancestor is not a directory");
     }
-    current = candidate;
+    let physicalCandidate;
+    try {
+      physicalCandidate = await realpath(candidate);
+    } catch (error51) {
+      throw new PhysicalScopeError("path cannot be resolved", {
+        cause: error51
+      });
+    }
+    assertContained(physicalRoot, physicalCandidate);
+    if (process.platform === "win32") {
+      assertCanonicalWindowsPathSegment(
+        segment,
+        path5.basename(physicalCandidate)
+      );
+    }
+    current = physicalCandidate;
   }
   let physicalTarget;
   try {
@@ -32728,6 +32763,173 @@ async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
   assertContained(physicalRoot, physicalTarget);
   return physicalTarget;
 }
+
+// src/exact-vault-document.ts
+var READ_CHUNK_BYTES = 64 * 1024;
+var ExactVaultDocumentReadError = class extends Error {
+  constructor(message, options) {
+    super(message, options);
+    this.name = "ExactVaultDocumentReadError";
+  }
+};
+function isMissingError2(error51) {
+  return typeof error51 === "object" && error51 !== null && "code" in error51 && error51.code === "ENOENT";
+}
+function assertRegularSingleLinkFile(stats) {
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new ExactVaultDocumentReadError(
+      "vault document must be a regular file"
+    );
+  }
+  if (stats.nlink !== 1n) {
+    throw new ExactVaultDocumentReadError(
+      "vault document must not have multiple filesystem links"
+    );
+  }
+}
+function sameFileIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode && left.nlink === right.nlink;
+}
+function sameFileSnapshot(left, right) {
+  return sameFileIdentity(left, right) && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
+}
+function assertBoundedSize(stats, maxBytes) {
+  if (stats.size > BigInt(maxBytes)) {
+    throw new RangeError(
+      `managed document must not exceed ${maxBytes} UTF-8 bytes`
+    );
+  }
+  return Number(stats.size);
+}
+async function lstatIfPresent(filePath) {
+  try {
+    return await lstat4(filePath, { bigint: true });
+  } catch (error51) {
+    if (isMissingError2(error51)) return null;
+    throw new ExactVaultDocumentReadError(
+      "vault document cannot be inspected",
+      { cause: error51 }
+    );
+  }
+}
+async function readExactVaultDocument(vaultPath, notePath, options) {
+  options.signal?.throwIfAborted();
+  if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 0) {
+    throw new RangeError("maxBytes must be a non-negative safe integer");
+  }
+  let physicalPath = await assertPhysicalVaultPath(vaultPath, notePath, {
+    // Missing is established below with two contained lstat checks. This lets
+    // callers turn a vanished source into a normal CAS conflict.
+    allowMissingLeaf: true
+  });
+  let pathBefore = await lstatIfPresent(physicalPath);
+  if (pathBefore === null) {
+    if (!options.allowMissing) {
+      throw new ExactVaultDocumentReadError("vault document does not exist");
+    }
+    options.signal?.throwIfAborted();
+    physicalPath = await assertPhysicalVaultPath(vaultPath, notePath, {
+      allowMissingLeaf: true
+    });
+    pathBefore = await lstatIfPresent(physicalPath);
+    if (pathBefore === null) {
+      options.signal?.throwIfAborted();
+      return { exists: false };
+    }
+  }
+  assertRegularSingleLinkFile(pathBefore);
+  assertBoundedSize(pathBefore, options.maxBytes);
+  const noFollowFlag = process.platform === "win32" ? 0 : constants3.O_NOFOLLOW;
+  let handle;
+  options.signal?.throwIfAborted();
+  try {
+    handle = await open3(physicalPath, constants3.O_RDONLY | noFollowFlag);
+  } catch (error51) {
+    throw new ExactVaultDocumentReadError(
+      "vault document cannot be opened safely",
+      { cause: error51 }
+    );
+  }
+  let bytes;
+  try {
+    options.signal?.throwIfAborted();
+    const opened = await handle.stat({ bigint: true });
+    assertRegularSingleLinkFile(opened);
+    if (!sameFileIdentity(pathBefore, opened)) {
+      throw new ExactVaultDocumentReadError(
+        "vault document changed while it was being opened"
+      );
+    }
+    const expectedBytes = assertBoundedSize(opened, options.maxBytes);
+    bytes = Buffer.allocUnsafe(expectedBytes);
+    let offset = 0;
+    while (offset < expectedBytes) {
+      options.signal?.throwIfAborted();
+      const { bytesRead } = await handle.read(
+        bytes,
+        offset,
+        Math.min(READ_CHUNK_BYTES, expectedBytes - offset),
+        offset
+      );
+      if (bytesRead === 0) {
+        throw new ExactVaultDocumentReadError(
+          "vault document changed while it was being read"
+        );
+      }
+      offset += bytesRead;
+    }
+    options.signal?.throwIfAborted();
+    const extra = Buffer.allocUnsafe(1);
+    if ((await handle.read(extra, 0, 1, expectedBytes)).bytesRead !== 0) {
+      throw new ExactVaultDocumentReadError(
+        "vault document changed while it was being read"
+      );
+    }
+    options.signal?.throwIfAborted();
+    const openedAfter = await handle.stat({ bigint: true });
+    assertRegularSingleLinkFile(openedAfter);
+    if (!sameFileSnapshot(opened, openedAfter)) {
+      throw new ExactVaultDocumentReadError(
+        "vault document changed while it was being read"
+      );
+    }
+    options.signal?.throwIfAborted();
+    const physicalPathAfter = await assertPhysicalVaultPath(
+      vaultPath,
+      notePath,
+      { allowMissingLeaf: false }
+    );
+    const pathAfter = await lstatIfPresent(physicalPathAfter);
+    if (pathAfter === null || physicalPathAfter !== physicalPath || !sameFileSnapshot(openedAfter, pathAfter)) {
+      throw new ExactVaultDocumentReadError(
+        "vault document path changed while it was being read"
+      );
+    }
+  } finally {
+    await handle.close();
+  }
+  options.signal?.throwIfAborted();
+  try {
+    return {
+      exists: true,
+      // ignoreBOM:true means "do not use the BOM as a decoding signature";
+      // this deliberately preserves U+FEFF in the returned document.
+      content: new TextDecoder("utf-8", {
+        fatal: true,
+        ignoreBOM: true
+      }).decode(bytes)
+    };
+  } catch (error51) {
+    throw new ExactVaultDocumentReadError(
+      "vault document is not valid UTF-8",
+      { cause: error51 }
+    );
+  }
+}
+
+// src/management-protocol.ts
+var MANAGEMENT_PROTOCOL_VERSION = 1;
+var MAX_MANAGEMENT_REQUEST_BYTES = 1048576;
 
 // src/tool-helpers.ts
 function textResult(text) {
@@ -34190,7 +34392,7 @@ function capabilityForOperation(operation) {
 }
 async function ensurePrivateDirectory2(directory) {
   await mkdir3(directory, { recursive: true, mode: 448 });
-  const stats = await lstat4(directory);
+  const stats = await lstat5(directory);
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
     throw new Error("management request directory is not a safe directory");
   }
@@ -34215,7 +34417,7 @@ async function writeRequestFile(dataDirectory, request) {
     directory,
     `.${request.request_id}.${process.pid}.${randomUUID3()}.tmp`
   );
-  const handle = await open3(temporaryPath, "wx", 384);
+  const handle = await open4(temporaryPath, "wx", 384);
   try {
     await handle.writeFile(serialized, "utf8");
     await handle.sync();
@@ -34227,7 +34429,7 @@ async function writeRequestFile(dataDirectory, request) {
 }
 async function removeOwnedRequest(filePath) {
   try {
-    const stats = await lstat4(filePath);
+    const stats = await lstat5(filePath);
     if (!stats.isFile() || stats.isSymbolicLink()) return;
     await unlink2(filePath);
   } catch (error51) {
@@ -34271,8 +34473,29 @@ async function withManagementLocks(runtime, vault, notePaths, caseSensitive, sig
 }
 function createManagementToolHandlers(runtime) {
   const now = runtime.now ?? Date.now;
+  const exactDocumentReader = runtime.exactDocumentReader ?? readExactVaultDocument;
   let consecutiveFailures = 0;
   let paused = false;
+  async function readManagedDocument(access, notePath, allowMissing, options) {
+    if (access.source !== "settings" || access.vaultPath === void 0) {
+      throw new Error(
+        "managed operations require a settings-backed verified physical vault path"
+      );
+    }
+    const exact = await exactDocumentReader(access.vaultPath, notePath, {
+      allowMissing,
+      maxBytes: MAX_MANAGED_DOCUMENT_BYTES,
+      ...options.signal === void 0 ? {} : { signal: options.signal }
+    });
+    if (!exact.exists) {
+      return { exists: false, sha256: hashDocumentState(false) };
+    }
+    return {
+      exists: true,
+      content: exact.content,
+      sha256: hashDocumentState(true, exact.content)
+    };
+  }
   function assertCircuitOpen() {
     if (!paused) return;
     throw new Error(
@@ -34299,10 +34522,10 @@ function createManagementToolHandlers(runtime) {
       ...normalizedTarget === void 0 ? {} : { targetPath: normalizedTarget }
     };
   }
-  async function verifyPhysical(access, notePath, options, allowMissingLeaf) {
+  async function verifyPhysical(access, notePath, options, allowMissingLeaf, requireExistingParent = false) {
     await assertVaultIdentity(runtime.runner, access, options);
     if (access.source === "settings" && access.vaultPath !== void 0) {
-      if (allowMissingLeaf) {
+      if (allowMissingLeaf && requireExistingParent) {
         const parent = path8.posix.dirname(notePath);
         if (parent !== ".") {
           await assertPhysicalVaultPath(access.vaultPath, parent);
@@ -34324,14 +34547,20 @@ function createManagementToolHandlers(runtime) {
           capability,
           input.operation === "move" ? input.destination_path : void 0
         );
-        await verifyPhysical(initial.access, initial.notePath, options, false);
+        await verifyPhysical(initial.access, initial.notePath, options, true);
         if (initial.targetPath !== void 0) {
-          await verifyPhysical(initial.access, initial.targetPath, options, true);
+          await verifyPhysical(
+            initial.access,
+            initial.targetPath,
+            options,
+            true,
+            true
+          );
         }
-        const before = await readDocument(
-          runtime.runner,
-          initial.access.vaultSelector,
+        const before = await readManagedDocument(
+          initial.access,
           initial.notePath,
+          true,
           options
         );
         if (!before.exists || before.content === void 0) {
@@ -34404,10 +34633,10 @@ function createManagementToolHandlers(runtime) {
               "move destination must differ from the source; case-only rename is not supported"
             );
           }
-          targetBefore = await readDocument(
-            runtime.runner,
-            initial.access.vaultSelector,
+          targetBefore = await readManagedDocument(
+            initial.access,
             initial.targetPath,
+            true,
             options
           );
           if (targetBefore.exists) {
@@ -34504,20 +34733,21 @@ function createManagementToolHandlers(runtime) {
               currentGrant.access,
               change.notePath,
               options,
-              false
+              true
             );
             if (change.targetPath !== void 0) {
               await verifyPhysical(
                 currentGrant.access,
                 change.targetPath,
                 options,
+                true,
                 true
               );
             }
-            const current = await readDocument(
-              runtime.runner,
-              currentGrant.access.vaultSelector,
+            const current = await readManagedDocument(
+              currentGrant.access,
               change.notePath,
+              true,
               options
             );
             if (current.exists !== change.before.exists || current.sha256 !== change.before.sha256) {
@@ -34526,10 +34756,10 @@ function createManagementToolHandlers(runtime) {
               );
             }
             if (change.targetPath !== void 0) {
-              const target = await readDocument(
-                runtime.runner,
-                currentGrant.access.vaultSelector,
+              const target = await readManagedDocument(
+                currentGrant.access,
                 change.targetPath,
+                true,
                 options
               );
               if (change.targetBefore === void 0 || target.exists !== change.targetBefore.exists || target.sha256 !== change.targetBefore.sha256) {
@@ -34654,8 +34884,8 @@ function createManagementToolHandlers(runtime) {
 }
 
 // src/shared-settings.ts
-import { lstat as lstat5, open as open4 } from "node:fs/promises";
-import { constants as constants3 } from "node:fs";
+import { lstat as lstat6, open as open5 } from "node:fs/promises";
+import { constants as constants4 } from "node:fs";
 import { isAbsolute } from "node:path";
 var MAX_SETTINGS_BYTES = 65536;
 var VaultName2 = external_exports.string().min(1).max(256).refine((value) => value === value.trim().normalize("NFC"), {
@@ -34784,7 +35014,7 @@ function validatePolicyFolders(settings) {
 }
 async function readSharedSettings(settingsPath) {
   try {
-    const linkStats = await lstat5(settingsPath);
+    const linkStats = await lstat6(settingsPath);
     if (linkStats.isSymbolicLink()) {
       throw new SharedSettingsError(
         "shared settings path must not be a symbolic link"
@@ -34801,9 +35031,9 @@ async function readSharedSettings(settingsPath) {
   }
   let handle;
   try {
-    handle = await open4(
+    handle = await open5(
       settingsPath,
-      process.platform === "win32" ? "r" : constants3.O_RDONLY | constants3.O_NOFOLLOW
+      process.platform === "win32" ? "r" : constants4.O_RDONLY | constants4.O_NOFOLLOW
     );
   } catch (error51) {
     if (error51 !== null && typeof error51 === "object" && "code" in error51 && error51.code === "ENOENT") {
@@ -35015,7 +35245,7 @@ function createConfigAccessResolver(config2) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.5.1";
+var SERVER_VERSION = "0.5.2";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,

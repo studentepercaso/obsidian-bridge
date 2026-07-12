@@ -1,17 +1,17 @@
 # Publishing paths
 
-Obsidian Bridge 0.5.1 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
+Obsidian Bridge 0.5.2 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
 
 ## GitHub community distribution
 
 1. Publish the bilingual source and release documentation from the public Git repository.
-2. Expose the Codex plugin through `.agents/plugins/marketplace.json` pinned to tag `0.5.1`.
-3. Publish the guided setup ZIP, companion ZIP, raw Obsidian assets, and `SHA256-0.5.1.txt` in the GitHub release.
-4. Publish the matching `0.5.1` companion tag and release assets in [studentepercaso/bridge-control](https://github.com/studentepercaso/bridge-control).
-5. Smoke-test a clean marketplace install, a guided update from 0.4.1, and a clean installer run with a disposable vault.
+2. Expose the Codex plugin through `.agents/plugins/marketplace.json` pinned to tag `0.5.2`.
+3. Publish the guided setup ZIP, companion ZIP, raw Obsidian assets, and `SHA256-0.5.2.txt` in the GitHub release.
+4. Publish the matching `0.5.2` companion tag and release assets in [studentepercaso/bridge-control](https://github.com/studentepercaso/bridge-control).
+5. Smoke-test a clean marketplace install, a guided update from 0.5.1, and a clean installer run with a disposable vault.
 6. Confirm that migration preserves old protected/autonomous choices but grants no Full-management permission.
 
-This route keeps all MCP servers local. Label 0.5.1 as preview software with opt-in vault mutation. Direct testers to use a disposable vault or `Bridge Test`, retain an independent backup, and activate only one Full-management permission at a time during initial testing.
+This route keeps all MCP servers local. Label 0.5.2 as preview software with opt-in vault mutation. Direct testers to use a disposable vault or `Bridge Test`, retain an independent backup, and activate only one Full-management permission at a time during initial testing.
 
 ## OpenAI public plugin submission
 
@@ -36,13 +36,13 @@ Official references:
 
 This repository contains the desktop-only **Bridge Control** companion used by the guided installer. Its canonical source and release assets are also published in the standalone companion repository, which is listed in the Obsidian Community Plugins catalog. Each update must still ship matching public metadata and release assets.
 
-The 0.5.1 companion registers one fixed public CLI handler, `bridge-control:commit`, and performs managed operations through public Obsidian APIs. It is not a general vault server: the handler accepts only bounded one-time request IDs and tokens from the private bridge data directory, rechecks the current granular permission, creates a recovery backup, verifies the postcondition, and writes metadata-only audit state. It exposes no shell, `eval`, arbitrary command, command palette, plugin management, or permanent delete.
+The 0.5.2 companion registers the same fixed public CLI handler, `bridge-control:commit`, and performs managed operations through public Obsidian APIs. It is not a general vault server: the handler accepts only bounded one-time request IDs and tokens from the private bridge data directory, rechecks the current granular permission and exact source hash, creates a recovery backup, verifies the postcondition, and writes metadata-only audit state. The 0.5.2 fix changes the bridge's read-side snapshot used for conflict hashing, not this protocol or mutation surface. It exposes no shell, `eval`, arbitrary command, command palette, plugin management, or permanent delete.
 
 For every catalog update, publish the required companion assets, retain public source/support/security information, verify the minimum Obsidian version, satisfy automated checks, and independently test activation, update, revocation, and uninstall behavior.
 
 ## Release gate
 
-Do not publish 0.5.1 until all of the following are true:
+Do not publish 0.5.2 until all of the following are true:
 
 - `npm run check:all` passes and generated server and companion bundles are current;
 - a real Obsidian 1.12.7+ smoke test passes in a disposable vault with the official CLI enabled;
@@ -55,6 +55,7 @@ Do not publish 0.5.1 until all of the following are true:
 - stale local plugin data cannot reactivate Autonomous access, Full management, or a previously revoked granular grant;
 - protected create/append retains post-preview human confirmation, while autonomous create/append retains its separate two-step verified workflow;
 - managed `replace`, `replace_text`, `frontmatter`, `move`/rename, and `trash` pass prepare, commit, conflict, expiry, replay, revocation, size, and path-policy tests;
+- managed preparation and commit use an exact bounded UTF-8 source snapshot; no-final-newline, LF, CRLF, BOM, and genuine concurrent-change regression tests pass without weakening compare-and-swap checks;
 - `replace_text` enforces the expected exact occurrence count and commits the prepared full-document hash;
 - frontmatter uses `Vault.process`, checks the prepared before-hash inside the transform, uses `getFrontMatterInfo`/`parseYaml`/`stringifyYaml`, and verifies set/remove results;
 - move/rename refuses an existing destination and case-only rename, locks source and destination, uses `Vault.rename`, and proves that backlinks and other notes are not rewritten;
@@ -67,7 +68,7 @@ Do not publish 0.5.1 until all of the following are true:
 - Bridge Control and `obsidian_recent_write_events` expose the matching safe diagnostics, while skill and documentation still require a state reread and explicit human direction before retry;
 - one-time request files are bounded, expiring, token-bound, claimed once, cleaned up, and confined to the fixed bridge data directory;
 - the only management CLI command is `bridge-control:commit`; duplicate or unexpected arguments are rejected;
-- no shell, `eval`, arbitrary Obsidian command, command-palette access, plugin management, direct filesystem note mutation, or permanent deletion is exposed;
+- no shell, `eval`, arbitrary Obsidian command, command-palette access, plugin management, direct filesystem note mutation, or permanent deletion is exposed; the 0.5.2 read-side snapshot must not become a direct write path;
 - policy, identity, physical scope, hashes, and destination state are rechecked after prepare and before mutation;
 - source and destination locks have timeout, abort, ownership, release, and stale-lock coverage;
 - three consecutive autonomous or management failures pause that process for the task;

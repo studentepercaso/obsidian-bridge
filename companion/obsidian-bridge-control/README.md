@@ -2,7 +2,7 @@
 
 [English](README.md) · [Italiano](README.it.md)
 
-Bridge Control is the desktop-only Obsidian companion for Obsidian Bridge. Version 0.5.1 adds structured, metadata-only failure diagnostics to the explicit **Full management**, Protected, and Autonomous profiles introduced in earlier releases.
+Bridge Control is the desktop-only Obsidian companion for Obsidian Bridge. Version 0.5.2 prevents false `CHANGE_CONFLICT` results when a managed note has no final newline, while preserving the explicit **Full management**, Protected, and Autonomous profiles.
 
 ## Default behavior
 
@@ -33,13 +33,15 @@ Obsidian Bridge prepares a bounded preview and a short-lived, one-time request. 
 - `Vault.rename()` for rename/move without silently rewriting other notes or expanding the Move grant into Edit;
 - `FileManager.trashFile()` for recoverable deletion.
 
+The matching 0.5.2 bridge derives the prepared source hash from an exact UTF-8 snapshot instead of CLI-normalized read output. Bridge Control can therefore compare the same note representation even when the file has no terminal newline; a real concurrent change still fails closed. This patch does not add a command, permission, protocol field, or direct note-write path.
+
 Before mutation, the handler stores a local recovery backup. It verifies the result, records metadata in the shared audit log, and attempts a bounded rollback when a partially applied operation does not meet its postcondition. Requests are serialized and consumed once.
 
 There is deliberately no permanent-delete operation, JavaScript evaluation, shell access, arbitrary Obsidian command execution, plugin management, or unrestricted filesystem API. Full management is not an `eval` or terminal capability.
 
 ## Shared settings
 
-Bridge Control 0.5.1 atomically maintains strict shared-settings version 4:
+Bridge Control 0.5.2 atomically maintains strict shared-settings version 4:
 
 - Windows: `%LOCALAPPDATA%\ObsidianBridge\settings.json`
 - macOS: `~/Library/Application Support/ObsidianBridge/settings.json`
@@ -77,6 +79,6 @@ For manual testing, copy `main.js`, `manifest.json`, and `styles.css` to:
 <vault>/.obsidian/plugins/bridge-control/
 ```
 
-Then reload Obsidian and enable **Bridge Control** under Community plugins. Managed operations require Obsidian 1.12.7 or later, the official CLI enabled, and the matching Obsidian Bridge 0.5.1 release.
+Then reload Obsidian and enable **Bridge Control** under Community plugins. Managed operations require Obsidian 1.12.7 or later, the official CLI enabled, and the matching Obsidian Bridge 0.5.2 release.
 
 This project is independent and is not affiliated with or endorsed by Obsidian.

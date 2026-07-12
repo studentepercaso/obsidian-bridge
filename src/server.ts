@@ -57,7 +57,7 @@ import {
 } from "./write-workflow.js";
 
 export const SERVER_NAME = "obsidian-bridge";
-export const SERVER_VERSION = "0.5.1";
+export const SERVER_VERSION = "0.5.2";
 
 export type ServerMode = "read" | "write" | "autonomous" | "management";
 

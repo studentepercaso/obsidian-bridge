@@ -1,6 +1,7 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -17,6 +18,10 @@ import {
   PreparedManagementStore,
   createManagementToolHandlers,
 } from "../src/management-workflow.js";
+import type {
+  ExactVaultDocument,
+  ExactVaultDocumentReadOptions,
+} from "../src/exact-vault-document.js";
 import {
   createPathPolicy,
   createWritablePathPolicy,
@@ -27,6 +32,10 @@ import type {
   VaultAccessResolver,
 } from "../src/shared-settings.js";
 import { hashDocumentState } from "../src/write-workflow.js";
+import {
+  ManagementRequestHandler,
+  type ManagementVaultApi,
+} from "../companion/obsidian-bridge-control/src/management-handler.js";
 
 const VAULT_ID = "0123456789abcdef";
 const VAULT_NAME = "Test Vault";
@@ -63,6 +72,7 @@ function fixedStore(
 }
 
 function managementAccess(
+  vaultPath: string,
   permissions: ManagementPermissions = {
     edit: true,
     move: true,
@@ -81,6 +91,7 @@ function managementAccess(
     managementPermissions: permissions,
     vaultSelector: VAULT_ID,
     vaultName: VAULT_NAME,
+    vaultPath,
     source: "settings",
   };
 }
@@ -90,6 +101,14 @@ interface MemoryRunnerOptions {
     response: ManagementResponse,
     request: ManagementRequest,
   ) => unknown;
+}
+
+interface MemoryRunner extends ObsidianCliRunner {
+  readonly exactDocumentReader: (
+    vaultPath: string,
+    notePath: string,
+    options: ExactVaultDocumentReadOptions,
+  ) => Promise<ExactVaultDocument>;
 }
 
 function createMemoryRunner(
@@ -102,10 +121,18 @@ function createMemoryRunner(
     tokenArgument: string;
   }>,
   options: MemoryRunnerOptions = {},
-): ObsidianCliRunner {
-  return async (args) => {
+): MemoryRunner {
+  for (const [notePath, content] of Object.entries(notes)) {
+    const filePath = join(dataDirectory, ...notePath.split("/"));
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, content, "utf8");
+  }
+  const runner: ObsidianCliRunner = async (args) => {
     invocations.push([...args]);
     const command = args[1];
+    if (command === "vault") {
+      return { stdout: dataDirectory, stderr: "", exitCode: 0 };
+    }
     if (command === "read") {
       const notePath = parameter(args, "path");
       if (notePath === undefined || !(notePath in notes)) {
@@ -144,14 +171,24 @@ function createMemoryRunner(
     let targetPath: string | undefined;
     if (request.operation === "replace") {
       notes[request.path] = request.payload.content;
+      writeFileSync(
+        join(dataDirectory, ...request.path.split("/")),
+        request.payload.content,
+        "utf8",
+      );
       afterSha256 = hashDocumentState(true, request.payload.content);
     } else if (request.operation === "move") {
       targetPath = request.payload.destination;
       notes[targetPath] = notes[request.path]!;
       delete notes[request.path];
+      const targetFile = join(dataDirectory, ...targetPath.split("/"));
+      mkdirSync(dirname(targetFile), { recursive: true });
+      writeFileSync(targetFile, notes[targetPath]!, "utf8");
+      rmSync(join(dataDirectory, ...request.path.split("/")));
       afterSha256 = hashDocumentState(true, notes[targetPath]!);
     } else if (request.operation === "trash") {
       delete notes[request.path];
+      rmSync(join(dataDirectory, ...request.path.split("/")));
       afterSha256 = hashDocumentState(false);
     } else {
       afterSha256 = hashDocumentState(true, notes[request.path]!);
@@ -179,13 +216,24 @@ function createMemoryRunner(
       exitCode: 0,
     };
   };
+  return Object.assign(runner, {
+    exactDocumentReader: async (
+      _vaultPath: string,
+      notePath: string,
+      _readOptions: ExactVaultDocumentReadOptions,
+    ): Promise<ExactVaultDocument> =>
+      Object.hasOwn(notes, notePath)
+        ? { exists: true, content: notes[notePath]! }
+        : { exists: false },
+  });
 }
 
 function runtime(
   runner: ObsidianCliRunner,
   dataDirectory: string,
   store: PreparedManagementStore = fixedStore(),
-  resolveAccess: VaultAccessResolver = async () => managementAccess(),
+  resolveAccess: VaultAccessResolver = async () =>
+    managementAccess(dataDirectory),
   now: () => number = () => 1_000,
 ) {
   const readPolicy = createPathPolicy({ allowedFolders: null });
@@ -201,6 +249,11 @@ function runtime(
     resolveAccess,
     dataDirectory,
     now,
+    ...("exactDocumentReader" in runner
+      ? {
+          exactDocumentReader: (runner as MemoryRunner).exactDocumentReader,
+        }
+      : {}),
   });
 }
 
@@ -306,7 +359,7 @@ describe("managed vault workflow", () => {
     expect(JSON.stringify(prepared.preview)).toContain("-alpha beta beta");
     expect(JSON.stringify(prepared.preview)).toContain("+alpha omega omega");
     expect(notes[NOTE_PATH]).toBe("alpha beta beta\n");
-    expect(invocations.map((args) => args[1])).toEqual(["read"]);
+    expect(invocations.map((args) => args[1])).toEqual(["vault"]);
   });
 
   it("rejects a replace_text when its exact occurrence count changed", async () => {
@@ -397,11 +450,77 @@ describe("managed vault workflow", () => {
     ).rejects.toThrow(/destination already exists/iu);
   });
 
+  it("fails before preparation when a move destination parent is missing", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const notes = { [NOTE_PATH]: "source\n" };
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createMemoryRunner(notes, dataDirectory, invocations, []),
+      dataDirectory,
+    );
+
+    await expect(
+      handlers.prepareChange({
+        vault: VAULT_NAME,
+        path: NOTE_PATH,
+        operation: "move",
+        destination_path: "Missing/Managed.md",
+      }),
+    ).rejects.toThrow(/path does not exist/iu);
+    expect(invocations.map((args) => args[1])).toEqual([
+      "vault",
+      "vault",
+    ]);
+  });
+
+  it("rejects a move destination created after preparation", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const destination = "Archive/Managed.md";
+    const notes: Record<string, string> = { [NOTE_PATH]: "source\n" };
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createMemoryRunner(notes, dataDirectory, invocations, []),
+      dataDirectory,
+    );
+    mkdirSync(join(dataDirectory, "Archive"), { recursive: true });
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: VAULT_NAME,
+        path: NOTE_PATH,
+        operation: "move",
+        destination_path: destination,
+      }),
+    );
+
+    notes[destination] = "created concurrently\n";
+    const destinationFile = join(
+      dataDirectory,
+      ...destination.split("/"),
+    );
+    mkdirSync(dirname(destinationFile), { recursive: true });
+    writeFileSync(destinationFile, notes[destination], "utf8");
+
+    await expect(
+      handlers.commitChange({ change_id: String(prepared.change_id) }),
+    ).rejects.toThrow(/move destination changed/iu);
+    expect(notes[destination]).toBe("created concurrently\n");
+    expect(invocations.map((args) => args[1])).toEqual([
+      "vault",
+      "vault",
+      "vault",
+      "vault",
+    ]);
+  });
+
   it("requires the separate trash permission and never invokes the CLI when denied", async () => {
     const dataDirectory = await temporaryDirectory();
     const invocations: string[][] = [];
     const resolveAccess: VaultAccessResolver = async () =>
-      managementAccess({ edit: true, move: true, trash: false });
+      managementAccess(dataDirectory, {
+        edit: true,
+        move: true,
+        trash: false,
+      });
     const handlers = runtime(
       createMemoryRunner(
         { [NOTE_PATH]: "safe\n" },
@@ -485,8 +604,8 @@ describe("managed vault workflow", () => {
     expect(captured[0]?.request.token).toMatch(/^[0-9a-f]{64}$/u);
     expect(captured[0]?.tokenArgument).toBe(captured[0]?.request.token);
     expect(invocations.map((args) => args[1])).toEqual([
-      "read",
-      "read",
+      "vault",
+      "vault",
       "bridge-control:commit",
     ]);
     const managementInvocation = invocations.at(-1)!;
@@ -511,13 +630,148 @@ describe("managed vault workflow", () => {
       .toHaveLength(1);
   });
 
+  it("commits replace and replace_text across the exact root-to-companion boundary without adding LF", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const vaultPath = await temporaryDirectory();
+    const physicalNote = join(vaultPath, ...NOTE_PATH.split("/"));
+    mkdirSync(dirname(physicalNote), { recursive: true });
+    await writeFile(physicalNote, "alpha", "utf8");
+
+    const api: ManagementVaultApi = {
+      async readMarkdown(notePath) {
+        try {
+          return await readFile(
+            join(vaultPath, ...notePath.split("/")),
+            "utf8",
+          );
+        } catch (error) {
+          if (
+            typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === "ENOENT"
+          ) {
+            return null;
+          }
+          throw error;
+        }
+      },
+      async processMarkdown(notePath, update) {
+        const file = join(vaultPath, ...notePath.split("/"));
+        const before = await readFile(file, "utf8");
+        const after = update(before);
+        await writeFile(file, after, "utf8");
+        return after;
+      },
+      async rewriteFrontMatterMarkdown() {
+        throw new Error("frontmatter is not used in this regression test");
+      },
+      async readFrontMatter() {
+        return {};
+      },
+      async renameFile() {
+        throw new Error("move is not used in this regression test");
+      },
+      async trashFile() {
+        throw new Error("trash is not used in this regression test");
+      },
+    };
+    let nextId = 0;
+    const companion = new ManagementRequestHandler({
+      dataDirectory,
+      vaultId: VAULT_ID,
+      api,
+      authorize: async () => ({ allowed: true, mode: "management" }),
+      now: () => 1_000,
+      createId: () => `boundary-${++nextId}`,
+    });
+    const invocations: string[][] = [];
+    const runner: ObsidianCliRunner = async (args) => {
+      invocations.push([...args]);
+      if (args[1] === "vault") {
+        return { stdout: vaultPath, stderr: "", exitCode: 0 };
+      }
+      if (args[1] === "read") {
+        const content = await readFile(physicalNote, "utf8");
+        return { stdout: `${content}\n`, stderr: "", exitCode: 0 };
+      }
+      if (args[1] === "bridge-control:commit") {
+        const requestId = parameter(args, "request");
+        const token = parameter(args, "token");
+        if (requestId === undefined || token === undefined) {
+          throw new Error("missing boundary request arguments");
+        }
+        return {
+          stdout: await companion.handle({
+            request_id: requestId,
+            token,
+          }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      throw new Error(`unexpected boundary command: ${args[1] ?? "missing"}`);
+    };
+    const access = managementAccess(vaultPath);
+    const handlers = createManagementToolHandlers({
+      runner,
+      readPolicy: access.readPolicy,
+      writablePolicy: access.writablePolicy,
+      store: fixedStore(),
+      resolveAccess: async () => access,
+      dataDirectory,
+      now: () => 1_000,
+    });
+
+    const replace = resultJson(
+      await handlers.prepareChange({
+        vault: VAULT_NAME,
+        path: NOTE_PATH,
+        operation: "replace",
+        content: "beta",
+      }),
+    );
+    expect(
+      resultJson(
+        await handlers.commitChange({
+          change_id: String(replace.change_id),
+        }),
+      ),
+    ).toMatchObject({ status: "committed", verified: true });
+    expect(await readFile(physicalNote, "utf8")).toBe("beta");
+
+    const replaceText = resultJson(
+      await handlers.prepareChange({
+        vault: VAULT_NAME,
+        path: NOTE_PATH,
+        operation: "replace_text",
+        find: "beta",
+        replacement: "gamma",
+        expected_occurrences: 1,
+      }),
+    );
+    expect(
+      resultJson(
+        await handlers.commitChange({
+          change_id: String(replaceText.change_id),
+        }),
+      ),
+    ).toMatchObject({ status: "committed", verified: true });
+    expect(await readFile(physicalNote, "utf8")).toBe("gamma");
+    expect(invocations.some((args) => args[1] === "read")).toBe(false);
+  });
+
   it("rechecks management permission revocation after preview", async () => {
     const dataDirectory = await temporaryDirectory();
-    const notes = { [NOTE_PATH]: "before\n" };
+    const notes: Record<string, string> = { [NOTE_PATH]: "before\n" };
     const invocations: string[][] = [];
     let editEnabled = true;
     const resolveAccess: VaultAccessResolver = async () =>
-      managementAccess({ edit: editEnabled, move: true, trash: true });
+      managementAccess(dataDirectory, {
+        edit: editEnabled,
+        move: true,
+        trash: true,
+      });
     const handlers = runtime(
       createMemoryRunner(notes, dataDirectory, invocations, []),
       dataDirectory,
@@ -540,6 +794,111 @@ describe("managed vault workflow", () => {
     expect(notes[NOTE_PATH]).toBe("before\n");
     expect(invocations.some((args) => args[1] === "bridge-control:commit"))
       .toBe(false);
+  });
+
+  it("rejects a real source change between prepare and commit", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const notes = { [NOTE_PATH]: "prepared state without newline" };
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createMemoryRunner(notes, dataDirectory, invocations, []),
+      dataDirectory,
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: VAULT_NAME,
+        path: NOTE_PATH,
+        operation: "replace",
+        content: "bridge replacement",
+      }),
+    );
+
+    // Simulates a real editor/watcher write after the immutable preview.
+    notes[NOTE_PATH] = "concurrent external change";
+    writeFileSync(
+      join(dataDirectory, ...NOTE_PATH.split("/")),
+      notes[NOTE_PATH],
+      "utf8",
+    );
+
+    await expect(
+      handlers.commitChange({ change_id: String(prepared.change_id) }),
+    ).rejects.toThrow(/source note changed/iu);
+    expect(notes[NOTE_PATH]).toBe("concurrent external change");
+    expect(invocations.map((args) => args[1])).toEqual(["vault", "vault"]);
+  });
+
+  it("reports a missing source as a conflict during preparation", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const handlers = runtime(
+      createMemoryRunner({}, dataDirectory, [], []),
+      dataDirectory,
+    );
+
+    await expect(
+      handlers.prepareChange({
+        vault: VAULT_NAME,
+        path: NOTE_PATH,
+        operation: "replace",
+        content: "after\n",
+      }),
+    ).rejects.toThrow(/requires an existing note/iu);
+  });
+
+  it("reports a source removed after preparation as a commit conflict", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const notes: Record<string, string> = { [NOTE_PATH]: "before\n" };
+    const invocations: string[][] = [];
+    const handlers = runtime(
+      createMemoryRunner(notes, dataDirectory, invocations, []),
+      dataDirectory,
+    );
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: VAULT_NAME,
+        path: NOTE_PATH,
+        operation: "replace",
+        content: "after\n",
+      }),
+    );
+    delete notes[NOTE_PATH];
+    rmSync(join(dataDirectory, ...NOTE_PATH.split("/")));
+
+    await expect(
+      handlers.commitChange({ change_id: String(prepared.change_id) }),
+    ).rejects.toThrow(/source note changed/iu);
+    expect(invocations.map((args) => args[1])).toEqual(["vault", "vault"]);
+  });
+
+  it("fails closed when a management grant has no physical vault path", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const notes = { [NOTE_PATH]: "before\n" };
+    const runner = createMemoryRunner(notes, dataDirectory, [], []);
+    let exactReaderCalled = false;
+    const baseAccess = managementAccess(dataDirectory);
+    const { vaultPath: _vaultPath, ...accessWithoutPath } = baseAccess;
+    const handlers = createManagementToolHandlers({
+      runner,
+      readPolicy: baseAccess.readPolicy,
+      writablePolicy: baseAccess.writablePolicy,
+      store: fixedStore(),
+      resolveAccess: async () => accessWithoutPath,
+      dataDirectory,
+      exactDocumentReader: async (...args) => {
+        exactReaderCalled = true;
+        return await runner.exactDocumentReader(...args);
+      },
+    });
+
+    await expect(
+      handlers.prepareChange({
+        vault: VAULT_NAME,
+        path: NOTE_PATH,
+        operation: "replace",
+        content: "after\n",
+      }),
+    ).rejects.toThrow(/verified physical vault path/iu);
+    expect(exactReaderCalled).toBe(false);
   });
 
   it("rejects a mismatched Bridge Control response and still removes the request file", async () => {
@@ -585,7 +944,7 @@ describe("managed vault workflow", () => {
       createMemoryRunner(notes, dataDirectory, invocations, []),
       dataDirectory,
       store,
-      async () => managementAccess(),
+      async () => managementAccess(dataDirectory),
       () => now,
     );
     const prepared = resultJson(

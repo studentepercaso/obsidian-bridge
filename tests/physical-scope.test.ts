@@ -14,7 +14,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   PhysicalScopeError,
+  assertCanonicalWindowsPathSegment,
   assertPhysicalVaultPath,
+  assertWindowsSafePathSegment,
 } from "../src/physical-scope.js";
 
 describe("physical vault scope", () => {
@@ -82,6 +84,57 @@ describe("physical vault scope", () => {
         allowMissingLeaf: true,
       }),
     ).rejects.toBeInstanceOf(PhysicalScopeError);
+  });
+
+  it.skipIf(process.platform !== "win32")(
+    "rejects Windows ADS and non-canonical namespace aliases",
+    async () => {
+      for (const relativePath of [
+        "Projects:stream/Alpha.md",
+        "Projects/Alpha.md:stream",
+        "Projects./Alpha.md",
+        "Projects /Alpha.md",
+        "Projects/CON.md",
+        "Projects/LPT1.txt/Alpha.md",
+      ]) {
+        await expect(
+          assertPhysicalVaultPath(vaultRoot, relativePath, {
+            allowMissingLeaf: true,
+          }),
+        ).rejects.toThrow(/non-canonical|reserved Windows/iu);
+      }
+    },
+  );
+
+  it.each([
+    "Alpha.md:stream",
+    "Alpha<copy>.md",
+    "Alpha>copy.md",
+    'Alpha"copy.md',
+    "Alpha|copy.md",
+    "Alpha?.md",
+    "Alpha*.md",
+    "Alpha.md.",
+    "Alpha.md ",
+    "CON",
+    "nul.md",
+    "COM9.txt",
+    "lpt1",
+    "OBSIDI~1",
+    "LONGFI~12.md",
+  ])("rejects a non-canonical Windows segment on every host: %j", (segment) => {
+    expect(() => assertWindowsSafePathSegment(segment)).toThrow(
+      /non-canonical|reserved Windows/iu,
+    );
+  });
+
+  it("rejects a Windows short-name alias that resolves to a different canonical segment", () => {
+    expect(() =>
+      assertCanonicalWindowsPathSegment("OBSIDI~1", ".obsidian"),
+    ).toThrow(/non-canonical Windows filesystem alias/iu);
+    expect(() =>
+      assertCanonicalWindowsPathSegment("notes", "Notes"),
+    ).not.toThrow();
   });
 
   it("allows a missing leaf only when explicitly requested", async () => {

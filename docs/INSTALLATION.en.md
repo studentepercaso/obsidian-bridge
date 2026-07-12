@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-This guide covers the Obsidian Bridge 0.5.1 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
+This guide covers the Obsidian Bridge 0.5.2 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
 
 ## Before you start
 
@@ -135,7 +135,9 @@ Previews expire and are single-use. If the note, permissions, or writer process 
 
 ### Obsidian showed a JavaScript error or a write failed
 
-Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports whether recovery succeeded, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.1 can also report the bounded `failure_stage` and `cause_code` that were previously lost behind a generic `write_failed` result. It never records raw exception messages, CLI output, note text, proposed content, or backup bodies in those fields. These diagnostics are evidence only: reread the note and do not automatically retry until the user gives explicit direction.
+Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports whether recovery succeeded, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.2 can also report the bounded `failure_stage` and `cause_code` that were previously lost behind a generic `write_failed` result. It never records raw exception messages, CLI output, note text, proposed content, or backup bodies in those fields. These diagnostics are evidence only: reread the note and do not automatically retry until the user gives explicit direction.
+
+Version 0.5.2 fixes the false `CHANGE_CONFLICT` that could affect managed operations when a note had no final newline: the prepared hash now comes from an exact UTF-8 snapshot and is compared with the exact content seen by Bridge Control. A `CHANGE_CONFLICT` after updating still indicates a real difference or another concurrent change; do not disable the check or retry automatically.
 
 After three consecutive autonomous or management failures, that process pauses for the task. Review recent problems, return to a narrower mode, and start a new task before enabling autonomy or Full management again.
 

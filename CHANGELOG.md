@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2 - 2026-07-12
+
+- Fix false `CHANGE_CONFLICT` failures during managed replacement, literal replacement, frontmatter, move, and trash commits when the source note does not end with a newline.
+- Derive the managed compare-and-swap source hash from a bounded exact UTF-8 snapshot instead of CLI-normalized read output, preserving terminal-newline, LF/CRLF, and BOM distinctions.
+- Keep real concurrent-change detection fail-closed by requiring Bridge Control's exact in-Obsidian source content to match the prepared snapshot before any mutation.
+- Preserve the version-4 shared settings schema, management request protocol, granular permissions, recovery backups, audit format, and public Obsidian API mutation surface.
+- Add regression coverage for no-final-newline notes, LF, CRLF, BOM, and genuine concurrent changes. This patch adds no direct note-write path or new permission.
+
 ## 0.5.1 - 2026-07-12
 
 - Preserve the bounded failure stage and safe cause code when a create or append attempt previously collapsed to the generic `write_failed` result.

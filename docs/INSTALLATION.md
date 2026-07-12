@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.5.1. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
+Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.5.2. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
 
 ## Prima di iniziare
 
@@ -143,7 +143,9 @@ Le anteprime scadono e sono monouso. Se la nota, il permesso o il processo cambi
 
 ### Obsidian ha mostrato un errore JavaScript o una scrittura è fallita
 
-Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica se il ripristino è riuscito, se la nota esiste ancora e se serve un controllo manuale. Codex può leggere gli stessi eventi limitati con `obsidian_recent_write_events`, senza chiederti di trascrivere l'errore. La versione 0.5.1 può riportare anche `failure_stage` e `cause_code` limitati, che prima venivano persi dietro il risultato generico `write_failed`. In questi campi non registra mai messaggi grezzi delle eccezioni, output della CLI, testo delle note, contenuto proposto o corpo dei backup. La diagnostica è soltanto evidenza: rileggi la nota e non riprovare automaticamente finché l'utente non fornisce indicazioni esplicite.
+Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica se il ripristino è riuscito, se la nota esiste ancora e se serve un controllo manuale. Codex può leggere gli stessi eventi limitati con `obsidian_recent_write_events`, senza chiederti di trascrivere l'errore. La versione 0.5.2 può riportare anche `failure_stage` e `cause_code` limitati, che prima venivano persi dietro il risultato generico `write_failed`. In questi campi non registra mai messaggi grezzi delle eccezioni, output della CLI, testo delle note, contenuto proposto o corpo dei backup. La diagnostica è soltanto evidenza: rileggi la nota e non riprovare automaticamente finché l'utente non fornisce indicazioni esplicite.
+
+La 0.5.2 corregge il falso `CHANGE_CONFLICT` che poteva verificarsi nelle operazioni gestite quando la nota non terminava con una nuova riga: l'hash viene ora preparato da uno snapshot UTF-8 esatto e confrontato con il contenuto esatto visto da Bridge Control. Un `CHANGE_CONFLICT` successivo all'aggiornamento indica ancora una differenza reale o un altro cambiamento concorrente; non disattivare il controllo e non riprovare automaticamente.
 
 Se il writer autonomo o il gestore incontra tre errori consecutivi, si sospende per quel task. Controlla **Problemi recenti**, torna a una modalità più ristretta e avvia un nuovo task prima di riabilitare l'autonomia o Gestione completa.
 
