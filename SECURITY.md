@@ -1,226 +1,211 @@
 # Security policy
 
-Obsidian Bridge provides scoped local access to Obsidian notes. Version 0.4 adds an explicit per-vault full-access mode, a separately gated autonomous writer, cross-process commit locks, and bounded error diagnostics while keeping all writes opt-in. Reports are especially welcome for policy bypasses, autonomous writes without full-access authorization, replayed or stale changes, lock bypasses, installer path escapes, unsafe configuration replacement, unintended executable invocation, or disclosure outside the MCP response path.
+Obsidian Bridge provides scoped local access to Obsidian notes. Version 0.5.0 adds an explicitly activated Full-management profile with independent edit, move, and trash grants, a fixed public handler inside Obsidian, pre-mutation recovery backups, and verified postconditions. Reports are especially welcome for permission escalation, management activation without user acknowledgement, replayed requests, backup or audit disclosure, path escape, unintended executable invocation, or any permanent deletion surface.
 
 ## Supported versions
 
 | Version | Security fixes |
 | --- | --- |
-| 0.4.x | Supported preview release |
-| 0.3.x | Supported preview release |
-| 0.2.x | Security fixes during migration |
-| 0.1.x | Read-only; critical fixes only during migration |
-| Earlier or modified builds | Not supported |
+| 0.5.x | Supported preview release |
+| 0.4.x | Security fixes during migration |
+| 0.3.x | Critical fixes during migration |
+| 0.2.x and earlier | Not supported |
+| Modified builds | Not supported by this project |
 
 Use the newest tagged release and verify that it comes from the expected repository.
 
 ## Report a vulnerability
 
-Use **Security > Report a vulnerability** in the repository when GitHub private vulnerability reporting is available. Include:
+Use **Security → Report a vulnerability** in the GitHub repository when private vulnerability reporting is available. Include the affected version, OS, Node.js and Obsidian versions, smallest synthetic reproduction, expected and observed behavior, impact, and suggested mitigation.
 
-- affected version or commit;
-- operating system, Node.js version, and Obsidian installer version;
-- smallest safe reproduction;
-- expected and observed behavior;
-- security impact and any suggested mitigation.
+Do not include real note contents, vault names, access tokens, personal paths, request/change IDs, audit records, or backups. If private reporting is unavailable, open a minimal public issue requesting a private channel without vulnerability details. There is no paid bug-bounty program.
 
-Do not include real note contents, vault names, access tokens, personal paths, change IDs, audit records, or backups. Use synthetic examples. If private reporting is unavailable, open a minimal public issue requesting a private channel without vulnerability details.
+## Four-process architecture
 
-Please allow maintainers time to reproduce and fix an issue before publishing technical details. There is no paid bug-bounty program.
-
-## Three-process architecture
-
-The plugin deliberately uses three local MCP servers with different capabilities and host approval policies:
+The plugin deliberately separates local stdio MCP servers by capability and host approval policy:
 
 ```text
-auto-approved reader process
-  -> nine fixed read tools
+auto-approved reader
+  -> fixed non-mutating tools only
   -> official Obsidian CLI -> Obsidian desktop
 
-prompt-approved writer process
-  -> protected prepare tool + protected commit tool only
+prompt-approved protected writer
+  -> protected create/append prepare + commit only
   -> official Obsidian CLI -> Obsidian desktop
 
-auto-approved autonomous writer process
-  -> autonomous prepare tool + autonomous commit tool only
-  -> refuses every vault not explicitly set to full access
+auto-approved autonomous writer
+  -> autonomous create/append prepare + commit only
+  -> accepts current Autonomous access or Full management
   -> official Obsidian CLI -> Obsidian desktop
+
+auto-approved manager
+  -> managed prepare + commit only
+  -> requires current Full management and exact granular grant
+  -> fixed bridge-control:commit handler -> public Obsidian API
 ```
 
-The reader process contains no write tool. The protected writer retains host approval prompts and accepts only protected vaults. The autonomous writer is auto-approved but accepts only a current version-3 panel entry explicitly set to `accessMode=full`; legacy environment variables can never grant autonomy. Both writers expose no search, browsing, shell, command-palette, plugin-management, or `eval` surface and retain the same two-step, single-use protocol.
+The reader contains no mutation tool. The protected writer retains both conversational post-preview consent and host prompts. The autonomous writer handles only create/append. The manager exposes only `obsidian_prepare_managed_change` and `obsidian_commit_managed_change` and cannot search or browse notes arbitrarily.
 
-Do not combine the tool sets or change the protected writer server to automatic approval in a derived configuration.
+Do not combine these tool sets, add management to the reader, place protected commit under automatic approval, or expose the custom handler as a general command dispatcher.
 
-## Runtime controls
+## Permission profiles
 
-All three processes:
+Bridge Control version-4 settings recognize three modes:
 
-- invoke the configured CLI executable directly with structured arguments and no shell fallback;
-- reject traversal, absolute paths, hidden path segments, `.obsidian`, `.trash`, and configured denied prefixes;
-- bound CLI duration and output size;
+- `protected` — folder-scoped read and separately enabled create/append;
+- `full` — shown as **Autonomous access**, granting vault-wide eligible read/create/append;
+- `management` — shown as **Full management**, adding an exact non-empty subset of `edit`, `move`, and `trash` grants.
+
+`edit` permits exact replacement, counted literal `replace_text`, and frontmatter set/remove. `move` permits move and rename. `trash` permits only Obsidian's configured trash path. One grant never implies another.
+
+Strict version-2 and version-3 entries migrate to version 4 with all management flags false. Version-3 `full` remains Autonomous access and never becomes management. Outside `management`, all management flags must be false; inside `management`, at least one must be true. Invalid combinations fail schema validation.
+
+Full management can be activated only in Bridge Control through a warning, the named vault, and an acknowledgement of the exact permission snapshot. Cached plugin data, an installer update, legacy environment variables, note contents, tool output, or another model cannot activate it. Returning to Autonomous or Protected access clears management grants.
+
+The shared settings file is bounded, strict UTF-8, schema-validated in full, atomically replaced under an ownership lock, and reread without a long-lived authorization cache. A disabled, unlisted, malformed, oversized, or inconsistent entry fails closed.
+
+## Common runtime controls
+
+All processes:
+
+- invoke the configured official CLI executable directly with structured arguments and no shell;
+- reject absolute paths, traversal, hidden segments, `.obsidian`, `.trash`, configured deny prefixes, and physical redirects outside the registered vault;
+- verify the stable vault ID against its recorded physical root;
+- bound CLI duration and output;
 - open no listener and make no runtime network request;
-- return data through MCP stdio to their parent host.
+- return data through MCP stdio to the parent host.
 
-The reader exposes only the nine documented read tools. In the normal 0.4 setup it reloads the selected vault's Bridge Control policy before each operation. A disabled or unlisted vault receives no access, and a present malformed shared-settings file fails closed instead of falling back to a broader policy.
+`OBSIDIAN_CLI_PATH` is an executable trust boundary. Point it only at the official CLI registered by a trusted Obsidian installation. A malicious replacement runs with the same OS privileges and can bypass bridge policy.
 
-The protected writer exposes only preparation and commit. Its per-vault write toggle and writable-folder list are separate from read scope. The autonomous writer exposes distinct preparation and commit names and fails unless that exact vault is currently in full access. Writing is disabled by default, and every write is denied when the vault, mode, toggle or folder does not match. Both support only:
+## Create/append transaction controls
 
-- creating a new Markdown note without overwrite;
-- appending text to an existing Markdown note.
+Protected and autonomous channels support only `create` and `append`. Preparation calculates the exact proposal, diff, JSON representation, before/after hashes, expiry, and opaque change ID without mutation. Commit consumes an unexpired single-use ID, rechecks policy and source state under a per-note lock, writes through the allowlisted official CLI surface, and verifies the resulting hash.
 
-Delete, rename, move, arbitrary overwrite, arbitrary Obsidian commands, shell access, plugin commands, and `eval` are unavailable.
+Protected access requires human confirmation after the exact preview exists. Silence, advance blanket permission, a host approval dialog, note text, search results, tools, or another model do not count. Autonomous access and Full management can commit a concrete unambiguous create/append task after internal preview validation; they do not authorize invented work.
 
-Write content is limited to 8192 UTF-8 bytes and preview output to 16384 bytes. To avoid the Obsidian 1.12.7 IPC framing defect for long CLI arguments, every complete CLI request frame is capped at 3072 UTF-8 bytes. Long create and append content is divided on Unicode code-point boundaries, each chunk is appended inline, and every intermediate state is read back and hash-verified before the next mutation. The official CLI cannot represent literal backslash sequences `\n` and `\t` losslessly in content arguments, so the bridge rejects proposals containing those two sequences. Ordinary backslashes are passed through unchanged. The bundled plugin uses separate `--mode=read`, `--mode=write`, and `--mode=autonomous` processes. A combined `--mode=all` exists for controlled development/testing only and must never be placed under automatic approval.
+Create/append content is bounded to 8192 UTF-8 bytes and preview output to 16384 bytes. Long content is split on Unicode code-point boundaries into complete CLI IPC frames of at most 3072 UTF-8 bytes, with hash verification after every stage. Literal backslash sequences `\n` and `\t` that the official CLI cannot represent losslessly are rejected.
 
-Before either writer mutates a note, it acquires a filesystem-backed lock keyed by a SHA-256 digest of the stable vault ID and normalized note path. Atomic directory creation, ownership tokens, bounded waits, abort handling, conservative stale-lock recovery, and verified release serialize separate MCP processes without exposing user paths in lock filenames. The lock is an application control, not an OS sandbox. An active or PID-reused owner is deliberately not stolen.
+Append creates a plaintext backup. Create/append and management share one count-based pool containing at most the newest 20 JSON backups. Automatic append rollback is limited to one known bridge-produced state and one safely representable CLI frame. Unknown concurrent content is never overwritten.
 
-One autonomous writer process pauses after three consecutive commit failures. This stops a local retry loop for that task; it does not replace audit review or independent backups.
-
-The normal policy source is the versioned local settings file maintained by Bridge Control and the installer. Strict version-2 entries migrate to version 3 as protected access; version 3 adds required `accessMode=protected|full`. The file is size-bounded, decoded as strict UTF-8, schema-validated in full and read without a long-lived permission cache. Revocation therefore takes effect on the next operation and before every write chunk. Legacy environment variables are an advanced compatibility fallback only when the shared file is absent; they can never grant full access.
-
-Line replacement is deferred because the official CLI has no atomic compare-and-swap primitive. It must not be emulated with an unrestricted overwrite.
-
-## Write transaction protocol
+## Managed transaction protocol
 
 ### Preparation
 
-Preparation validates the vault-relative target and write policy, obtains the current source state when required, calculates the proposed result, and returns a bounded preview with a diff, `proposed_content_json`, line counts, before/after SHA-256 hashes, and an opaque change ID. The diff explicitly marks changes to the end-of-file newline, and the JSON representation disambiguates whitespace and backslashes. Preparation must not modify the vault.
+Managed preparation requires current `accessMode=management` and the exact operation grant. It validates a vault-relative existing `.md` source, stable identity, physical containment, size, source hash, and—when moving—an absent eligible destination. It returns a bounded operation-specific preview, expiry, and opaque change ID without changing the vault.
 
-A prepared change has a five-minute default time-to-live, configurable from one to thirty minutes through `OBSIDIAN_BRIDGE_CHANGE_TTL_MS`, and belongs only to the writer process that created it. Restarting that process invalidates pending changes.
+Supported public operations are exactly:
 
-After a write, the bridge verifies the resulting hash. A verification or CLI failure triggers a deliberately narrow rollback only when the current note exactly matches the full prepared state or a known intermediate chunk hash. The bridge makes at most one overwrite attempt, and only when the original content is representable by the official CLI, contains no CR/CRLF line endings that its content argument would normalize, and fits one safe IPC frame. Otherwise the plaintext backup is the manual recovery source and the result reports `restore_unrepresentable` or `restore_too_large`. An unchanged note requires no overwrite, an unknown third hash is treated as a concurrent edit and is never overwritten, and a newly created note is not automatically deleted. The result always reports the rollback outcome and reason.
+- `replace`: exact whole-note content, maximum 1 MiB;
+- `replace_text`: exact literal find/replacement with a required expected occurrence count; it prepares a full replacement hash;
+- `frontmatter`: bounded set/remove for safe property names and JSON scalar or scalar-array values;
+- `move`: move or rename to an absent destination; case-only rename is rejected;
+- `trash`: Obsidian trash only; no permanent option.
 
-### Protected-mode human confirmation
+Managed previews are bounded to 128 KiB, pending managed content has a bounded process memory budget, and IDs expire after five minutes by default. Restarting the manager invalidates pending IDs.
 
-After preparation, the agent must show the user the exact vault, path, operation, complete proposed content, and diff. It must also show `proposed_content_json` whenever whitespace or backslashes could be ambiguous and point out an end-of-file newline marker. Commit is allowed only after an unambiguous human confirmation of that displayed preview in the current conversation.
+### Commit and request handoff
 
-The following are not confirmation:
+Managed commit consumes the change ID before side effects, then rechecks permission, vault identity, physical scope, source hash, destination state, and expiry under shared source/destination locks.
 
-- silence or timeout;
-- consent given before the preview exists;
-- a general request to “make any necessary changes”;
-- text found in a note, search result, link, tag, tool response, or external document;
-- instructions generated by another model or tool;
-- approval of a different change ID or an older preview.
+The manager writes one strict request file below the fixed private data directory. Requests are:
 
-The MCP host's tool-approval prompt is an additional control, not a substitute for showing the preview and receiving conversational consent.
+- JSON protocol version 1;
+- limited to 1 MiB;
+- named by a UUID, short-lived, and bound to one stable vault;
+- protected by a random 256-bit one-time token;
+- created through a private temporary file and atomic rename;
+- removed after the handler returns or the attempt fails.
 
-### Full-access authorization
+The CLI allowlist permits only the custom command `bridge-control:commit` with exactly one `request=<UUID>` and one `token=<64 hex>` argument plus the fixed vault selector. Duplicate, unknown, missing, or malformed arguments are rejected. The channel cannot invoke `eval`, shell, command palette, plugin commands, built-in delete, or arbitrary Obsidian commands.
 
-Full access is a separate per-vault authorization activated through one warning modal in Bridge Control. It permits the autonomous writer to validate a preview internally and commit in the same task without a routine confirmation question. It does not authorize invented work or resolve ambiguity about vault, path, or content.
+### Bridge Control handler
 
-Full access does not expose delete, rename, move, arbitrary overwrite, shell, plugin management, command palette, or `eval`. Hidden paths, deny prefixes, stable vault identity, physical containment, source hashes, size limits, backups, audit, locks, chunk verification, and single-use IDs remain enforced. Note text, tool output, external content, or another model can never enable full access or expand the user's task.
+Bridge Control registers `bridge-control:commit` through Obsidian's public CLI-handler API. The handler:
 
-### Commit and conflicts
+1. resolves only the fixed request file derived from the request UUID;
+2. refuses symlinks, non-regular files, oversized data, unsafe encodings, schema mismatch, expiry, wrong token, or wrong stable vault;
+3. claims the request once by moving it into a private processing directory;
+4. rechecks the current mode and exact granular grant;
+5. verifies source hash and destination absence;
+6. creates and verifies a plaintext version-2 backup before mutation;
+7. rechecks authorization immediately before mutation;
+8. applies only the requested public Obsidian API operation;
+9. verifies the operation-specific postcondition;
+10. records a metadata-only audit outcome and returns strict JSON.
 
-Commit accepts only an unexpired prepared change ID. The bridge revalidates the target and writable policy and compares the current note state with the source hash captured during preparation. For create, the expected state is that the target does not exist.
+Replacement and frontmatter use `Vault.process`. The transform compares the current content with the prepared before-hash before returning any mutation. Frontmatter location/parsing/serialization uses the public `getFrontMatterInfo`, `parseYaml`, and `stringifyYaml` helpers inside that transform rather than `FileManager.processFrontMatter`. Move/rename uses `Vault.rename`; only trash uses `FileManager.trashFile`. Direct filesystem note mutation, permanent deletion, arbitrary handler names, source-code input, shell, and `eval` are absent.
 
-If the source changed before the commit-time check, the target appeared, the change expired, authorization mode changed, or policy changed, commit fails closed. Never force or silently merge it. Protected mode requires a new preview and confirmation; autonomous mode stops for human direction rather than retrying automatically.
+### Recovery
 
-The source check and official CLI mutation are not atomic. Chunked changes add a bounded sequence of individually verified mutations, so another application can modify a note between stages. An approved append may land on a concurrent state and a partial create may remain when a later chunk fails because delete is deliberately unavailable. The bridge does not replace an unknown state. Reread the note before preparing any retry, and never infer that a failed change left the note unchanged.
+Every managed operation must create a plaintext backup bundle before mutation. Backup creation failure stops the operation. The bundle contains the original note body and sensitive source/optional destination metadata.
 
-Every change ID is single-use. A commit attempt consumes it before any side effect whether the operation later succeeds or fails, preventing replay with altered local state.
+After a failed postcondition:
 
-Before append, commit must create a plaintext backup of the original. Create has no original to back up. The bridge then writes through the fixed CLI command surface, rereads the target, and verifies the after-hash. It retains the newest 20 managed backups.
+- replace/frontmatter restore only when the current note still equals the known bridge-written state;
+- move reverses only when source/destination still equal the expected state;
+- trash reports `trash_requires_backup_restore` rather than silently recreating the note;
+- a changed or unknown state reports conflict and is not overwritten.
 
-After a write attempt, the bridge appends metadata-only NDJSON audit information without note content and reports whether recording succeeded. Records include the authorization channel and structured rollback outcome on failure. The result also states whether after-hash verification succeeded and supplies a backup ID when applicable.
+Success requires `status=committed`, `verified=true`, and `audit_recorded=true`. A failed, expired, replayed, mismatched, revoked, or partially verified request must not be retried automatically. After three consecutive failures, the autonomous writer or manager pauses for that task.
 
-The read server exposes `obsidian_recent_write_events` so the model can inspect recent outcomes without asking the user to transcribe an error dialog. The caller cannot supply an audit path: the tool reads only `audit.ndjson` below the configured bridge data directory, at most the final 128 KiB, and returns at most 20 metadata-only records. Every record is validated against a strict schema and filtered through current vault and folder read access. Symlinks, non-regular files, invalid UTF-8, incomplete or oversized lines, unknown fields, and malformed records fail the whole diagnostic request closed. A missing file is an empty history. The tool omits note and backup bodies as well as before/after hashes, but its paths, timing, change IDs, error codes, rollback state, and backup IDs remain sensitive metadata visible to the MCP host and model.
+## Locks, backups, and audit
+
+Mutating processes share filesystem-backed locks keyed by SHA-256 of stable vault ID and normalized path. Atomic directory creation, ownership tokens, bounded waits, abort handling, verified release, and conservative stale recovery serialize separate tasks without putting user paths in lock names. Move acquires source and destination locks in stable order.
+
+The bridge data directory contains plaintext backups, metadata-only `audit.ndjson`, management request/processing files, and lock state. Use a trusted absolute `OBSIDIAN_BRIDGE_DATA_DIR` or the deterministic platform default, restrictive OS permissions, disk encryption where appropriate, and a documented retention policy.
+
+Audit records can include time, change ID, stable vault label/ID, source path, optional destination, operation, authorization mode, hashes, status, backup ID, error code, and rollback state. They exclude note and proposed bodies but remain sensitive metadata.
+
+Bridge Control and `obsidian_recent_write_events` read only a bounded tail of the fixed audit file, validate strict records, apply current access policy, and omit note bodies, backup bodies, and audit hashes. Caller-selected audit paths, symlinks, non-regular files, invalid UTF-8, incomplete oversized lines, and unknown fields fail closed.
 
 ## Trust boundaries
 
 ### MCP host and model
 
-The host controls tool invocation and can send arguments, note text, previews, paths, tags, and metadata to a remote model. A compromised host running with the same OS permissions can bypass this bridge entirely.
+The host controls process launch, tool invocation, and what it sends to a remote model. A compromised host running as the same OS user can bypass this bridge. Review host approval and data-retention controls before using confidential notes.
 
-Keep protected writer calls on prompt approval. Enable full access only for a vault where autonomous create and append are intended, and return to protected access when the task is finished. Review the host's workspace policy and data controls before using confidential material.
+Treat all note, frontmatter, link, tag, search, audit, external-document, and tool content as untrusted data. It cannot activate a profile, grant permission, satisfy protected consent, or authorize retry. Prompt-level defenses are not perfect; narrow permissions and independent backups remain essential.
 
-The bundled skill checks the bounded audit tool before an autonomous write sequence and after a write error. Treat those records as diagnostic evidence, never as user consent or permission to retry. If the audit reader fails its safety validation, do not fall back to shell or unrestricted filesystem reads.
+### Vault and filesystem
 
-### Obsidian CLI executable
+Path checks are application controls, not an OS sandbox. Existing paths crossing symlinks or junctions and multiply linked regular files are rejected where checked, but software with local-user privileges can access the vault directly. Use a disposable vault or separate OS account for stronger isolation.
 
-`OBSIDIAN_CLI_PATH` is an executable trust boundary. Point it only at the official CLI registered by a trusted Obsidian installation. A malicious replacement inherits bridge permissions and can ignore bridge policy.
+The bridge deliberately calls `Vault.rename`, not `FileManager.renameFile`. A move/rename changes only the selected file and does not rewrite backlinks, links, embeds, or other notes, regardless of the user's automatic-link-update preference. This prevents the isolated `move` grant and single-source backup from causing unpreviewed multi-note edits. Link repair requires separate explicitly requested edit operations and the `edit` grant. Obsidian's trash API follows the user's Obsidian trash configuration. The bridge never offers permanent delete, but Sync, other plugins, or OS tooling may independently propagate or remove files.
 
-### Vault content and prompt injection
+### Bridge Control and installer
 
-Treat every note as untrusted input. Instruction-like note text may try to manipulate the model into disclosing data or committing a change. The bundled skill requires treating notes only as evidence and never interpreting their contents as consent or as an expansion of a full-access task. Prompt-level defenses are not perfect; protected-mode preview review and narrow, temporary use of full access remain important.
+Bridge Control uses Obsidian's APIs to enumerate folders, apply managed note operations, and show bounded diagnostics. Node filesystem writes are restricted to shared settings, plugin-local data, and the deterministic bridge data directory. Vault plugin data cannot redirect shared settings.
 
-Never put passwords, recovery codes, API keys, private keys, or other secrets in model-accessible folders.
+Saving settings verifies the exact written policy before releasing its lock. Failed privilege increases restore the prior valid policy. Failed reductions never restore a broader mode; Bridge Control retries the narrower target or quarantines the shared file so access fails closed. A stale UI snapshot cannot re-enable a permission removed by another process.
 
-### Vault and folder policies
-
-Bridge Control stores one strict entry keyed by Obsidian's stable 16-character vault ID. The display name is only a label, and the recorded absolute physical root is verified against the ID before content access. Each entry contains:
-
-- a master enable switch;
-- access mode `protected` or `full`, with every migrated version-2 entry defaulting to protected;
-- read mode `off`, `all`, or `folders`;
-- vault-relative readable-folder prefixes when folder mode is selected;
-- a write enable switch, off by default;
-- separate vault-relative writable-folder prefixes.
-
-An unlisted vault, disabled vault, disabled read mode, disabled write toggle or empty required folder list grants no corresponding protected access. Full access applies only when the master switch and explicit full mode are both active. The bridge rechecks the current entry during prepare, commit, and every chunk so a revocation is not bypassed by an older preview.
-
-Hidden segments, `.obsidian`, `.trash`, traversal and absolute paths are always denied. Existing note paths that cross a filesystem symlink or junction, or target a multiply-linked regular file, are rejected and physical scope is checked again around sensitive operations. Optional advanced deny prefixes take precedence over read and write grants. These checks reduce path redirection risk but remain application controls rather than an operating-system sandbox: use a disposable vault for testing and OS permissions or separate accounts for stronger isolation.
-
-Legacy environment allowlists remain available only as a compatibility fallback when no shared-settings file is present. They are fail-closed unless an explicit read or write scope is provided. Do not mix the legacy mode with Bridge Control when auditing an installation.
-
-### Bridge Control companion
-
-Bridge Control is a desktop-only Obsidian community companion. It uses Obsidian's Vault API only to enumerate selectable folders and does not read or write note bodies while configuring the bridge. It reads Obsidian's global `obsidian.json` registry outside the vault through a regular-file, no-symlink and 1 MiB size boundary to bind permissions to the current stable vault ID.
-
-Node filesystem writes are limited to the deterministic shared settings path outside the vault and the plugin's own Obsidian data. An administrator may explicitly set `OBSIDIAN_BRIDGE_SETTINGS_PATH` before Obsidian starts, but plugin data inside a vault cannot redirect that destination. The guided installer also omits the destination from `data.json`.
-
-CLI diagnostics run only after an explicit click. Candidate discovery is limited to an explicit environment override and known installation paths, never the ambient `PATH`; the plugin invokes only `version` without a shell and accepts only recognized Obsidian version output.
-
-Saving replaces the settings file atomically and verifies it before releasing the ownership lock. A failed privilege increase restores the prior validated policy. A failed revocation or scope reduction never restores a more permissive state: the target is reasserted once and, if it still cannot be verified, the shared file is quarantined so autonomous mode fails closed. If quarantine itself fails, the panel reports an explicitly indeterminate state and tells the user to stop Codex and Obsidian. Normal protected choices write only after the user presses **Salva accesso**. Full access requires a separate acknowledgement checkbox and explicit activation button naming the current vault, and the protected-to-full transition is checked against the latest shared state while the same lock is held; a stale panel therefore cannot undo an external revocation. Returning to protected access is immediate. The companion does not automatically steal an abandoned settings lock; after a crash it asks the user to verify no configuration process is active before removing it. The companion updates the current stable-ID entry and preserves only other schema-valid entries. A local process running as the same OS user can still modify that file, so operating-system account security remains authoritative.
-
-The **Problemi recenti** panel reads at most the last 128 KiB of the local metadata-only audit, returns at most 20 validated records for the current stable vault ID, refuses symlinks/non-regular files, and never reads note bodies or backup content. It may check whether an audited vault-relative note currently exists and offer to open that note through Obsidian.
-
-### Guided installer
-
-The Windows installer is a local PowerShell/WinForms utility and does not require elevation. It discovers vaults from Obsidian's local registry or accepts an explicitly selected vault root, validates that target, installs only the fixed Bridge Control payload, and creates timestamped backups before replacing existing configuration files. Redirecting symlinks and junctions are rejected; non-redirecting OneDrive cloud placeholders remain supported for ordinary synced vaults.
-
-Adding Bridge Control to the vault's enabled community-plugin list requires an explicit checkbox in the installer. The installer also creates a stable local marketplace copy for Codex; it does not publish the plugin or upload the vault. Treat the ZIP and any future update package as executable software and obtain them only from a source you trust.
-
-### Dependencies and local machine
-
-Node.js, npm dependencies, Obsidian, community plugins, the MCP host, Sync, and the operating system remain outside this repository's security boundary. Keep them updated and use the committed lockfile.
-
-### Backup and audit directory
-
-`OBSIDIAN_BRIDGE_DATA_DIR` controls where the writer stores plaintext backups and the metadata-only audit log. It must be an absolute trusted local path. If absent, the writer and Bridge Control use the same deterministic platform local-data location. A custom override must be inherited by Obsidian as well as Codex for the panel to inspect that location; the MCP audit reader always follows the writer configuration.
-
-The writer requests directory mode `0700` and file mode `0600` on systems honoring POSIX permissions. Those modes do not replace Windows ACL review, disk encryption, endpoint protection, or backup policy. Anyone able to read the directory may recover prior note contents from backups.
+The Windows installer runs without elevation, validates the selected vault, rejects redirecting links, installs a fixed companion payload, backs up replaced configuration, and requires explicit consent before enabling the community plugin. It must preserve existing safe choices without activating management.
 
 ## Known limitations
 
-- There is no per-user authentication because both MCP servers are local child processes.
-- Configuration is local to the OS account and shared by the reader, writer and Bridge Control. It is per-vault, not per-human-user authorization.
-- Approval occurs in the MCP host, not in an independent Obsidian dialog.
-- A malicious or compromised host with local-user privileges can access the vault without the bridge.
-- Source hashing prevents ordinary stale commits but does not turn the workflow into a filesystem transaction across unrelated software.
-- The official CLI offers no atomic compare-and-swap. An append can race after the source check, land on a concurrent state, and then report verification failure; automatic recovery never overwrites that unknown state.
-- Literal `\n` and `\t` backslash sequences cannot be represented losslessly through the official CLI content argument and are rejected; ordinary backslashes are unchanged.
-- Backups intentionally create additional plaintext copies and retention is count-based, not a guaranteed secure-erasure mechanism.
-- Audit records omit note bodies but still reveal metadata such as timing, target, operation, hashes, or result state.
-- Availability depends on a responsive interactive Obsidian session.
-- The bridge cannot determine model-provider retention or training behavior.
-- Remote transport and ChatGPT web access are not included; adding them requires authentication, authorization, revocation, audit, and a revised threat model.
+- There is no independent per-human authentication; local configuration belongs to the OS account.
+- A malicious same-user process, MCP host, Obsidian plugin, CLI replacement, or modified build can bypass bridge policy.
+- Source hashing and locks do not create a transaction across unrelated applications; concurrent edits can still occur around Obsidian API calls.
+- Management backups intentionally create plaintext copies in a shared newest-20 pool; retention is neither archival storage nor guaranteed secure erasure.
+- Trash recovery may require Obsidian trash or manual restoration from the backup.
+- Audit and request files omit unnecessary bodies where possible but still expose sensitive paths and operation metadata; replacement requests contain proposed content until consumed.
+- Availability depends on a responsive interactive Obsidian desktop session with the official CLI enabled.
+- The bridge cannot control model-provider, host, Sync, OS, or backup copies retained outside its own newest-20 pool.
+- Remote transport and direct ChatGPT web access are not included.
 
 ## Preview-release hardening checklist
 
-1. Use a disposable vault with synthetic notes.
-2. In Bridge Control, set a narrow read folder and leave writing off until read-only verification succeeds.
-3. Keep sensitive and hidden paths explicitly denied.
-4. Verify the reader process exposes exactly nine read tools and no mutating tool.
-5. Verify the writer process exposes only prepare and commit and uses prompt approval.
-6. Enable writing only for `Bridge Test` and confirm preparation alone leaves the vault unchanged.
-7. Inspect every preview before confirming it.
-8. Disable the write toggle after prepare and verify that commit is rejected; then test expiry, one-use behavior, source conflicts, and paths outside write scope.
-9. Corrupt a copy of the shared settings in a synthetic environment and verify access fails closed rather than inheriting a broader scope.
-10. Set a disposable `OBSIDIAN_BRIDGE_DATA_DIR`; inspect backup permissions, retention, and content-free audit records.
-11. Keep an independent vault backup.
-12. Keep `OBSIDIAN_CLI_PATH` unset when the trusted official CLI is already on PATH; enable only the official CLI from Obsidian's settings when diagnostics require it.
+1. Use a disposable vault with synthetic notes and an independent backup.
+2. Start in Protected access with one read/write folder.
+3. Confirm the reader has no mutation tool and the three mutation processes expose only their expected prepare/commit pair.
+4. Verify protected post-preview consent, expiry, replay rejection, source conflicts, and immediate revocation.
+5. Activate Autonomous access and verify only vault-wide read/create/append becomes available.
+6. Activate Full management yourself, one granular grant at a time; verify edit cannot move or trash, move cannot edit, and trash cannot permanently delete.
+7. Test exact replace, occurrence-counted `replace_text`, frontmatter, rename, cross-folder move, and trash on separate synthetic notes.
+8. Revoke a granular grant after prepare and verify both manager and handler reject commit before mutation.
+9. Inspect request cleanup, backup contents/permissions, audit redaction, optional move target, and bounded event filtering.
+10. Force backup failure, postcondition failure, source/destination races, replay, malformed request, token mismatch, and three-failure circuit breaking.
+11. Confirm no shell, `eval`, arbitrary command, command palette, plugin management, direct filesystem note write, or permanent delete path exists.
+12. Keep the official CLI enabled from Obsidian settings and do not point `OBSIDIAN_CLI_PATH` at an untrusted executable.
 
 ## Non-security issues
 

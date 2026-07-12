@@ -3229,8 +3229,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path9) {
-      let input = path9;
+    function removeDotSegments(path10) {
+      let input = path10;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -3482,8 +3482,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path9, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path9 && path9 !== "/" ? path9 : void 0;
+        const [path10, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path10 && path10 !== "/" ? path10 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -6890,7 +6890,7 @@ var require_dist = __commonJS({
 });
 
 // src/server.ts
-import path8 from "node:path";
+import path9 from "node:path";
 import { fileURLToPath } from "node:url";
 
 // node_modules/zod/v3/helpers/util.js
@@ -7252,8 +7252,8 @@ function getErrorMap() {
 
 // node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
-  const { data, path: path9, errorMaps, issueData } = params;
-  const fullPath = [...path9, ...issueData.path || []];
+  const { data, path: path10, errorMaps, issueData } = params;
+  const fullPath = [...path10, ...issueData.path || []];
   const fullIssue = {
     ...issueData,
     path: fullPath
@@ -7368,11 +7368,11 @@ var errorUtil;
 
 // node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
-  constructor(parent, value, path9, key) {
+  constructor(parent, value, path10, key) {
     this._cachedPath = [];
     this.parent = parent;
     this.data = value;
-    this._path = path9;
+    this._path = path10;
     this._key = key;
   }
   get path() {
@@ -11292,10 +11292,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path9) {
-  if (!path9)
+function getElementAtPath(obj, path10) {
+  if (!path10)
     return obj;
-  return path9.reduce((acc, key) => acc?.[key], obj);
+  return path10.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -11704,11 +11704,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path9, issues) {
+function prefixIssues(path10, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path9);
+    iss.path.unshift(path10);
     return iss;
   });
 }
@@ -11855,16 +11855,16 @@ function flattenError(error51, mapper = (issue2) => issue2.message) {
 }
 function formatError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error52, path9 = []) => {
+  const processError = (error52, path10 = []) => {
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path10, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
       } else {
-        const fullpath = [...path9, ...issue2.path];
+        const fullpath = [...path10, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -11891,17 +11891,17 @@ function formatError(error51, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error51, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error52, path9 = []) => {
+  const processError = (error52, path10 = []) => {
     var _a3, _b;
     for (const issue2 of error52.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path10, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path10, ...issue2.path]);
       } else {
-        const fullpath = [...path9, ...issue2.path];
+        const fullpath = [...path10, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -11933,8 +11933,8 @@ function treeifyError(error51, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path9 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path9) {
+  const path10 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path10) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -25059,13 +25059,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path9 = ref.slice(1).split("/").filter(Boolean);
-  if (path9.length === 0) {
+  const path10 = ref.slice(1).split("/").filter(Boolean);
+  if (path10.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path9[0] === defsKey) {
-    const key = path9[1];
+  if (path10[0] === defsKey) {
+    const key = path10[1];
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -31201,6 +31201,9 @@ var WRITE_CLI_COMMANDS = Object.freeze([
   "create",
   "append"
 ]);
+var MANAGEMENT_CLI_COMMANDS = Object.freeze([
+  "bridge-control:commit"
+]);
 var MAX_CLI_IPC_FRAME_BYTES = 3072;
 function cliIpcFrameBytes(args, cwd = process.cwd()) {
   return Buffer.byteLength(
@@ -31236,6 +31239,10 @@ var COMMAND_ARGUMENTS = Object.freeze({
   append: {
     parameters: ["path", "content"],
     flags: ["inline"]
+  },
+  "bridge-control:commit": {
+    parameters: ["request", "token"],
+    flags: []
   }
 });
 var ObsidianCliError = class extends Error {
@@ -31248,7 +31255,7 @@ var ObsidianCliError = class extends Error {
   code;
   exitCode;
 };
-function commandFromArgs(args, allowWrites) {
+function commandFromArgs(args, capabilities) {
   if (args.length === 0) {
     throw new ObsidianCliError("INVALID_ARGUMENTS", "CLI arguments are empty");
   }
@@ -31257,10 +31264,11 @@ function commandFromArgs(args, allowWrites) {
   const command = args[commandIndex];
   const isReadCommand = command !== void 0 && READ_ONLY_CLI_COMMANDS.includes(command);
   const isWriteCommand = command !== void 0 && WRITE_CLI_COMMANDS.includes(command);
-  if (!isReadCommand && !(allowWrites && isWriteCommand)) {
+  const isManagementCommand = command !== void 0 && MANAGEMENT_CLI_COMMANDS.includes(command);
+  if (!isReadCommand && !(capabilities.allowWrites === true && isWriteCommand) && !(capabilities.allowManagement === true && isManagementCommand)) {
     throw new ObsidianCliError(
       "INVALID_ARGUMENTS",
-      allowWrites ? "CLI command is not on the bridge allowlist" : "CLI command is not on the read-only allowlist"
+      "CLI command is not on the enabled bridge allowlist"
     );
   }
   if (command === "vaults") {
@@ -31282,38 +31290,51 @@ function commandFromArgs(args, allowWrites) {
   return { command, commandIndex };
 }
 function assertReadOnlyCliArgs(args) {
-  assertCliArgs(args, false);
+  assertCliArgs(args, {});
 }
 function assertWriteEnabledCliArgs(args) {
-  assertCliArgs(args, true);
+  assertCliArgs(args, { allowWrites: true });
 }
-function assertCliArgs(args, allowWrites) {
-  const { command, commandIndex } = commandFromArgs(args, allowWrites);
+function assertManagementCliArgs(args) {
+  assertCliArgs(args, { allowManagement: true });
+}
+function assertCliArgs(args, capabilities) {
+  const { command, commandIndex } = commandFromArgs(args, capabilities);
   const allowed = COMMAND_ARGUMENTS[command];
+  const seenParameters = /* @__PURE__ */ new Set();
+  const seenFlags = /* @__PURE__ */ new Set();
   for (const argument of args.slice(commandIndex + 1)) {
     if (argument.length === 0 || argument.includes("\0")) {
       throw new ObsidianCliError("INVALID_ARGUMENTS", "invalid CLI argument");
     }
     const equalsIndex = argument.indexOf("=");
     if (equalsIndex === -1) {
-      if (!allowed.flags.includes(argument)) {
+      if (!allowed.flags.includes(argument) || seenFlags.has(argument)) {
         throw new ObsidianCliError(
           "INVALID_ARGUMENTS",
           `flag is not allowed for ${command}`
         );
       }
+      seenFlags.add(argument);
       continue;
     }
     const key = argument.slice(0, equalsIndex);
-    if (!allowed.parameters.includes(key)) {
+    if (!allowed.parameters.includes(key) || seenParameters.has(key)) {
       throw new ObsidianCliError(
         "INVALID_ARGUMENTS",
         `parameter is not allowed for ${command}`
       );
     }
+    seenParameters.add(key);
     if (key !== "content" && /[\u0001-\u001f\u007f]/u.test(argument)) {
       throw new ObsidianCliError("INVALID_ARGUMENTS", "invalid CLI argument");
     }
+  }
+  if (command === "bridge-control:commit" && (!seenParameters.has("request") || !seenParameters.has("token") || seenParameters.size !== 2)) {
+    throw new ObsidianCliError(
+      "INVALID_ARGUMENTS",
+      "bridge-control:commit requires exactly request and token"
+    );
   }
   const frameBytes = cliIpcFrameBytes(args);
   if (frameBytes > MAX_CLI_IPC_FRAME_BYTES) {
@@ -31331,6 +31352,11 @@ function buildVaultArgs(vault, command, args = []) {
 function buildWriteVaultArgs(vault, command, args = []) {
   const result = [`vault=${validateVault(vault)}`, command, ...args];
   assertWriteEnabledCliArgs(result);
+  return result;
+}
+function buildManagementVaultArgs(vault, command, args = []) {
+  const result = [`vault=${validateVault(vault)}`, command, ...args];
+  assertManagementCliArgs(result);
   return result;
 }
 function isCliContentRepresentable(content) {
@@ -31370,11 +31396,7 @@ function reportedCliError(stderr, stdout2) {
 }
 function createObsidianCliRunner(config2 = loadBridgeConfig(), spawnImplementation = spawn, capabilities = {}) {
   return async (args, invocation = {}) => {
-    if (capabilities.allowWrites === true) {
-      assertWriteEnabledCliArgs(args);
-    } else {
-      assertReadOnlyCliArgs(args);
-    }
+    assertCliArgs(args, capabilities);
     if (invocation.signal?.aborted === true) {
       throw new ObsidianCliError("ABORTED", "Obsidian CLI call was aborted");
     }
@@ -31696,6 +31718,14 @@ var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 var SHA256 = /^[0-9a-f]{64}$/u;
 var ERROR_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 var BACKUP_ID = /^[0-9A-Za-z._+-]{1,200}$/u;
+var AuditOperationSchema = external_exports.enum([
+  "create",
+  "append",
+  "replace",
+  "frontmatter",
+  "move",
+  "trash"
+]);
 var AuditLineSchema = external_exports.object({
   timestamp: external_exports.string().min(1).max(64).refine(
     (value) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) && Number.isFinite(Date.parse(value)),
@@ -31713,9 +31743,16 @@ var AuditLineSchema = external_exports.object({
       return false;
     }
   }, { message: "path must be a normalized visible Markdown path" }),
-  operation: external_exports.enum(["create", "append"]),
+  target_path: external_exports.string().min(4).max(1024).refine((value) => {
+    try {
+      return normalizeMarkdownPath(value) === value;
+    } catch {
+      return false;
+    }
+  }, { message: "target_path must be a normalized visible Markdown path" }).optional(),
+  operation: AuditOperationSchema,
   status: external_exports.enum(["committed", "failed"]),
-  authorization_mode: external_exports.enum(["protected", "autonomous"]).optional(),
+  authorization_mode: external_exports.enum(["protected", "autonomous", "management"]).optional(),
   before_sha256: external_exports.string().regex(SHA256),
   after_sha256: external_exports.string().regex(SHA256),
   backup_id: external_exports.string().regex(BACKUP_ID).optional(),
@@ -31731,9 +31768,28 @@ var AuditLineSchema = external_exports.object({
     "restore_too_large",
     "recovery_scope_changed",
     "read_failed",
-    "restore_failed"
+    "restore_failed",
+    "backup_restored",
+    "verification_failed",
+    "move_reversed",
+    "trash_requires_backup_restore",
+    "rollback_failed"
   ]).optional()
 }).strict().superRefine((value, context) => {
+  if (value.operation === "move" && value.target_path === void 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["target_path"],
+      message: "move records require target_path"
+    });
+  }
+  if (value.operation !== "move" && value.target_path !== void 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["target_path"],
+      message: "target_path is allowed only for move records"
+    });
+  }
   if (value.status === "committed" && value.error_code !== void 0) {
     context.addIssue({
       code: "custom",
@@ -31776,6 +31832,7 @@ function sanitizeAuditLine(value) {
     change_id: value.change_id,
     vault: value.vault,
     path: value.path,
+    ...value.target_path === void 0 ? {} : { target_path: value.target_path },
     operation: value.operation,
     authorization_mode: value.authorization_mode ?? "protected",
     status: value.status,
@@ -31963,9 +32020,527 @@ async function readAuditTail(dataDirectory) {
   });
 }
 
-// src/physical-scope.ts
-import { lstat as lstat2, realpath } from "node:fs/promises";
+// src/management-workflow.ts
+import { randomBytes, randomUUID as randomUUID3 } from "node:crypto";
+import {
+  chmod as chmod2,
+  lstat as lstat4,
+  mkdir as mkdir3,
+  open as open3,
+  rename as rename2,
+  unlink as unlink2
+} from "node:fs/promises";
+import path8 from "node:path";
+
+// src/commit-lock.ts
+import { createHash, randomUUID } from "node:crypto";
+import { constants as constants2 } from "node:fs";
+import {
+  lstat as lstat2,
+  mkdir,
+  open as open2,
+  rename,
+  rm
+} from "node:fs/promises";
 import path4 from "node:path";
+var LOCKS_DIRECTORY = "commit-locks";
+var OWNER_FILE = "owner.json";
+var MAX_OWNER_BYTES = 4096;
+var TRANSIENT_RENAME_RETRY_DELAYS_MS = [10, 25, 50];
+var DEFAULT_COMMIT_LOCK_TIMEOUT_MS = 1e4;
+var DEFAULT_COMMIT_LOCK_RETRY_DELAY_MS = 50;
+var DEFAULT_COMMIT_LOCK_STALE_AFTER_MS = 10 * 6e4;
+var CommitLockError = class extends Error {
+  constructor(code, message, options) {
+    super(message, options);
+    this.code = code;
+    this.name = "CommitLockError";
+  }
+  code;
+};
+var CommitLockReleaseAfterOperationError = class extends CommitLockError {
+  constructor(operationResult, releaseError) {
+    super(
+      releaseError.code,
+      "commit operation completed but its lock could not be released cleanly",
+      { cause: releaseError }
+    );
+    this.operationResult = operationResult;
+    this.releaseError = releaseError;
+    this.name = "CommitLockReleaseAfterOperationError";
+  }
+  operationResult;
+  releaseError;
+};
+function isNodeErrorWithCode(error51, code) {
+  return typeof error51 === "object" && error51 !== null && "code" in error51 && error51.code === code;
+}
+function hasNodeErrorWithCode(error51, code) {
+  let current = error51;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (isNodeErrorWithCode(current, code)) return true;
+    if (typeof current !== "object" || current === null || !("cause" in current)) {
+      return false;
+    }
+    current = current.cause;
+  }
+  return false;
+}
+function invalidOption(message) {
+  throw new CommitLockError("INVALID_LOCK_OPTIONS", message);
+}
+function validateIdentityPart(value, name) {
+  if (typeof value !== "string" || value.length === 0) {
+    invalidOption(`${name} must be a non-empty string`);
+  }
+  if (value.includes("\0")) {
+    invalidOption(`${name} must not contain NUL characters`);
+  }
+}
+function validateMilliseconds(value, name, minimum) {
+  if (!Number.isSafeInteger(value) || value < minimum) {
+    invalidOption(`${name} must be a safe integer greater than or equal to ${minimum}`);
+  }
+}
+function deriveCommitLockKey(vault, notePath, caseSensitive = true) {
+  validateIdentityPart(vault, "vault");
+  validateIdentityPart(notePath, "notePath");
+  const pathKey = caseSensitive ? notePath.normalize("NFC") : notePath.normalize("NFC").toLocaleLowerCase("en-US");
+  return createHash("sha256").update(vault, "utf8").update("\0", "utf8").update(pathKey, "utf8").digest("hex");
+}
+function commitLockPath(dataDirectory, vault, notePath, caseSensitive = true) {
+  if (typeof dataDirectory !== "string" || !path4.isAbsolute(dataDirectory)) {
+    invalidOption("dataDirectory must be an absolute path");
+  }
+  return path4.join(
+    path4.resolve(dataDirectory),
+    LOCKS_DIRECTORY,
+    `${deriveCommitLockKey(vault, notePath, caseSensitive)}.lock`
+  );
+}
+async function inspectDirectory(directory) {
+  let stats;
+  try {
+    stats = await lstat2(directory);
+  } catch (error51) {
+    throw new CommitLockError("LOCK_IO_ERROR", "lock directory cannot be inspected", {
+      cause: error51
+    });
+  }
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new CommitLockError(
+      "UNSAFE_LOCK_PATH",
+      "lock path is not a real directory"
+    );
+  }
+  return stats;
+}
+async function ensureSafeDirectoryChain(directory) {
+  if (!path4.isAbsolute(directory)) {
+    invalidOption("dataDirectory must be an absolute path");
+  }
+  const normalized = path4.resolve(directory);
+  const root = path4.parse(normalized).root;
+  const relative = path4.relative(root, normalized);
+  const segments = relative === "" ? [] : relative.split(path4.sep);
+  let current = root;
+  await inspectDirectory(root);
+  for (const segment of segments) {
+    current = path4.join(current, segment);
+    try {
+      await mkdir(current, { mode: 448 });
+    } catch (error51) {
+      if (!isNodeErrorWithCode(error51, "EEXIST")) {
+        throw new CommitLockError(
+          "LOCK_IO_ERROR",
+          "lock directory hierarchy cannot be created",
+          { cause: error51 }
+        );
+      }
+    }
+    await inspectDirectory(current);
+  }
+}
+function validateOwner(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is malformed");
+  }
+  const record2 = value;
+  if (Object.keys(record2).length !== 3 || typeof record2.token !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+    record2.token
+  ) || !Number.isSafeInteger(record2.pid) || record2.pid <= 0 || typeof record2.createdAt !== "string") {
+    throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is malformed");
+  }
+  const createdAtMs = Date.parse(record2.createdAt);
+  if (!Number.isFinite(createdAtMs) || new Date(createdAtMs).toISOString() !== record2.createdAt) {
+    throw new CommitLockError(
+      "UNSAFE_LOCK_PATH",
+      "lock owner has an invalid creation time"
+    );
+  }
+  return {
+    token: record2.token,
+    pid: record2.pid,
+    createdAt: record2.createdAt
+  };
+}
+async function safelyOpenOwner(ownerPath) {
+  try {
+    return await open2(
+      ownerPath,
+      process.platform === "win32" ? "r" : constants2.O_RDONLY | constants2.O_NOFOLLOW
+    );
+  } catch (error51) {
+    throw new CommitLockError("LOCK_IO_ERROR", "lock owner cannot be opened", {
+      cause: error51
+    });
+  }
+}
+async function readOwner(lockDirectory) {
+  const ownerPath = path4.join(lockDirectory, OWNER_FILE);
+  let linkStats;
+  try {
+    linkStats = await lstat2(ownerPath);
+  } catch (error51) {
+    if (isNodeErrorWithCode(error51, "ENOENT")) return null;
+    throw new CommitLockError("LOCK_IO_ERROR", "lock owner cannot be inspected", {
+      cause: error51
+    });
+  }
+  if (linkStats.isSymbolicLink() || !linkStats.isFile() || linkStats.nlink !== 1 || linkStats.size > MAX_OWNER_BYTES) {
+    throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is not a safe file");
+  }
+  const handle = await safelyOpenOwner(ownerPath);
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile() || stats.nlink !== 1 || stats.size > MAX_OWNER_BYTES) {
+      throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is not a safe file");
+    }
+    const bytes = await handle.readFile();
+    if (bytes.byteLength > MAX_OWNER_BYTES) {
+      throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is too large");
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(bytes.toString("utf8"));
+    } catch (error51) {
+      throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is not valid JSON", {
+        cause: error51
+      });
+    }
+    return validateOwner(parsed);
+  } finally {
+    await handle.close();
+  }
+}
+async function snapshotLock(lockDirectory) {
+  const stats = await inspectDirectory(lockDirectory);
+  const owner = await readOwner(lockDirectory);
+  return { stats, owner };
+}
+async function writeOwner(lockDirectory, owner) {
+  const temporaryPath = path4.join(lockDirectory, `.owner-${owner.token}.tmp`);
+  const ownerPath = path4.join(lockDirectory, OWNER_FILE);
+  let handle;
+  try {
+    handle = await open2(temporaryPath, "wx", 384);
+    await handle.writeFile(`${JSON.stringify(owner)}
+`, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = void 0;
+    await rename(temporaryPath, ownerPath);
+    const stored = await readOwner(lockDirectory);
+    if (stored === null || stored.token !== owner.token || stored.pid !== owner.pid || stored.createdAt !== owner.createdAt) {
+      throw new CommitLockError(
+        "LOCK_OWNERSHIP_LOST",
+        "lock owner changed while it was being created"
+      );
+    }
+  } catch (error51) {
+    if (error51 instanceof CommitLockError) throw error51;
+    throw new CommitLockError("LOCK_IO_ERROR", "lock owner cannot be written", {
+      cause: error51
+    });
+  } finally {
+    if (handle !== void 0) await handle.close().catch(() => void 0);
+    await rm(temporaryPath, { force: true }).catch(() => void 0);
+  }
+}
+function sameDirectory(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+function sameOwner(left, right) {
+  if (left === null || right === null) return left === right;
+  return left.token === right.token && left.pid === right.pid && left.createdAt === right.createdAt;
+}
+function isTransientRenameError(error51) {
+  return isNodeErrorWithCode(error51, "EPERM") || isNodeErrorWithCode(error51, "EBUSY");
+}
+async function delay(milliseconds) {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+async function verifyLockStillMatches(lockDirectory, expected) {
+  let current;
+  try {
+    current = await snapshotLock(lockDirectory);
+  } catch (error51) {
+    if (hasNodeErrorWithCode(error51, "ENOENT")) return false;
+    throw error51;
+  }
+  if (!sameDirectory(expected.stats, current.stats)) {
+    throw new CommitLockError(
+      "UNSAFE_LOCK_PATH",
+      "lock directory identity changed before an atomic transition"
+    );
+  }
+  if (!sameOwner(expected.owner, current.owner)) {
+    throw new CommitLockError(
+      "LOCK_OWNERSHIP_LOST",
+      "lock owner changed before an atomic transition"
+    );
+  }
+  return true;
+}
+function processMayStillBeAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error51) {
+    return !isNodeErrorWithCode(error51, "ESRCH");
+  }
+}
+function isStale(snapshot, staleAfterMs, now) {
+  if (snapshot.owner !== null && processMayStillBeAlive(snapshot.owner.pid)) {
+    return false;
+  }
+  const timestamp = snapshot.owner === null ? snapshot.stats.mtimeMs : Date.parse(snapshot.owner.createdAt);
+  return now - timestamp >= staleAfterMs;
+}
+async function restoreUnexpectedDirectory(quarantinePath, lockDirectory) {
+  try {
+    await rename(quarantinePath, lockDirectory);
+  } catch (error51) {
+    throw new CommitLockError(
+      "UNSAFE_LOCK_PATH",
+      "lock identity changed and its directory could not be restored",
+      { cause: error51 }
+    );
+  }
+  throw new CommitLockError(
+    "UNSAFE_LOCK_PATH",
+    "lock identity changed during an atomic transition"
+  );
+}
+async function renameVerifiedAndRemove(lockDirectory, snapshot, transition) {
+  const quarantinePath = `${lockDirectory}.${transition}-${randomUUID()}`;
+  for (let attempt = 0; ; attempt += 1) {
+    if (!await verifyLockStillMatches(lockDirectory, snapshot)) return false;
+    try {
+      await rename(lockDirectory, quarantinePath);
+      break;
+    } catch (error51) {
+      if (isNodeErrorWithCode(error51, "ENOENT")) return false;
+      if (isTransientRenameError(error51)) {
+        const retryDelayMs = TRANSIENT_RENAME_RETRY_DELAYS_MS[attempt];
+        if (retryDelayMs !== void 0) {
+          await delay(retryDelayMs);
+          continue;
+        }
+      }
+      throw new CommitLockError(
+        "LOCK_IO_ERROR",
+        "lock cannot be renamed safely",
+        { cause: error51 }
+      );
+    }
+  }
+  let moved;
+  try {
+    moved = await snapshotLock(quarantinePath);
+  } catch (error51) {
+    return restoreUnexpectedDirectory(quarantinePath, lockDirectory);
+  }
+  if (!sameDirectory(snapshot.stats, moved.stats) || !sameOwner(snapshot.owner, moved.owner)) {
+    return restoreUnexpectedDirectory(quarantinePath, lockDirectory);
+  }
+  try {
+    await rm(quarantinePath, { recursive: true });
+  } catch (error51) {
+    throw new CommitLockError("LOCK_IO_ERROR", "renamed lock cannot be removed", {
+      cause: error51
+    });
+  }
+  return true;
+}
+async function reclaimIfStale(lockDirectory, staleAfterMs) {
+  const snapshot = await snapshotLock(lockDirectory);
+  if (!isStale(snapshot, staleAfterMs, Date.now())) return false;
+  return renameVerifiedAndRemove(lockDirectory, snapshot, "stale");
+}
+function throwIfAborted(signal) {
+  if (signal?.aborted !== true) return;
+  const options = signal.reason === void 0 ? void 0 : { cause: signal.reason };
+  throw new CommitLockError("LOCK_ABORTED", "commit lock acquisition was aborted", options);
+}
+async function abortableDelay(milliseconds, signal) {
+  throwIfAborted(signal);
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      const options = signal?.reason === void 0 ? void 0 : { cause: signal.reason };
+      reject(
+        new CommitLockError(
+          "LOCK_ABORTED",
+          "commit lock acquisition was aborted",
+          options
+        )
+      );
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+async function cleanFailedAcquisition(lockDirectory, token) {
+  let snapshot;
+  try {
+    snapshot = await snapshotLock(lockDirectory);
+  } catch {
+    return;
+  }
+  if (snapshot.owner?.token !== token) return;
+  await renameVerifiedAndRemove(lockDirectory, snapshot, "release");
+}
+async function acquireCommitLock(options) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_COMMIT_LOCK_TIMEOUT_MS;
+  const retryDelayMs = options.retryDelayMs ?? DEFAULT_COMMIT_LOCK_RETRY_DELAY_MS;
+  const staleAfterMs = options.staleAfterMs ?? DEFAULT_COMMIT_LOCK_STALE_AFTER_MS;
+  validateMilliseconds(timeoutMs, "timeoutMs", 0);
+  validateMilliseconds(retryDelayMs, "retryDelayMs", 1);
+  validateMilliseconds(staleAfterMs, "staleAfterMs", 1);
+  const lockDirectory = commitLockPath(
+    options.dataDirectory,
+    options.vault,
+    options.notePath,
+    options.caseSensitive ?? true
+  );
+  const lockRoot = path4.dirname(lockDirectory);
+  throwIfAborted(options.signal);
+  await ensureSafeDirectoryChain(options.dataDirectory);
+  await ensureSafeDirectoryChain(lockRoot);
+  throwIfAborted(options.signal);
+  const deadline = Date.now() + timeoutMs;
+  for (; ; ) {
+    throwIfAborted(options.signal);
+    await inspectDirectory(lockRoot);
+    let acquired = false;
+    try {
+      await mkdir(lockDirectory, { mode: 448 });
+      acquired = true;
+    } catch (error51) {
+      if (!isNodeErrorWithCode(error51, "EEXIST")) {
+        throw new CommitLockError("LOCK_IO_ERROR", "commit lock cannot be created", {
+          cause: error51
+        });
+      }
+    }
+    if (acquired) {
+      const owner = {
+        token: randomUUID(),
+        pid: process.pid,
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      try {
+        await writeOwner(lockDirectory, owner);
+        throwIfAborted(options.signal);
+      } catch (error51) {
+        await cleanFailedAcquisition(lockDirectory, owner.token).catch(
+          () => void 0
+        );
+        throw error51;
+      }
+      let released = false;
+      return {
+        key: deriveCommitLockKey(
+          options.vault,
+          options.notePath,
+          options.caseSensitive ?? true
+        ),
+        async release() {
+          if (released) return;
+          const snapshot = await snapshotLock(lockDirectory);
+          if (snapshot.owner?.token !== owner.token) {
+            throw new CommitLockError(
+              "LOCK_OWNERSHIP_LOST",
+              "commit lock is no longer owned by this handle"
+            );
+          }
+          const removed = await renameVerifiedAndRemove(
+            lockDirectory,
+            snapshot,
+            "release"
+          );
+          if (!removed) {
+            throw new CommitLockError(
+              "LOCK_OWNERSHIP_LOST",
+              "commit lock disappeared before release"
+            );
+          }
+          released = true;
+        }
+      };
+    }
+    let reclaimed = false;
+    try {
+      reclaimed = await reclaimIfStale(lockDirectory, staleAfterMs);
+    } catch (error51) {
+      if (hasNodeErrorWithCode(error51, "ENOENT")) continue;
+      throw error51;
+    }
+    if (reclaimed) continue;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new CommitLockError(
+        "LOCK_TIMEOUT",
+        `commit lock was not acquired within ${timeoutMs} ms`
+      );
+    }
+    await abortableDelay(Math.min(retryDelayMs, remaining), options.signal);
+  }
+}
+async function withCommitLock(options, operation) {
+  const lock = await acquireCommitLock(options);
+  let result;
+  try {
+    result = await operation();
+  } catch (operationError) {
+    await lock.release().catch(() => void 0);
+    throw operationError;
+  }
+  try {
+    await lock.release();
+  } catch (error51) {
+    const releaseError = error51 instanceof CommitLockError ? error51 : new CommitLockError(
+      "LOCK_IO_ERROR",
+      "commit lock could not be released after the operation completed",
+      { cause: error51 }
+    );
+    throw new CommitLockReleaseAfterOperationError(result, releaseError);
+  }
+  return result;
+}
+
+// src/management-protocol.ts
+var MANAGEMENT_PROTOCOL_VERSION = 1;
+var MAX_MANAGEMENT_REQUEST_BYTES = 1048576;
+
+// src/physical-scope.ts
+import { lstat as lstat3, realpath } from "node:fs/promises";
+import path5 from "node:path";
 var CONTROL_CHARACTERS3 = /[\u0000-\u001f\u007f]/u;
 var WINDOWS_DRIVE_PREFIX2 = /^[a-zA-Z]:/u;
 var PhysicalScopeError = class extends Error {
@@ -31979,8 +32554,8 @@ function isMissingError(error51) {
   return typeof error51 === "object" && error51 !== null && "code" in error51 && error51.code === "ENOENT";
 }
 function assertContained(root, candidate) {
-  const relative = path4.relative(root, candidate);
-  if (relative === "" || !path4.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path4.sep}`)) {
+  const relative = path5.relative(root, candidate);
+  if (relative === "" || !path5.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path5.sep}`)) {
     return;
   }
   throw new PhysicalScopeError("path resolves outside the physical vault root");
@@ -31996,7 +32571,7 @@ function normalizeRelativePath2(value) {
     throw new PhysicalScopeError("path contains control characters");
   }
   const normalizedSeparators = value.replaceAll("\\", "/");
-  if (path4.isAbsolute(value) || path4.posix.isAbsolute(normalizedSeparators) || path4.win32.isAbsolute(value) || WINDOWS_DRIVE_PREFIX2.test(value)) {
+  if (path5.isAbsolute(value) || path5.posix.isAbsolute(normalizedSeparators) || path5.win32.isAbsolute(value) || WINDOWS_DRIVE_PREFIX2.test(value)) {
     throw new PhysicalScopeError("path must be relative to the vault");
   }
   const segments = normalizedSeparators.split("/");
@@ -32009,7 +32584,7 @@ function normalizeRelativePath2(value) {
   return segments;
 }
 async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
-  if (typeof vaultRoot !== "string" || !path4.isAbsolute(vaultRoot)) {
+  if (typeof vaultRoot !== "string" || !path5.isAbsolute(vaultRoot)) {
     throw new PhysicalScopeError("vault root must be an absolute path");
   }
   let physicalRoot;
@@ -32022,7 +32597,7 @@ async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
   }
   let rootStats;
   try {
-    rootStats = await lstat2(physicalRoot);
+    rootStats = await lstat3(physicalRoot);
   } catch (error51) {
     throw new PhysicalScopeError("vault root cannot be inspected", {
       cause: error51
@@ -32032,7 +32607,7 @@ async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
     throw new PhysicalScopeError("vault root must be a directory");
   }
   const segments = normalizeRelativePath2(relativePath);
-  const lexicalTarget = path4.resolve(physicalRoot, ...segments);
+  const lexicalTarget = path5.resolve(physicalRoot, ...segments);
   assertContained(physicalRoot, lexicalTarget);
   let current = physicalRoot;
   for (let index = 0; index < segments.length; index += 1) {
@@ -32040,10 +32615,10 @@ async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
     if (segment === void 0) {
       throw new PhysicalScopeError("path contains an invalid segment");
     }
-    const candidate = path4.join(current, segment);
+    const candidate = path5.join(current, segment);
     let candidateStats;
     try {
-      candidateStats = await lstat2(candidate);
+      candidateStats = await lstat3(candidate);
     } catch (error51) {
       if (isMissingError(error51)) {
         if (!options.allowMissingLeaf) {
@@ -32079,338 +32654,6 @@ async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
   }
   assertContained(physicalRoot, physicalTarget);
   return physicalTarget;
-}
-
-// src/shared-settings.ts
-import { lstat as lstat3, open as open2 } from "node:fs/promises";
-import { constants as constants2 } from "node:fs";
-import { isAbsolute } from "node:path";
-var MAX_SETTINGS_BYTES = 65536;
-var VaultName = external_exports.string().min(1).max(256).refine((value) => value === value.trim().normalize("NFC"), {
-  message: "vault name must be trimmed and NFC-normalized"
-}).refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), {
-  message: "vault name contains control characters"
-});
-var Folder = external_exports.string().min(1).max(1024);
-var VaultId = external_exports.string().regex(/^[0-9a-f]{16}$/u, "vault ID must be the 16-character Obsidian ID");
-var VaultPath = external_exports.string().min(1).max(4096).refine((value) => isAbsolute(value), {
-  message: "vault path must be absolute"
-}).refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), {
-  message: "vault path contains control characters"
-});
-var LegacyVaultSettingsSchema = external_exports.object({
-  vaultName: VaultName,
-  vaultPath: VaultPath,
-  enabled: external_exports.boolean(),
-  readMode: external_exports.enum(["off", "all", "folders"]),
-  readFolders: external_exports.array(Folder).max(256),
-  writeEnabled: external_exports.boolean(),
-  writeFolders: external_exports.array(Folder).max(256)
-}).strict();
-var VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
-  accessMode: external_exports.enum(["protected", "full"])
-}).strict();
-var SharedSettingsFields = {
-  updatedAt: external_exports.string().min(1).max(64).refine((value) => Number.isFinite(Date.parse(value)), {
-    message: "updatedAt must be a valid date-time"
-  })
-};
-var LegacySharedSettingsSchema = external_exports.object({
-  version: external_exports.literal(2),
-  ...SharedSettingsFields,
-  vaults: external_exports.record(VaultId, LegacyVaultSettingsSchema)
-}).strict().superRefine((value, context) => {
-  if (Object.keys(value.vaults).length > 256) {
-    context.addIssue({
-      code: "custom",
-      path: ["vaults"],
-      message: "at most 256 vault entries are allowed"
-    });
-  }
-});
-var SharedSettingsSchema = external_exports.object({
-  version: external_exports.literal(3),
-  ...SharedSettingsFields,
-  vaults: external_exports.record(VaultId, VaultSettingsSchema)
-}).strict().superRefine((value, context) => {
-  if (Object.keys(value.vaults).length > 256) {
-    context.addIssue({
-      code: "custom",
-      path: ["vaults"],
-      message: "at most 256 vault entries are allowed"
-    });
-  }
-});
-var SharedSettingsError = class extends Error {
-  code = "INVALID_SHARED_SETTINGS";
-  constructor(message, options) {
-    super(message, options);
-    this.name = "SharedSettingsError";
-  }
-};
-function validatePolicyFolders(settings) {
-  try {
-    for (const entry of Object.values(settings.vaults)) {
-      createWritablePathPolicy({ allowedFolders: entry.readFolders });
-      createWritablePathPolicy({ allowedFolders: entry.writeFolders });
-      for (const folders of [entry.readFolders, entry.writeFolders]) {
-        const normalized = folders.map((folder) => normalizeRelativeFolder(folder));
-        if (normalized.some((folder, index) => folder !== folders[index]) || new Set(normalized).size !== normalized.length) {
-          throw new Error("policy folders must be normalized and unique");
-        }
-      }
-    }
-  } catch (error51) {
-    throw new SharedSettingsError("shared settings contain an invalid folder", {
-      cause: error51
-    });
-  }
-}
-async function readSharedSettings(settingsPath) {
-  try {
-    const linkStats = await lstat3(settingsPath);
-    if (linkStats.isSymbolicLink()) {
-      throw new SharedSettingsError(
-        "shared settings path must not be a symbolic link"
-      );
-    }
-  } catch (error51) {
-    if (error51 !== null && typeof error51 === "object" && "code" in error51 && error51.code === "ENOENT") {
-      return { status: "absent" };
-    }
-    if (error51 instanceof SharedSettingsError) throw error51;
-    throw new SharedSettingsError("shared settings cannot be inspected", {
-      cause: error51
-    });
-  }
-  let handle;
-  try {
-    handle = await open2(
-      settingsPath,
-      process.platform === "win32" ? "r" : constants2.O_RDONLY | constants2.O_NOFOLLOW
-    );
-  } catch (error51) {
-    if (error51 !== null && typeof error51 === "object" && "code" in error51 && error51.code === "ENOENT") {
-      return { status: "absent" };
-    }
-    throw new SharedSettingsError("shared settings cannot be read", {
-      cause: error51
-    });
-  }
-  try {
-    const stats = await handle.stat();
-    if (!stats.isFile()) {
-      throw new SharedSettingsError("shared settings path is not a file");
-    }
-    if (stats.size > MAX_SETTINGS_BYTES) {
-      throw new SharedSettingsError(
-        `shared settings exceed ${MAX_SETTINGS_BYTES} bytes`
-      );
-    }
-    const bytes = await handle.readFile();
-    if (bytes.byteLength > MAX_SETTINGS_BYTES) {
-      throw new SharedSettingsError(
-        `shared settings exceed ${MAX_SETTINGS_BYTES} bytes`
-      );
-    }
-    let decoded;
-    try {
-      decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    } catch (error51) {
-      throw new SharedSettingsError("shared settings are not valid UTF-8", {
-        cause: error51
-      });
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(decoded);
-    } catch (error51) {
-      throw new SharedSettingsError("shared settings are not valid JSON", {
-        cause: error51
-      });
-    }
-    const current = SharedSettingsSchema.safeParse(parsed);
-    const legacy = current.success ? void 0 : LegacySharedSettingsSchema.safeParse(parsed);
-    if (!current.success && (legacy === void 0 || !legacy.success)) {
-      throw new SharedSettingsError("shared settings do not match schema", {
-        cause: current.error
-      });
-    }
-    let settings;
-    if (current.success) {
-      settings = current.data;
-    } else if (legacy?.success) {
-      settings = {
-        version: 3,
-        updatedAt: legacy.data.updatedAt,
-        vaults: Object.fromEntries(
-          Object.entries(legacy.data.vaults).map(([vaultId, entry]) => [
-            vaultId,
-            { ...entry, accessMode: "protected" }
-          ])
-        )
-      };
-    } else {
-      throw new SharedSettingsError("shared settings do not match schema");
-    }
-    validatePolicyFolders(settings);
-    return { status: "loaded", settings };
-  } catch (error51) {
-    if (error51 instanceof SharedSettingsError) throw error51;
-    throw new SharedSettingsError("shared settings cannot be read", {
-      cause: error51
-    });
-  } finally {
-    await handle.close();
-  }
-}
-function denyPolicy(deniedFolders) {
-  return createWritablePathPolicy({ allowedFolders: [], deniedFolders });
-}
-function accessFromEntry(vaultId, entry, deniedFolders) {
-  const fullAccess = entry.enabled && entry.accessMode === "full";
-  const readPolicy = fullAccess || entry.enabled && entry.readMode === "all" ? createPathPolicy({ allowedFolders: null, deniedFolders }) : entry.enabled && entry.readMode === "folders" ? createWritablePathPolicy({
-    allowedFolders: entry.readFolders,
-    deniedFolders
-  }) : denyPolicy(deniedFolders);
-  const writeEnabled = fullAccess || entry.enabled && entry.writeEnabled;
-  const writablePolicy = fullAccess ? createPathPolicy({
-    allowedFolders: null,
-    deniedFolders,
-    caseSensitive: readPolicy.caseSensitive
-  }) : writeEnabled ? createWritablePathPolicy({
-    allowedFolders: entry.writeFolders,
-    deniedFolders,
-    caseSensitive: readPolicy.caseSensitive
-  }) : denyPolicy(deniedFolders);
-  return Object.freeze({
-    readPolicy,
-    writablePolicy,
-    writeEnabled,
-    accessMode: fullAccess ? "full" : "protected",
-    vaultSelector: vaultId,
-    vaultName: entry.vaultName,
-    vaultPath: entry.vaultPath,
-    source: "settings"
-  });
-}
-function unconfiguredSettingsAccess(vault, deniedFolders) {
-  return Object.freeze({
-    readPolicy: denyPolicy(deniedFolders),
-    writablePolicy: denyPolicy(deniedFolders),
-    writeEnabled: false,
-    accessMode: "protected",
-    vaultSelector: vault,
-    vaultName: vault,
-    source: "settings"
-  });
-}
-function environmentAccess(vault, options) {
-  const readPolicy = options.environmentReadConfigured === true ? createPathPolicy({
-    allowedFolders: options.allowedFolders,
-    deniedFolders: options.deniedFolders
-  }) : denyPolicy(options.deniedFolders);
-  const writeEnabled = options.writableVaults.includes(vault);
-  const writablePolicy = writeEnabled ? createWritablePathPolicy({
-    allowedFolders: options.writableFolders,
-    deniedFolders: options.deniedFolders,
-    caseSensitive: readPolicy.caseSensitive
-  }) : denyPolicy(options.deniedFolders);
-  return Object.freeze({
-    readPolicy,
-    writablePolicy,
-    writeEnabled,
-    accessMode: "protected",
-    vaultSelector: vault,
-    vaultName: vault,
-    source: "environment"
-  });
-}
-function createVaultAccessResolver(options) {
-  const loader = options.readSettings ?? readSharedSettings;
-  return async (vault) => {
-    const snapshot = await loader(options.settingsPath);
-    if (snapshot.status === "loaded") {
-      const normalizedId = /^[0-9a-f]{16}$/iu.test(vault) ? vault.toLowerCase() : void 0;
-      if (normalizedId !== void 0 && Object.hasOwn(snapshot.settings.vaults, normalizedId)) {
-        return accessFromEntry(
-          normalizedId,
-          snapshot.settings.vaults[normalizedId],
-          options.deniedFolders
-        );
-      }
-      const namedEntries = Object.entries(snapshot.settings.vaults).filter(
-        ([, entry]) => entry.vaultName === vault
-      );
-      if (namedEntries.length === 1) {
-        const [vaultId, entry] = namedEntries[0];
-        return accessFromEntry(vaultId, entry, options.deniedFolders);
-      }
-      if (namedEntries.length > 1) {
-        throw new SharedSettingsError(
-          `vault name is ambiguous; use its stable Obsidian ID: ${vault}`
-        );
-      }
-      return unconfiguredSettingsAccess(vault, options.deniedFolders);
-    }
-    return environmentAccess(vault, options);
-  };
-}
-function createConfigAccessResolver(config2) {
-  if (config2.settingsPath === void 0) {
-    throw new Error("BridgeConfig.settingsPath is required for shared settings");
-  }
-  return createVaultAccessResolver({
-    settingsPath: config2.settingsPath,
-    allowedFolders: config2.allowedFolders,
-    environmentReadConfigured: config2.readEnvironmentConfigured ?? false,
-    deniedFolders: config2.deniedFolders,
-    writableVaults: config2.writableVaults ?? [],
-    writableFolders: config2.writableFolders ?? []
-  });
-}
-
-// src/vault-identity.ts
-import { realpath as realpath2 } from "node:fs/promises";
-import path5 from "node:path";
-function comparisonKey2(value) {
-  const normalized = path5.normalize(value).replace(/[\\/]+$/u, "");
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-function parseVaultPath(output) {
-  const trimmed = output.trim();
-  if (trimmed.length === 0 || /[\r\n]/u.test(trimmed)) {
-    throw new Error("Obsidian CLI returned an invalid vault path");
-  }
-  if (!path5.isAbsolute(trimmed) || /[\u0000-\u001f\u007f]/u.test(trimmed)) {
-    throw new Error("Obsidian CLI returned a non-absolute vault path");
-  }
-  return trimmed;
-}
-async function assertVaultIdentity(runner, access, options = {}) {
-  if (access.source !== "settings" || access.vaultPath === void 0) return;
-  const result = await runner(
-    buildVaultArgs(access.vaultSelector, "vault", ["info=path"]),
-    options
-  );
-  const actualPath = parseVaultPath(result.stdout);
-  let expectedReal;
-  let actualReal;
-  try {
-    [expectedReal, actualReal] = await Promise.all([
-      realpath2(access.vaultPath),
-      realpath2(actualPath)
-    ]);
-  } catch (error51) {
-    throw new Error("The configured Obsidian vault path cannot be verified", {
-      cause: error51
-    });
-  }
-  if (comparisonKey2(expectedReal) !== comparisonKey2(actualReal)) {
-    throw new Error(
-      "Obsidian vault identity mismatch; reopen Bridge Control and save the vault configuration again"
-    );
-  }
 }
 
 // src/tool-helpers.ts
@@ -32565,472 +32808,53 @@ function parseVaultList(output) {
   return result;
 }
 
+// src/vault-identity.ts
+import { realpath as realpath2 } from "node:fs/promises";
+import path6 from "node:path";
+function comparisonKey2(value) {
+  const normalized = path6.normalize(value).replace(/[\\/]+$/u, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function parseVaultPath(output) {
+  const trimmed = output.trim();
+  if (trimmed.length === 0 || /[\r\n]/u.test(trimmed)) {
+    throw new Error("Obsidian CLI returned an invalid vault path");
+  }
+  if (!path6.isAbsolute(trimmed) || /[\u0000-\u001f\u007f]/u.test(trimmed)) {
+    throw new Error("Obsidian CLI returned a non-absolute vault path");
+  }
+  return trimmed;
+}
+async function assertVaultIdentity(runner, access, options = {}) {
+  if (access.source !== "settings" || access.vaultPath === void 0) return;
+  const result = await runner(
+    buildVaultArgs(access.vaultSelector, "vault", ["info=path"]),
+    options
+  );
+  const actualPath = parseVaultPath(result.stdout);
+  let expectedReal;
+  let actualReal;
+  try {
+    [expectedReal, actualReal] = await Promise.all([
+      realpath2(access.vaultPath),
+      realpath2(actualPath)
+    ]);
+  } catch (error51) {
+    throw new Error("The configured Obsidian vault path cannot be verified", {
+      cause: error51
+    });
+  }
+  if (comparisonKey2(expectedReal) !== comparisonKey2(actualReal)) {
+    throw new Error(
+      "Obsidian vault identity mismatch; reopen Bridge Control and save the vault configuration again"
+    );
+  }
+}
+
 // src/write-workflow.ts
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
 import { chmod, mkdir as mkdir2, readdir, unlink, writeFile, appendFile } from "node:fs/promises";
 import path7 from "node:path";
-
-// src/commit-lock.ts
-import { createHash, randomUUID } from "node:crypto";
-import { constants as constants3 } from "node:fs";
-import {
-  lstat as lstat4,
-  mkdir,
-  open as open3,
-  rename,
-  rm
-} from "node:fs/promises";
-import path6 from "node:path";
-var LOCKS_DIRECTORY = "commit-locks";
-var OWNER_FILE = "owner.json";
-var MAX_OWNER_BYTES = 4096;
-var DEFAULT_COMMIT_LOCK_TIMEOUT_MS = 1e4;
-var DEFAULT_COMMIT_LOCK_RETRY_DELAY_MS = 50;
-var DEFAULT_COMMIT_LOCK_STALE_AFTER_MS = 10 * 6e4;
-var CommitLockError = class extends Error {
-  constructor(code, message, options) {
-    super(message, options);
-    this.code = code;
-    this.name = "CommitLockError";
-  }
-  code;
-};
-var CommitLockReleaseAfterOperationError = class extends CommitLockError {
-  constructor(operationResult, releaseError) {
-    super(
-      releaseError.code,
-      "commit operation completed but its lock could not be released cleanly",
-      { cause: releaseError }
-    );
-    this.operationResult = operationResult;
-    this.releaseError = releaseError;
-    this.name = "CommitLockReleaseAfterOperationError";
-  }
-  operationResult;
-  releaseError;
-};
-function isNodeErrorWithCode(error51, code) {
-  return typeof error51 === "object" && error51 !== null && "code" in error51 && error51.code === code;
-}
-function hasNodeErrorWithCode(error51, code) {
-  let current = error51;
-  for (let depth = 0; depth < 4; depth += 1) {
-    if (isNodeErrorWithCode(current, code)) return true;
-    if (typeof current !== "object" || current === null || !("cause" in current)) {
-      return false;
-    }
-    current = current.cause;
-  }
-  return false;
-}
-function invalidOption(message) {
-  throw new CommitLockError("INVALID_LOCK_OPTIONS", message);
-}
-function validateIdentityPart(value, name) {
-  if (typeof value !== "string" || value.length === 0) {
-    invalidOption(`${name} must be a non-empty string`);
-  }
-  if (value.includes("\0")) {
-    invalidOption(`${name} must not contain NUL characters`);
-  }
-}
-function validateMilliseconds(value, name, minimum) {
-  if (!Number.isSafeInteger(value) || value < minimum) {
-    invalidOption(`${name} must be a safe integer greater than or equal to ${minimum}`);
-  }
-}
-function deriveCommitLockKey(vault, notePath, caseSensitive = true) {
-  validateIdentityPart(vault, "vault");
-  validateIdentityPart(notePath, "notePath");
-  const pathKey = caseSensitive ? notePath.normalize("NFC") : notePath.normalize("NFC").toLocaleLowerCase("en-US");
-  return createHash("sha256").update(vault, "utf8").update("\0", "utf8").update(pathKey, "utf8").digest("hex");
-}
-function commitLockPath(dataDirectory, vault, notePath, caseSensitive = true) {
-  if (typeof dataDirectory !== "string" || !path6.isAbsolute(dataDirectory)) {
-    invalidOption("dataDirectory must be an absolute path");
-  }
-  return path6.join(
-    path6.resolve(dataDirectory),
-    LOCKS_DIRECTORY,
-    `${deriveCommitLockKey(vault, notePath, caseSensitive)}.lock`
-  );
-}
-async function inspectDirectory(directory) {
-  let stats;
-  try {
-    stats = await lstat4(directory);
-  } catch (error51) {
-    throw new CommitLockError("LOCK_IO_ERROR", "lock directory cannot be inspected", {
-      cause: error51
-    });
-  }
-  if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw new CommitLockError(
-      "UNSAFE_LOCK_PATH",
-      "lock path is not a real directory"
-    );
-  }
-  return stats;
-}
-async function ensureSafeDirectoryChain(directory) {
-  if (!path6.isAbsolute(directory)) {
-    invalidOption("dataDirectory must be an absolute path");
-  }
-  const normalized = path6.resolve(directory);
-  const root = path6.parse(normalized).root;
-  const relative = path6.relative(root, normalized);
-  const segments = relative === "" ? [] : relative.split(path6.sep);
-  let current = root;
-  await inspectDirectory(root);
-  for (const segment of segments) {
-    current = path6.join(current, segment);
-    try {
-      await mkdir(current, { mode: 448 });
-    } catch (error51) {
-      if (!isNodeErrorWithCode(error51, "EEXIST")) {
-        throw new CommitLockError(
-          "LOCK_IO_ERROR",
-          "lock directory hierarchy cannot be created",
-          { cause: error51 }
-        );
-      }
-    }
-    await inspectDirectory(current);
-  }
-}
-function validateOwner(value) {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is malformed");
-  }
-  const record2 = value;
-  if (Object.keys(record2).length !== 3 || typeof record2.token !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-    record2.token
-  ) || !Number.isSafeInteger(record2.pid) || record2.pid <= 0 || typeof record2.createdAt !== "string") {
-    throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is malformed");
-  }
-  const createdAtMs = Date.parse(record2.createdAt);
-  if (!Number.isFinite(createdAtMs) || new Date(createdAtMs).toISOString() !== record2.createdAt) {
-    throw new CommitLockError(
-      "UNSAFE_LOCK_PATH",
-      "lock owner has an invalid creation time"
-    );
-  }
-  return {
-    token: record2.token,
-    pid: record2.pid,
-    createdAt: record2.createdAt
-  };
-}
-async function safelyOpenOwner(ownerPath) {
-  try {
-    return await open3(
-      ownerPath,
-      process.platform === "win32" ? "r" : constants3.O_RDONLY | constants3.O_NOFOLLOW
-    );
-  } catch (error51) {
-    throw new CommitLockError("LOCK_IO_ERROR", "lock owner cannot be opened", {
-      cause: error51
-    });
-  }
-}
-async function readOwner(lockDirectory) {
-  const ownerPath = path6.join(lockDirectory, OWNER_FILE);
-  let linkStats;
-  try {
-    linkStats = await lstat4(ownerPath);
-  } catch (error51) {
-    if (isNodeErrorWithCode(error51, "ENOENT")) return null;
-    throw new CommitLockError("LOCK_IO_ERROR", "lock owner cannot be inspected", {
-      cause: error51
-    });
-  }
-  if (linkStats.isSymbolicLink() || !linkStats.isFile() || linkStats.nlink !== 1 || linkStats.size > MAX_OWNER_BYTES) {
-    throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is not a safe file");
-  }
-  const handle = await safelyOpenOwner(ownerPath);
-  try {
-    const stats = await handle.stat();
-    if (!stats.isFile() || stats.nlink !== 1 || stats.size > MAX_OWNER_BYTES) {
-      throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is not a safe file");
-    }
-    const bytes = await handle.readFile();
-    if (bytes.byteLength > MAX_OWNER_BYTES) {
-      throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is too large");
-    }
-    let parsed;
-    try {
-      parsed = JSON.parse(bytes.toString("utf8"));
-    } catch (error51) {
-      throw new CommitLockError("UNSAFE_LOCK_PATH", "lock owner is not valid JSON", {
-        cause: error51
-      });
-    }
-    return validateOwner(parsed);
-  } finally {
-    await handle.close();
-  }
-}
-async function snapshotLock(lockDirectory) {
-  const stats = await inspectDirectory(lockDirectory);
-  const owner = await readOwner(lockDirectory);
-  return { stats, owner };
-}
-async function writeOwner(lockDirectory, owner) {
-  const temporaryPath = path6.join(lockDirectory, `.owner-${owner.token}.tmp`);
-  const ownerPath = path6.join(lockDirectory, OWNER_FILE);
-  let handle;
-  try {
-    handle = await open3(temporaryPath, "wx", 384);
-    await handle.writeFile(`${JSON.stringify(owner)}
-`, "utf8");
-    await handle.sync();
-    await handle.close();
-    handle = void 0;
-    await rename(temporaryPath, ownerPath);
-    const stored = await readOwner(lockDirectory);
-    if (stored === null || stored.token !== owner.token || stored.pid !== owner.pid || stored.createdAt !== owner.createdAt) {
-      throw new CommitLockError(
-        "LOCK_OWNERSHIP_LOST",
-        "lock owner changed while it was being created"
-      );
-    }
-  } catch (error51) {
-    if (error51 instanceof CommitLockError) throw error51;
-    throw new CommitLockError("LOCK_IO_ERROR", "lock owner cannot be written", {
-      cause: error51
-    });
-  } finally {
-    if (handle !== void 0) await handle.close().catch(() => void 0);
-    await rm(temporaryPath, { force: true }).catch(() => void 0);
-  }
-}
-function sameDirectory(left, right) {
-  return left.dev === right.dev && left.ino === right.ino;
-}
-function sameOwner(left, right) {
-  if (left === null || right === null) return left === right;
-  return left.token === right.token && left.pid === right.pid && left.createdAt === right.createdAt;
-}
-function processMayStillBeAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error51) {
-    return !isNodeErrorWithCode(error51, "ESRCH");
-  }
-}
-function isStale(snapshot, staleAfterMs, now) {
-  if (snapshot.owner !== null && processMayStillBeAlive(snapshot.owner.pid)) {
-    return false;
-  }
-  const timestamp = snapshot.owner === null ? snapshot.stats.mtimeMs : Date.parse(snapshot.owner.createdAt);
-  return now - timestamp >= staleAfterMs;
-}
-async function restoreUnexpectedDirectory(quarantinePath, lockDirectory) {
-  try {
-    await rename(quarantinePath, lockDirectory);
-  } catch (error51) {
-    throw new CommitLockError(
-      "UNSAFE_LOCK_PATH",
-      "lock identity changed and its directory could not be restored",
-      { cause: error51 }
-    );
-  }
-  throw new CommitLockError(
-    "UNSAFE_LOCK_PATH",
-    "lock identity changed during an atomic transition"
-  );
-}
-async function renameVerifiedAndRemove(lockDirectory, snapshot, transition) {
-  const quarantinePath = `${lockDirectory}.${transition}-${randomUUID()}`;
-  try {
-    await rename(lockDirectory, quarantinePath);
-  } catch (error51) {
-    if (isNodeErrorWithCode(error51, "ENOENT")) return false;
-    throw new CommitLockError("LOCK_IO_ERROR", "lock cannot be renamed safely", {
-      cause: error51
-    });
-  }
-  let moved;
-  try {
-    moved = await snapshotLock(quarantinePath);
-  } catch (error51) {
-    return restoreUnexpectedDirectory(quarantinePath, lockDirectory);
-  }
-  if (!sameDirectory(snapshot.stats, moved.stats) || !sameOwner(snapshot.owner, moved.owner)) {
-    return restoreUnexpectedDirectory(quarantinePath, lockDirectory);
-  }
-  try {
-    await rm(quarantinePath, { recursive: true });
-  } catch (error51) {
-    throw new CommitLockError("LOCK_IO_ERROR", "renamed lock cannot be removed", {
-      cause: error51
-    });
-  }
-  return true;
-}
-async function reclaimIfStale(lockDirectory, staleAfterMs) {
-  const snapshot = await snapshotLock(lockDirectory);
-  if (!isStale(snapshot, staleAfterMs, Date.now())) return false;
-  return renameVerifiedAndRemove(lockDirectory, snapshot, "stale");
-}
-function throwIfAborted(signal) {
-  if (signal?.aborted !== true) return;
-  const options = signal.reason === void 0 ? void 0 : { cause: signal.reason };
-  throw new CommitLockError("LOCK_ABORTED", "commit lock acquisition was aborted", options);
-}
-async function abortableDelay(milliseconds, signal) {
-  throwIfAborted(signal);
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, milliseconds);
-    const onAbort = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      const options = signal?.reason === void 0 ? void 0 : { cause: signal.reason };
-      reject(
-        new CommitLockError(
-          "LOCK_ABORTED",
-          "commit lock acquisition was aborted",
-          options
-        )
-      );
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-async function cleanFailedAcquisition(lockDirectory, token) {
-  let snapshot;
-  try {
-    snapshot = await snapshotLock(lockDirectory);
-  } catch {
-    return;
-  }
-  if (snapshot.owner?.token !== token) return;
-  await renameVerifiedAndRemove(lockDirectory, snapshot, "release");
-}
-async function acquireCommitLock(options) {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_COMMIT_LOCK_TIMEOUT_MS;
-  const retryDelayMs = options.retryDelayMs ?? DEFAULT_COMMIT_LOCK_RETRY_DELAY_MS;
-  const staleAfterMs = options.staleAfterMs ?? DEFAULT_COMMIT_LOCK_STALE_AFTER_MS;
-  validateMilliseconds(timeoutMs, "timeoutMs", 0);
-  validateMilliseconds(retryDelayMs, "retryDelayMs", 1);
-  validateMilliseconds(staleAfterMs, "staleAfterMs", 1);
-  const lockDirectory = commitLockPath(
-    options.dataDirectory,
-    options.vault,
-    options.notePath,
-    options.caseSensitive ?? true
-  );
-  const lockRoot = path6.dirname(lockDirectory);
-  throwIfAborted(options.signal);
-  await ensureSafeDirectoryChain(options.dataDirectory);
-  await ensureSafeDirectoryChain(lockRoot);
-  throwIfAborted(options.signal);
-  const deadline = Date.now() + timeoutMs;
-  for (; ; ) {
-    throwIfAborted(options.signal);
-    await inspectDirectory(lockRoot);
-    let acquired = false;
-    try {
-      await mkdir(lockDirectory, { mode: 448 });
-      acquired = true;
-    } catch (error51) {
-      if (!isNodeErrorWithCode(error51, "EEXIST")) {
-        throw new CommitLockError("LOCK_IO_ERROR", "commit lock cannot be created", {
-          cause: error51
-        });
-      }
-    }
-    if (acquired) {
-      const owner = {
-        token: randomUUID(),
-        pid: process.pid,
-        createdAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      try {
-        await writeOwner(lockDirectory, owner);
-        throwIfAborted(options.signal);
-      } catch (error51) {
-        await cleanFailedAcquisition(lockDirectory, owner.token).catch(
-          () => void 0
-        );
-        throw error51;
-      }
-      let released = false;
-      return {
-        key: deriveCommitLockKey(
-          options.vault,
-          options.notePath,
-          options.caseSensitive ?? true
-        ),
-        async release() {
-          if (released) return;
-          const snapshot = await snapshotLock(lockDirectory);
-          if (snapshot.owner?.token !== owner.token) {
-            throw new CommitLockError(
-              "LOCK_OWNERSHIP_LOST",
-              "commit lock is no longer owned by this handle"
-            );
-          }
-          const removed = await renameVerifiedAndRemove(
-            lockDirectory,
-            snapshot,
-            "release"
-          );
-          if (!removed) {
-            throw new CommitLockError(
-              "LOCK_OWNERSHIP_LOST",
-              "commit lock disappeared before release"
-            );
-          }
-          released = true;
-        }
-      };
-    }
-    let reclaimed = false;
-    try {
-      reclaimed = await reclaimIfStale(lockDirectory, staleAfterMs);
-    } catch (error51) {
-      if (hasNodeErrorWithCode(error51, "ENOENT")) continue;
-      throw error51;
-    }
-    if (reclaimed) continue;
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) {
-      throw new CommitLockError(
-        "LOCK_TIMEOUT",
-        `commit lock was not acquired within ${timeoutMs} ms`
-      );
-    }
-    await abortableDelay(Math.min(retryDelayMs, remaining), options.signal);
-  }
-}
-async function withCommitLock(options, operation) {
-  const lock = await acquireCommitLock(options);
-  let result;
-  try {
-    result = await operation();
-  } catch (operationError) {
-    await lock.release().catch(() => void 0);
-    throw operationError;
-  }
-  try {
-    await lock.release();
-  } catch (error51) {
-    const releaseError = error51 instanceof CommitLockError ? error51 : new CommitLockError(
-      "LOCK_IO_ERROR",
-      "commit lock could not be released after the operation completed",
-      { cause: error51 }
-    );
-    throw new CommitLockReleaseAfterOperationError(result, releaseError);
-  }
-  return result;
-}
-
-// src/write-workflow.ts
 var MAX_CHANGE_CONTENT_BYTES = 8192;
 var MAX_DOCUMENT_BYTES = 16384;
 var MAX_PREVIEW_BYTES = 16384;
@@ -33536,6 +33360,7 @@ function createWriteToolHandlers(runtime) {
       writablePolicy: runtime.writablePolicy,
       writeEnabled: runtime.writableVaults.includes(vault),
       accessMode: "protected",
+      managementPermissions: { edit: false, move: false, trash: false },
       vaultSelector: vault,
       vaultName: vault,
       source: "environment"
@@ -33543,10 +33368,10 @@ function createWriteToolHandlers(runtime) {
   }
   async function assertChangeAllowed(vault, notePath) {
     const access = await effectiveAccess(vault);
-    const requiredAccessMode = authorizationMode === "autonomous" ? "full" : "protected";
-    if (access.accessMode !== requiredAccessMode) {
+    const accessModeAllowed = authorizationMode === "autonomous" ? access.accessMode === "full" || access.accessMode === "management" : access.accessMode === "protected";
+    if (!accessModeAllowed) {
       throw new Error(
-        authorizationMode === "autonomous" ? "autonomous writing requires Accesso completo for this vault in Bridge Control" : "this vault uses Accesso completo; use the autonomous writer channel or return to protected access"
+        authorizationMode === "autonomous" ? "autonomous writing requires Accesso autonomo or Gestione completa for this vault in Bridge Control" : "this vault uses autonomous or management access; use the autonomous writer channel or return to protected access"
       );
     }
     if (!access.writeEnabled) {
@@ -34007,9 +33832,1030 @@ function createWriteToolHandlers(runtime) {
   };
 }
 
+// src/management-workflow.ts
+var MAX_MANAGED_DOCUMENT_BYTES = 1048576;
+var MAX_MANAGED_PREVIEW_BYTES = 131072;
+var DEFAULT_MAX_PENDING_MANAGEMENT_CHANGES = 50;
+var DEFAULT_MAX_PENDING_MANAGEMENT_BYTES = 8388608;
+var controlCharactersExceptNewlineAndTab2 = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
+var PropertyName = external_exports.string().min(1).max(128).refine((value) => value === value.trim().normalize("NFC"), {
+  message: "frontmatter property names must be trimmed and NFC-normalized"
+}).refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), {
+  message: "frontmatter property name contains control characters"
+}).refine(
+  (value) => value !== "__proto__" && value !== "constructor" && value !== "prototype",
+  {
+    message: "frontmatter property name is reserved"
+  }
+);
+var FrontmatterScalarSchema = external_exports.union([
+  external_exports.string().max(32768).refine(
+    (value) => !controlCharactersExceptNewlineAndTab2.test(value),
+    "frontmatter string contains unsupported control characters"
+  ),
+  external_exports.number().finite(),
+  external_exports.boolean(),
+  external_exports.null()
+]);
+var FrontmatterValueSchema = external_exports.union([
+  FrontmatterScalarSchema,
+  external_exports.array(FrontmatterScalarSchema).max(256)
+]);
+var ManagedContent = external_exports.string().max(MAX_MANAGED_DOCUMENT_BYTES).refine(
+  (value) => !controlCharactersExceptNewlineAndTab2.test(value),
+  "content contains unsupported control characters"
+).refine(
+  (value) => Buffer.byteLength(value, "utf8") <= MAX_MANAGED_DOCUMENT_BYTES,
+  `content must not exceed ${MAX_MANAGED_DOCUMENT_BYTES} UTF-8 bytes`
+);
+var VaultName = external_exports.string().trim().min(1).max(256);
+var MarkdownPath = external_exports.string().min(4).max(1024).regex(/\.md$/iu);
+var ReplaceInput = external_exports.object({
+  vault: VaultName,
+  path: MarkdownPath,
+  operation: external_exports.literal("replace"),
+  content: ManagedContent
+}).strict();
+var ReplaceTextInput = external_exports.object({
+  vault: VaultName,
+  path: MarkdownPath,
+  operation: external_exports.literal("replace_text"),
+  find: external_exports.string().min(1).max(131072),
+  replacement: external_exports.string().max(131072),
+  expected_occurrences: external_exports.number().int().min(1).max(1e3).default(1)
+}).strict();
+var FrontmatterInput = external_exports.object({
+  vault: VaultName,
+  path: MarkdownPath,
+  operation: external_exports.literal("frontmatter"),
+  set: external_exports.record(PropertyName, FrontmatterValueSchema),
+  remove: external_exports.array(PropertyName).max(100)
+}).strict().superRefine((value, context) => {
+  if (Object.keys(value.set).length + value.remove.length === 0) {
+    context.addIssue({
+      code: "custom",
+      message: "frontmatter requires at least one set or remove entry"
+    });
+  }
+  if (Object.keys(value.set).some((name) => value.remove.includes(name))) {
+    context.addIssue({
+      code: "custom",
+      message: "a frontmatter property cannot be both set and removed"
+    });
+  }
+});
+var MoveInput = external_exports.object({
+  vault: VaultName,
+  path: MarkdownPath,
+  operation: external_exports.literal("move"),
+  destination_path: MarkdownPath
+}).strict();
+var TrashInput = external_exports.object({
+  vault: VaultName,
+  path: MarkdownPath,
+  operation: external_exports.literal("trash")
+}).strict();
+var ManagementToolInputSchemas = Object.freeze({
+  prepareChange: external_exports.discriminatedUnion("operation", [
+    ReplaceInput,
+    ReplaceTextInput,
+    FrontmatterInput,
+    MoveInput,
+    TrashInput
+  ]),
+  commitChange: external_exports.object({ change_id: external_exports.string().uuid() }).strict()
+});
+var PreparedManagementStore = class {
+  #ttlMs;
+  #now;
+  #createId;
+  #maxPending;
+  #maxPendingBytes;
+  #changes = /* @__PURE__ */ new Map();
+  #pendingBytes = 0;
+  constructor(options) {
+    this.#ttlMs = options.ttlMs;
+    this.#now = options.now ?? Date.now;
+    this.#createId = options.createId ?? randomUUID3;
+    this.#maxPending = options.maxPending ?? DEFAULT_MAX_PENDING_MANAGEMENT_CHANGES;
+    this.#maxPendingBytes = options.maxPendingBytes ?? DEFAULT_MAX_PENDING_MANAGEMENT_BYTES;
+    if (!Number.isSafeInteger(this.#ttlMs) || this.#ttlMs < 1) {
+      throw new RangeError("ttlMs must be a positive integer");
+    }
+  }
+  create(value) {
+    const now = this.#now();
+    this.#removeExpired(now);
+    if (this.#changes.size >= this.#maxPending) {
+      throw new Error("too many pending management changes");
+    }
+    if (this.#pendingBytes + value.estimatedBytes > this.#maxPendingBytes) {
+      throw new Error("pending management previews exceed the memory budget");
+    }
+    const change = Object.freeze({
+      ...value,
+      changeId: this.#createId(),
+      createdAt: now,
+      expiresAt: now + this.#ttlMs
+    });
+    this.#changes.set(change.changeId, change);
+    this.#pendingBytes += change.estimatedBytes;
+    return change;
+  }
+  take(changeId) {
+    const change = this.#changes.get(changeId);
+    this.#changes.delete(changeId);
+    if (change !== void 0) this.#pendingBytes -= change.estimatedBytes;
+    if (change === void 0 || change.expiresAt <= this.#now()) {
+      throw new ChangeNotFoundError();
+    }
+    return change;
+  }
+  #removeExpired(now) {
+    for (const [id, change] of this.#changes) {
+      if (change.expiresAt > now) continue;
+      this.#changes.delete(id);
+      this.#pendingBytes -= change.estimatedBytes;
+    }
+  }
+};
+var ManagementResponseSchema = external_exports.object({
+  version: external_exports.literal(MANAGEMENT_PROTOCOL_VERSION),
+  request_id: external_exports.string().uuid(),
+  change_id: external_exports.string().uuid(),
+  status: external_exports.enum(["committed", "failed"]),
+  operation: external_exports.enum(["replace", "frontmatter", "move", "trash"]),
+  path: MarkdownPath,
+  target_path: MarkdownPath.optional(),
+  before_sha256: external_exports.string().regex(/^[0-9a-f]{64}$/u),
+  after_sha256: external_exports.string().regex(/^[0-9a-f]{64}$/u),
+  verified: external_exports.boolean(),
+  backup_id: external_exports.string().min(1).max(200).optional(),
+  audit_recorded: external_exports.boolean(),
+  error_code: external_exports.string().min(1).max(128).optional(),
+  rollback_attempted: external_exports.boolean().optional(),
+  rollback_succeeded: external_exports.boolean().optional(),
+  rollback_reason: external_exports.string().min(1).max(256).optional()
+}).strict();
+function countOccurrences(content, needle) {
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const index = content.indexOf(needle, offset);
+    if (index === -1) return count;
+    count += 1;
+    offset = index + needle.length;
+  }
+}
+function replaceAllLiteral(content, find, replacement) {
+  return content.split(find).join(replacement);
+}
+function assertDocumentBytes(content) {
+  if (Buffer.byteLength(content, "utf8") > MAX_MANAGED_DOCUMENT_BYTES) {
+    throw new RangeError(
+      `managed document must not exceed ${MAX_MANAGED_DOCUMENT_BYTES} UTF-8 bytes`
+    );
+  }
+}
+function assertPreviewBytes(preview) {
+  if (Buffer.byteLength(JSON.stringify(preview), "utf8") > MAX_MANAGED_PREVIEW_BYTES) {
+    throw new RangeError("management preview exceeds the safe display limit");
+  }
+}
+function capabilityForOperation(operation) {
+  if (operation === "replace" || operation === "replace_text" || operation === "frontmatter") {
+    return "edit";
+  }
+  return operation === "move" ? "move" : "trash";
+}
+async function ensurePrivateDirectory2(directory) {
+  await mkdir3(directory, { recursive: true, mode: 448 });
+  const stats = await lstat4(directory);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error("management request directory is not a safe directory");
+  }
+  try {
+    await chmod2(directory, 448);
+  } catch (error51) {
+    if (process.platform !== "win32") throw error51;
+  }
+}
+async function writeRequestFile(dataDirectory, request) {
+  const directory = path8.join(dataDirectory, "management", "requests");
+  await ensurePrivateDirectory2(dataDirectory);
+  await ensurePrivateDirectory2(path8.join(dataDirectory, "management"));
+  await ensurePrivateDirectory2(directory);
+  const serialized = `${JSON.stringify(request)}
+`;
+  if (Buffer.byteLength(serialized, "utf8") > MAX_MANAGEMENT_REQUEST_BYTES) {
+    throw new RangeError("management request exceeds the safe file limit");
+  }
+  const finalPath = path8.join(directory, `${request.request_id}.json`);
+  const temporaryPath = path8.join(
+    directory,
+    `.${request.request_id}.${process.pid}.${randomUUID3()}.tmp`
+  );
+  const handle = await open3(temporaryPath, "wx", 384);
+  try {
+    await handle.writeFile(serialized, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await rename2(temporaryPath, finalPath);
+  return finalPath;
+}
+async function removeOwnedRequest(filePath) {
+  try {
+    const stats = await lstat4(filePath);
+    if (!stats.isFile() || stats.isSymbolicLink()) return;
+    await unlink2(filePath);
+  } catch (error51) {
+    if (typeof error51 !== "object" || error51 === null || !("code" in error51) || error51.code !== "ENOENT") {
+      throw error51;
+    }
+  }
+}
+function sameVault(original, current) {
+  return original.vaultSelector === current.vaultSelector && original.vaultPath === current.vaultPath;
+}
+async function withManagementLocks(runtime, vault, notePaths, caseSensitive, signal, operation) {
+  const targets = [...new Set(notePaths)].map((notePath) => ({
+    notePath,
+    key: deriveCommitLockKey(vault, notePath, caseSensitive)
+  })).sort((left, right) => left.key.localeCompare(right.key));
+  const releaseErrors = [];
+  const acquire = async (index) => {
+    const target = targets[index];
+    if (target === void 0) return await operation();
+    try {
+      return await withCommitLock(
+        {
+          dataDirectory: runtime.dataDirectory,
+          vault,
+          notePath: target.notePath,
+          caseSensitive,
+          ...signal === void 0 ? {} : { signal }
+        },
+        async () => await acquire(index + 1)
+      );
+    } catch (error51) {
+      if (error51 instanceof CommitLockReleaseAfterOperationError) {
+        releaseErrors.push(error51.releaseError.code);
+        return error51.operationResult;
+      }
+      throw error51;
+    }
+  };
+  return { result: await acquire(0), releaseErrors };
+}
+function createManagementToolHandlers(runtime) {
+  const now = runtime.now ?? Date.now;
+  let consecutiveFailures = 0;
+  let paused = false;
+  function assertCircuitOpen() {
+    if (!paused) return;
+    throw new Error(
+      "managed operations are paused after three consecutive failures; inspect recent bridge events, return to Accesso autonomo, and start a new task before enabling Gestione completa again"
+    );
+  }
+  async function authorize(vault, notePath, capability, targetPath) {
+    const access = await runtime.resolveAccess(vault);
+    if (access.accessMode !== "management") {
+      throw new Error("managed operations require Gestione completa");
+    }
+    if (!access.managementPermissions[capability]) {
+      throw new Error(`management permission ${capability} is disabled`);
+    }
+    const readable = assertPathAllowed(notePath, access.readPolicy);
+    const writable = assertPathAllowed(readable, access.writablePolicy);
+    const normalizedTarget = targetPath === void 0 ? void 0 : assertPathAllowed(
+      assertPathAllowed(targetPath, access.readPolicy),
+      access.writablePolicy
+    );
+    return {
+      access,
+      notePath: writable,
+      ...normalizedTarget === void 0 ? {} : { targetPath: normalizedTarget }
+    };
+  }
+  async function verifyPhysical(access, notePath, options, allowMissingLeaf) {
+    await assertVaultIdentity(runtime.runner, access, options);
+    if (access.source === "settings" && access.vaultPath !== void 0) {
+      if (allowMissingLeaf) {
+        const parent = path8.posix.dirname(notePath);
+        if (parent !== ".") {
+          await assertPhysicalVaultPath(access.vaultPath, parent);
+        }
+      }
+      await assertPhysicalVaultPath(access.vaultPath, notePath, {
+        allowMissingLeaf
+      });
+    }
+  }
+  return {
+    async prepareChange(input, options = {}) {
+      assertCircuitOpen();
+      try {
+        const capability = capabilityForOperation(input.operation);
+        const initial = await authorize(
+          input.vault,
+          input.path,
+          capability,
+          input.operation === "move" ? input.destination_path : void 0
+        );
+        await verifyPhysical(initial.access, initial.notePath, options, false);
+        if (initial.targetPath !== void 0) {
+          await verifyPhysical(initial.access, initial.targetPath, options, true);
+        }
+        const before = await readDocument(
+          runtime.runner,
+          initial.access.vaultSelector,
+          initial.notePath,
+          options
+        );
+        if (!before.exists || before.content === void 0) {
+          throw new ChangeConflictError(
+            `${input.operation} requires an existing note`
+          );
+        }
+        assertDocumentBytes(before.content);
+        let targetBefore;
+        let operation;
+        let afterContent;
+        let afterSha256;
+        let frontmatterSet;
+        let frontmatterRemove;
+        let preview;
+        if (input.operation === "replace") {
+          operation = "replace";
+          afterContent = input.content;
+          afterSha256 = hashDocumentState(true, afterContent);
+          preview = {
+            diff: createPreviewDiff(
+              initial.notePath,
+              before.content,
+              afterContent
+            ),
+            before_sha256: before.sha256,
+            after_sha256: afterSha256
+          };
+        } else if (input.operation === "replace_text") {
+          const occurrences = countOccurrences(before.content, input.find);
+          if (occurrences !== input.expected_occurrences) {
+            throw new ChangeConflictError(
+              `expected ${input.expected_occurrences} exact occurrence(s), found ${occurrences}`
+            );
+          }
+          operation = "replace";
+          afterContent = replaceAllLiteral(
+            before.content,
+            input.find,
+            input.replacement
+          );
+          assertDocumentBytes(afterContent);
+          afterSha256 = hashDocumentState(true, afterContent);
+          preview = {
+            diff: createPreviewDiff(
+              initial.notePath,
+              before.content,
+              afterContent
+            ),
+            exact_match_count: occurrences,
+            before_sha256: before.sha256,
+            after_sha256: afterSha256
+          };
+        } else if (input.operation === "frontmatter") {
+          operation = "frontmatter";
+          frontmatterSet = Object.freeze({ ...input.set });
+          frontmatterRemove = Object.freeze([...new Set(input.remove)]);
+          preview = {
+            set: frontmatterSet,
+            remove: frontmatterRemove,
+            before_sha256: before.sha256
+          };
+        } else if (input.operation === "move") {
+          operation = "move";
+          if (initial.targetPath === void 0) {
+            throw new Error("move destination was not normalized");
+          }
+          if (initial.access.writablePolicy.caseSensitive ? initial.targetPath === initial.notePath : initial.targetPath.toLocaleLowerCase("en-US") === initial.notePath.toLocaleLowerCase("en-US")) {
+            throw new ChangeConflictError(
+              "move destination must differ from the source; case-only rename is not supported"
+            );
+          }
+          targetBefore = await readDocument(
+            runtime.runner,
+            initial.access.vaultSelector,
+            initial.targetPath,
+            options
+          );
+          if (targetBefore.exists) {
+            throw new ChangeConflictError("move destination already exists");
+          }
+          preview = {
+            from: initial.notePath,
+            to: initial.targetPath,
+            source_sha256: before.sha256,
+            link_updates: "Other notes are not rewritten automatically; review backlinks after the move."
+          };
+        } else {
+          operation = "trash";
+          preview = {
+            path: initial.notePath,
+            before_sha256: before.sha256,
+            deletion: "Obsidian trash only; permanent deletion is unavailable."
+          };
+        }
+        assertPreviewBytes(preview);
+        const current = await authorize(
+          input.vault,
+          initial.notePath,
+          capability,
+          initial.targetPath
+        );
+        if (!sameVault(initial.access, current.access)) {
+          throw new Error("vault identity changed during preparation");
+        }
+        const estimatedBytes = Buffer.byteLength(before.content, "utf8") + Buffer.byteLength(afterContent ?? "", "utf8") + Buffer.byteLength(JSON.stringify(preview), "utf8");
+        const change = runtime.store.create({
+          vault: initial.access.vaultSelector,
+          vaultLabel: initial.access.vaultName,
+          operation,
+          requestedOperation: input.operation,
+          capability,
+          notePath: initial.notePath,
+          ...initial.targetPath === void 0 ? {} : { targetPath: initial.targetPath },
+          before,
+          ...targetBefore === void 0 ? {} : { targetBefore },
+          ...afterContent === void 0 ? {} : { afterContent },
+          ...afterSha256 === void 0 ? {} : { afterSha256 },
+          ...frontmatterSet === void 0 ? {} : { frontmatterSet },
+          ...frontmatterRemove === void 0 ? {} : { frontmatterRemove },
+          preview,
+          lockCaseSensitive: initial.access.writablePolicy.caseSensitive,
+          estimatedBytes
+        });
+        return jsonResult({
+          status: "prepared",
+          change_id: change.changeId,
+          expires_at: new Date(change.expiresAt).toISOString(),
+          vault: change.vaultLabel,
+          path: change.notePath,
+          ...change.targetPath === void 0 ? {} : { target_path: change.targetPath },
+          operation: change.requestedOperation,
+          authorization_mode: "management",
+          approval_required: false,
+          preview: change.preview
+        });
+      } catch (error51) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) paused = true;
+        throw error51;
+      }
+    },
+    async commitChange(input, options = {}) {
+      assertCircuitOpen();
+      try {
+        const change = runtime.store.take(input.change_id);
+        const initial = await authorize(
+          change.vault,
+          change.notePath,
+          change.capability,
+          change.targetPath
+        );
+        const locked = await withManagementLocks(
+          runtime,
+          initial.access.vaultSelector,
+          [change.notePath, ...change.targetPath === void 0 ? [] : [change.targetPath]],
+          change.lockCaseSensitive,
+          options.signal,
+          async () => {
+            const currentGrant = await authorize(
+              change.vault,
+              change.notePath,
+              change.capability,
+              change.targetPath
+            );
+            if (!sameVault(initial.access, currentGrant.access)) {
+              throw new Error("vault identity changed before management commit");
+            }
+            await verifyPhysical(
+              currentGrant.access,
+              change.notePath,
+              options,
+              false
+            );
+            if (change.targetPath !== void 0) {
+              await verifyPhysical(
+                currentGrant.access,
+                change.targetPath,
+                options,
+                true
+              );
+            }
+            const current = await readDocument(
+              runtime.runner,
+              currentGrant.access.vaultSelector,
+              change.notePath,
+              options
+            );
+            if (current.exists !== change.before.exists || current.sha256 !== change.before.sha256) {
+              throw new ChangeConflictError(
+                "the source note changed after management preparation"
+              );
+            }
+            if (change.targetPath !== void 0) {
+              const target = await readDocument(
+                runtime.runner,
+                currentGrant.access.vaultSelector,
+                change.targetPath,
+                options
+              );
+              if (change.targetBefore === void 0 || target.exists !== change.targetBefore.exists || target.sha256 !== change.targetBefore.sha256) {
+                throw new ChangeConflictError(
+                  "the move destination changed after preparation"
+                );
+              }
+            }
+            const requestId = randomUUID3();
+            const token = randomBytes(32).toString("hex");
+            const createdAt = now();
+            const base = {
+              version: MANAGEMENT_PROTOCOL_VERSION,
+              request_id: requestId,
+              token,
+              change_id: change.changeId,
+              created_at: new Date(createdAt).toISOString(),
+              expires_at: new Date(
+                Math.min(change.expiresAt, createdAt + 6e4)
+              ).toISOString(),
+              vault_id: currentGrant.access.vaultSelector,
+              operation: change.operation,
+              path: change.notePath,
+              before_sha256: change.before.sha256
+            };
+            let request;
+            if (change.operation === "replace") {
+              if (change.afterContent === void 0 || change.afterSha256 === void 0) {
+                throw new Error("replace change is missing prepared content");
+              }
+              request = {
+                ...base,
+                operation: "replace",
+                payload: {
+                  content: change.afterContent,
+                  after_sha256: change.afterSha256
+                }
+              };
+            } else if (change.operation === "frontmatter") {
+              request = {
+                ...base,
+                operation: "frontmatter",
+                payload: {
+                  set: change.frontmatterSet ?? {},
+                  remove: change.frontmatterRemove ?? []
+                }
+              };
+            } else if (change.operation === "move") {
+              if (change.targetPath === void 0) {
+                throw new Error("move change is missing its destination");
+              }
+              request = {
+                ...base,
+                operation: "move",
+                payload: { destination: change.targetPath }
+              };
+            } else {
+              request = {
+                ...base,
+                operation: "trash",
+                payload: {}
+              };
+            }
+            const requestPath = await writeRequestFile(
+              runtime.dataDirectory,
+              request
+            );
+            let response2;
+            try {
+              const result2 = await runtime.runner(
+                buildManagementVaultArgs(
+                  currentGrant.access.vaultSelector,
+                  "bridge-control:commit",
+                  [`request=${requestId}`, `token=${token}`]
+                ),
+                options
+              );
+              let parsed;
+              try {
+                parsed = JSON.parse(result2.stdout.trim());
+              } catch (error51) {
+                throw new Error("Bridge Control returned invalid management JSON", {
+                  cause: error51
+                });
+              }
+              response2 = ManagementResponseSchema.parse(parsed);
+              if (response2.request_id !== requestId || response2.change_id !== change.changeId || response2.operation !== change.operation || response2.path !== change.notePath || response2.before_sha256 !== change.before.sha256 || response2.target_path !== change.targetPath) {
+                throw new Error("Bridge Control response does not match the request");
+              }
+              if (response2.status === "committed" && change.operation === "replace" && response2.after_sha256 !== change.afterSha256) {
+                throw new Error(
+                  "Bridge Control returned an unexpected replacement hash"
+                );
+              }
+            } finally {
+              await removeOwnedRequest(requestPath).catch(() => void 0);
+            }
+            return response2;
+          }
+        );
+        const response = locked.result;
+        const result = jsonResult({
+          ...response,
+          authorization_mode: "management",
+          locks_released: locked.releaseErrors.length === 0,
+          ...locked.releaseErrors.length === 0 ? {} : { lock_release_errors: locked.releaseErrors }
+        });
+        if (response.status === "failed" || !response.verified || !response.audit_recorded) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= 3) paused = true;
+          return { ...result, isError: true };
+        }
+        consecutiveFailures = 0;
+        return result;
+      } catch (error51) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) paused = true;
+        throw error51;
+      }
+    }
+  };
+}
+
+// src/shared-settings.ts
+import { lstat as lstat5, open as open4 } from "node:fs/promises";
+import { constants as constants3 } from "node:fs";
+import { isAbsolute } from "node:path";
+var MAX_SETTINGS_BYTES = 65536;
+var VaultName2 = external_exports.string().min(1).max(256).refine((value) => value === value.trim().normalize("NFC"), {
+  message: "vault name must be trimmed and NFC-normalized"
+}).refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), {
+  message: "vault name contains control characters"
+});
+var Folder = external_exports.string().min(1).max(1024);
+var VaultId = external_exports.string().regex(/^[0-9a-f]{16}$/u, "vault ID must be the 16-character Obsidian ID");
+var VaultPath = external_exports.string().min(1).max(4096).refine((value) => isAbsolute(value), {
+  message: "vault path must be absolute"
+}).refine((value) => !/[\u0000-\u001f\u007f]/u.test(value), {
+  message: "vault path contains control characters"
+});
+var LegacyVaultSettingsSchema = external_exports.object({
+  vaultName: VaultName2,
+  vaultPath: VaultPath,
+  enabled: external_exports.boolean(),
+  readMode: external_exports.enum(["off", "all", "folders"]),
+  readFolders: external_exports.array(Folder).max(256),
+  writeEnabled: external_exports.boolean(),
+  writeFolders: external_exports.array(Folder).max(256)
+}).strict();
+var Version3VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
+  accessMode: external_exports.enum(["protected", "full"])
+}).strict();
+var ManagementPermissionsSchema = external_exports.object({
+  edit: external_exports.boolean(),
+  move: external_exports.boolean(),
+  trash: external_exports.boolean()
+}).strict();
+var VaultSettingsSchema = LegacyVaultSettingsSchema.extend({
+  accessMode: external_exports.enum(["protected", "full", "management"]),
+  managementPermissions: ManagementPermissionsSchema
+}).strict().superRefine((value, context) => {
+  const permissions = Object.values(value.managementPermissions);
+  const hasManagementPermission = permissions.some(Boolean);
+  if (value.accessMode === "management" && !hasManagementPermission) {
+    context.addIssue({
+      code: "custom",
+      path: ["managementPermissions"],
+      message: "management mode requires at least one management permission"
+    });
+  }
+  if (value.accessMode !== "management" && hasManagementPermission) {
+    context.addIssue({
+      code: "custom",
+      path: ["managementPermissions"],
+      message: "management permissions must be disabled outside management mode"
+    });
+  }
+});
+var SharedSettingsFields = {
+  updatedAt: external_exports.string().min(1).max(64).refine((value) => Number.isFinite(Date.parse(value)), {
+    message: "updatedAt must be a valid date-time"
+  })
+};
+var LegacySharedSettingsSchema = external_exports.object({
+  version: external_exports.literal(2),
+  ...SharedSettingsFields,
+  vaults: external_exports.record(VaultId, LegacyVaultSettingsSchema)
+}).strict().superRefine((value, context) => {
+  if (Object.keys(value.vaults).length > 256) {
+    context.addIssue({
+      code: "custom",
+      path: ["vaults"],
+      message: "at most 256 vault entries are allowed"
+    });
+  }
+});
+var Version3SharedSettingsSchema = external_exports.object({
+  version: external_exports.literal(3),
+  ...SharedSettingsFields,
+  vaults: external_exports.record(VaultId, Version3VaultSettingsSchema)
+}).strict().superRefine((value, context) => {
+  if (Object.keys(value.vaults).length > 256) {
+    context.addIssue({
+      code: "custom",
+      path: ["vaults"],
+      message: "at most 256 vault entries are allowed"
+    });
+  }
+});
+var SharedSettingsSchema = external_exports.object({
+  version: external_exports.literal(4),
+  ...SharedSettingsFields,
+  vaults: external_exports.record(VaultId, VaultSettingsSchema)
+}).strict().superRefine((value, context) => {
+  if (Object.keys(value.vaults).length > 256) {
+    context.addIssue({
+      code: "custom",
+      path: ["vaults"],
+      message: "at most 256 vault entries are allowed"
+    });
+  }
+});
+var SharedSettingsError = class extends Error {
+  code = "INVALID_SHARED_SETTINGS";
+  constructor(message, options) {
+    super(message, options);
+    this.name = "SharedSettingsError";
+  }
+};
+var NO_MANAGEMENT_PERMISSIONS = Object.freeze({
+  edit: false,
+  move: false,
+  trash: false
+});
+function validatePolicyFolders(settings) {
+  try {
+    for (const entry of Object.values(settings.vaults)) {
+      createWritablePathPolicy({ allowedFolders: entry.readFolders });
+      createWritablePathPolicy({ allowedFolders: entry.writeFolders });
+      for (const folders of [entry.readFolders, entry.writeFolders]) {
+        const normalized = folders.map((folder) => normalizeRelativeFolder(folder));
+        if (normalized.some((folder, index) => folder !== folders[index]) || new Set(normalized).size !== normalized.length) {
+          throw new Error("policy folders must be normalized and unique");
+        }
+      }
+    }
+  } catch (error51) {
+    throw new SharedSettingsError("shared settings contain an invalid folder", {
+      cause: error51
+    });
+  }
+}
+async function readSharedSettings(settingsPath) {
+  try {
+    const linkStats = await lstat5(settingsPath);
+    if (linkStats.isSymbolicLink()) {
+      throw new SharedSettingsError(
+        "shared settings path must not be a symbolic link"
+      );
+    }
+  } catch (error51) {
+    if (error51 !== null && typeof error51 === "object" && "code" in error51 && error51.code === "ENOENT") {
+      return { status: "absent" };
+    }
+    if (error51 instanceof SharedSettingsError) throw error51;
+    throw new SharedSettingsError("shared settings cannot be inspected", {
+      cause: error51
+    });
+  }
+  let handle;
+  try {
+    handle = await open4(
+      settingsPath,
+      process.platform === "win32" ? "r" : constants3.O_RDONLY | constants3.O_NOFOLLOW
+    );
+  } catch (error51) {
+    if (error51 !== null && typeof error51 === "object" && "code" in error51 && error51.code === "ENOENT") {
+      return { status: "absent" };
+    }
+    throw new SharedSettingsError("shared settings cannot be read", {
+      cause: error51
+    });
+  }
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile()) {
+      throw new SharedSettingsError("shared settings path is not a file");
+    }
+    if (stats.size > MAX_SETTINGS_BYTES) {
+      throw new SharedSettingsError(
+        `shared settings exceed ${MAX_SETTINGS_BYTES} bytes`
+      );
+    }
+    const bytes = await handle.readFile();
+    if (bytes.byteLength > MAX_SETTINGS_BYTES) {
+      throw new SharedSettingsError(
+        `shared settings exceed ${MAX_SETTINGS_BYTES} bytes`
+      );
+    }
+    let decoded;
+    try {
+      decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (error51) {
+      throw new SharedSettingsError("shared settings are not valid UTF-8", {
+        cause: error51
+      });
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(decoded);
+    } catch (error51) {
+      throw new SharedSettingsError("shared settings are not valid JSON", {
+        cause: error51
+      });
+    }
+    const current = SharedSettingsSchema.safeParse(parsed);
+    const version3 = current.success ? void 0 : Version3SharedSettingsSchema.safeParse(parsed);
+    const legacy = current.success || version3?.success ? void 0 : LegacySharedSettingsSchema.safeParse(parsed);
+    if (!current.success && (version3 === void 0 || !version3.success) && (legacy === void 0 || !legacy.success)) {
+      throw new SharedSettingsError("shared settings do not match schema", {
+        cause: current.error
+      });
+    }
+    let settings;
+    if (current.success) {
+      settings = current.data;
+    } else if (version3?.success) {
+      settings = {
+        version: 4,
+        updatedAt: version3.data.updatedAt,
+        vaults: Object.fromEntries(
+          Object.entries(version3.data.vaults).map(([vaultId, entry]) => [
+            vaultId,
+            {
+              ...entry,
+              // The version-3 acknowledgement explicitly excluded edit,
+              // move, and trash. Preserve full-vault create/append access but
+              // never infer the new management authority during migration.
+              managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS }
+            }
+          ])
+        )
+      };
+    } else if (legacy?.success) {
+      settings = {
+        version: 4,
+        updatedAt: legacy.data.updatedAt,
+        vaults: Object.fromEntries(
+          Object.entries(legacy.data.vaults).map(([vaultId, entry]) => [
+            vaultId,
+            {
+              ...entry,
+              accessMode: "protected",
+              managementPermissions: { ...NO_MANAGEMENT_PERMISSIONS }
+            }
+          ])
+        )
+      };
+    } else {
+      throw new SharedSettingsError("shared settings do not match schema");
+    }
+    validatePolicyFolders(settings);
+    return { status: "loaded", settings };
+  } catch (error51) {
+    if (error51 instanceof SharedSettingsError) throw error51;
+    throw new SharedSettingsError("shared settings cannot be read", {
+      cause: error51
+    });
+  } finally {
+    await handle.close();
+  }
+}
+function denyPolicy(deniedFolders) {
+  return createWritablePathPolicy({ allowedFolders: [], deniedFolders });
+}
+function accessFromEntry(vaultId, entry, deniedFolders) {
+  const accessMode = entry.enabled ? entry.accessMode : "protected";
+  const wholeVaultAccess = accessMode === "full" || accessMode === "management";
+  const readPolicy = wholeVaultAccess || entry.enabled && entry.readMode === "all" ? createPathPolicy({ allowedFolders: null, deniedFolders }) : entry.enabled && entry.readMode === "folders" ? createWritablePathPolicy({
+    allowedFolders: entry.readFolders,
+    deniedFolders
+  }) : denyPolicy(deniedFolders);
+  const writeEnabled = wholeVaultAccess || entry.enabled && entry.writeEnabled;
+  const writablePolicy = wholeVaultAccess ? createPathPolicy({
+    allowedFolders: null,
+    deniedFolders,
+    caseSensitive: readPolicy.caseSensitive
+  }) : writeEnabled ? createWritablePathPolicy({
+    allowedFolders: entry.writeFolders,
+    deniedFolders,
+    caseSensitive: readPolicy.caseSensitive
+  }) : denyPolicy(deniedFolders);
+  const managementPermissions = accessMode === "management" ? Object.freeze({ ...entry.managementPermissions }) : NO_MANAGEMENT_PERMISSIONS;
+  return Object.freeze({
+    readPolicy,
+    writablePolicy,
+    writeEnabled,
+    accessMode,
+    managementPermissions,
+    vaultSelector: vaultId,
+    vaultName: entry.vaultName,
+    vaultPath: entry.vaultPath,
+    source: "settings"
+  });
+}
+function unconfiguredSettingsAccess(vault, deniedFolders) {
+  return Object.freeze({
+    readPolicy: denyPolicy(deniedFolders),
+    writablePolicy: denyPolicy(deniedFolders),
+    writeEnabled: false,
+    accessMode: "protected",
+    managementPermissions: NO_MANAGEMENT_PERMISSIONS,
+    vaultSelector: vault,
+    vaultName: vault,
+    source: "settings"
+  });
+}
+function environmentAccess(vault, options) {
+  const readPolicy = options.environmentReadConfigured === true ? createPathPolicy({
+    allowedFolders: options.allowedFolders,
+    deniedFolders: options.deniedFolders
+  }) : denyPolicy(options.deniedFolders);
+  const writeEnabled = options.writableVaults.includes(vault);
+  const writablePolicy = writeEnabled ? createWritablePathPolicy({
+    allowedFolders: options.writableFolders,
+    deniedFolders: options.deniedFolders,
+    caseSensitive: readPolicy.caseSensitive
+  }) : denyPolicy(options.deniedFolders);
+  return Object.freeze({
+    readPolicy,
+    writablePolicy,
+    writeEnabled,
+    accessMode: "protected",
+    managementPermissions: NO_MANAGEMENT_PERMISSIONS,
+    vaultSelector: vault,
+    vaultName: vault,
+    source: "environment"
+  });
+}
+function createVaultAccessResolver(options) {
+  const loader = options.readSettings ?? readSharedSettings;
+  return async (vault) => {
+    const snapshot = await loader(options.settingsPath);
+    if (snapshot.status === "loaded") {
+      const normalizedId = /^[0-9a-f]{16}$/iu.test(vault) ? vault.toLowerCase() : void 0;
+      if (normalizedId !== void 0 && Object.hasOwn(snapshot.settings.vaults, normalizedId)) {
+        return accessFromEntry(
+          normalizedId,
+          snapshot.settings.vaults[normalizedId],
+          options.deniedFolders
+        );
+      }
+      const namedEntries = Object.entries(snapshot.settings.vaults).filter(
+        ([, entry]) => entry.vaultName === vault
+      );
+      if (namedEntries.length === 1) {
+        const [vaultId, entry] = namedEntries[0];
+        return accessFromEntry(vaultId, entry, options.deniedFolders);
+      }
+      if (namedEntries.length > 1) {
+        throw new SharedSettingsError(
+          `vault name is ambiguous; use its stable Obsidian ID: ${vault}`
+        );
+      }
+      return unconfiguredSettingsAccess(vault, options.deniedFolders);
+    }
+    return environmentAccess(vault, options);
+  };
+}
+function createConfigAccessResolver(config2) {
+  if (config2.settingsPath === void 0) {
+    throw new Error("BridgeConfig.settingsPath is required for shared settings");
+  }
+  return createVaultAccessResolver({
+    settingsPath: config2.settingsPath,
+    allowedFolders: config2.allowedFolders,
+    environmentReadConfigured: config2.readEnvironmentConfigured ?? false,
+    deniedFolders: config2.deniedFolders,
+    writableVaults: config2.writableVaults ?? [],
+    writableFolders: config2.writableFolders ?? []
+  });
+}
+
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.4.1";
+var SERVER_VERSION = "0.5.0";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
@@ -34028,22 +34874,22 @@ var COMMIT_TOOL_ANNOTATIONS = Object.freeze({
   idempotentHint: false,
   openWorldHint: false
 });
-var VaultName2 = external_exports.string().trim().min(1).max(256).describe("Obsidian vault name or vault ID");
-var MarkdownPath = external_exports.string().min(4).max(1024).regex(/\.md$/iu).describe("Vault-relative Markdown path ending in .md");
+var VaultName3 = external_exports.string().trim().min(1).max(256).describe("Obsidian vault name or vault ID");
+var MarkdownPath2 = external_exports.string().min(4).max(1024).regex(/\.md$/iu).describe("Vault-relative Markdown path ending in .md");
 var FolderPath = external_exports.string().max(1024).describe("Optional vault-relative folder path");
 var ToolInputSchemas = Object.freeze({
   listVaults: external_exports.object({}).strict(),
-  vaultInfo: external_exports.object({ vault: VaultName2 }).strict(),
+  vaultInfo: external_exports.object({ vault: VaultName3 }).strict(),
   searchNotes: external_exports.object({
-    vault: VaultName2,
+    vault: VaultName3,
     query: external_exports.string().min(1).max(2e3),
     folder: FolderPath.optional(),
     limit: external_exports.number().int().min(1).max(100).default(20),
     case_sensitive: external_exports.boolean().default(false)
   }).strict(),
   readNote: external_exports.object({
-    vault: VaultName2,
-    path: MarkdownPath,
+    vault: VaultName3,
+    path: MarkdownPath2,
     start_line: external_exports.number().int().min(1).default(1),
     end_line: external_exports.number().int().min(1).optional()
   }).strict().superRefine((value, context) => {
@@ -34062,26 +34908,28 @@ var ToolInputSchemas = Object.freeze({
       });
     }
   }),
-  noteOutline: external_exports.object({ vault: VaultName2, path: MarkdownPath }).strict(),
+  noteOutline: external_exports.object({ vault: VaultName3, path: MarkdownPath2 }).strict(),
   noteLinks: external_exports.object({
-    vault: VaultName2,
-    path: MarkdownPath,
+    vault: VaultName3,
+    path: MarkdownPath2,
     direction: external_exports.enum(["incoming", "outgoing", "both"]).default("both")
   }).strict(),
-  noteTags: external_exports.object({ vault: VaultName2, path: MarkdownPath }).strict(),
+  noteTags: external_exports.object({ vault: VaultName3, path: MarkdownPath2 }).strict(),
   recentNotes: external_exports.object({
-    vault: VaultName2,
+    vault: VaultName3,
     limit: external_exports.number().int().min(1).max(100).default(20)
   }).strict(),
   recentWriteEvents: external_exports.object({
-    vault: VaultName2.optional().describe(
+    vault: VaultName3.optional().describe(
       "Optional configured vault name or stable vault ID. Omit to inspect every currently readable configured vault."
     ),
     failures_only: external_exports.boolean().default(true),
     limit: external_exports.number().int().min(1).default(10).describe("Maximum results; values above 20 are capped to 20.")
   }).strict(),
   prepareChange: WriteToolInputSchemas.prepareChange,
-  commitChange: WriteToolInputSchemas.commitChange
+  commitChange: WriteToolInputSchemas.commitChange,
+  prepareManagedChange: ManagementToolInputSchemas.prepareChange,
+  commitManagedChange: ManagementToolInputSchemas.commitChange
 });
 async function stdout(runner, args, options) {
   return (await runner(args, options)).stdout;
@@ -34094,6 +34942,7 @@ function createToolHandlers(runtime) {
       writablePolicy: createWritablePathPolicy({ allowedFolders: [] }),
       writeEnabled: false,
       accessMode: "protected",
+      managementPermissions: { edit: false, move: false, trash: false },
       vaultSelector: vault,
       vaultName: vault,
       source: "environment"
@@ -34142,7 +34991,8 @@ function createToolHandlers(runtime) {
             access.source === "settings" ? {
               name: access.vaultName,
               id: access.vaultSelector,
-              access_mode: access.accessMode
+              access_mode: access.accessMode,
+              management_permissions: access.managementPermissions
             } : { ...vault, access_mode: "protected" }
           );
         }
@@ -34429,6 +35279,17 @@ function createToolHandlers(runtime) {
         } catch {
           continue;
         }
+        let targetPath;
+        if (event.target_path !== void 0) {
+          try {
+            targetPath = assertPathAllowed(
+              event.target_path,
+              access.readPolicy
+            );
+          } catch {
+            continue;
+          }
+        }
         eligibleCount += 1;
         if (events.length < limit) {
           events.push({
@@ -34437,6 +35298,7 @@ function createToolHandlers(runtime) {
             vault: access.vaultName,
             ...access.source === "settings" ? { vault_id: access.vaultSelector } : {},
             path: notePath,
+            ...targetPath === void 0 ? {} : { target_path: targetPath },
             operation: event.operation,
             authorization_mode: event.authorization_mode,
             status: event.status,
@@ -34584,7 +35446,7 @@ function registerObsidianWriteTools(server, runtime) {
     prepareToolName,
     {
       title: autonomous ? "Prepare an autonomous Obsidian note change" : "Prepare an Obsidian note change",
-      description: autonomous ? "Prepare a bounded create or append only for a vault explicitly set to Accesso completo. Returns an internally reviewable preview and single-use change_id without modifying the vault." : "Prepare a bounded create or append in an explicitly writable protected vault and folder. Returns the exact proposed content, a diff, and a short-lived single-use change_id without modifying the vault.",
+      description: autonomous ? "Prepare a bounded create or append only for a vault explicitly set to Accesso autonomo or Gestione completa. Returns an internally reviewable preview and single-use change_id without modifying the vault." : "Prepare a bounded create or append in an explicitly writable protected vault and folder. Returns the exact proposed content, a diff, and a short-lived single-use change_id without modifying the vault.",
       inputSchema: ToolInputSchemas.prepareChange,
       annotations: PREPARE_TOOL_ANNOTATIONS
     },
@@ -34596,8 +35458,43 @@ function registerObsidianWriteTools(server, runtime) {
     commitToolName,
     {
       title: autonomous ? "Commit an autonomous Obsidian note change" : "Commit an Obsidian note change",
-      description: autonomous ? "Consume one autonomous change_id only while Accesso completo remains active, reject conflicts, back up existing content, write through the allowlisted Obsidian CLI, and verify the result." : "Consume one protected change_id after user confirmation, reject conflicts, back up existing content, modify through the allowlisted Obsidian CLI, and verify the result.",
+      description: autonomous ? "Consume one autonomous change_id only while Accesso autonomo or Gestione completa remains active, reject conflicts, back up existing content, write through the allowlisted Obsidian CLI, and verify the result." : "Consume one protected change_id after user confirmation, reject conflicts, back up existing content, modify through the allowlisted Obsidian CLI, and verify the result.",
       inputSchema: ToolInputSchemas.commitChange,
+      annotations: COMMIT_TOOL_ANNOTATIONS
+    },
+    async (input, extra) => await safelyInvoke(
+      () => handlers.commitChange(input, { signal: extra.signal })
+    )
+  );
+}
+function registerObsidianManagementTools(server, runtime) {
+  const handlers = createManagementToolHandlers({
+    runner: runtime.runner,
+    readPolicy: runtime.policy,
+    writablePolicy: runtime.writablePolicy,
+    store: runtime.store,
+    resolveAccess: runtime.resolveAccess,
+    dataDirectory: runtime.dataDirectory,
+    ...runtime.now === void 0 ? {} : { now: runtime.now }
+  });
+  server.registerTool(
+    "obsidian_prepare_managed_change",
+    {
+      title: "Prepare a managed Obsidian note change",
+      description: "Prepare an exact in-place replacement, literal text edit, frontmatter change, move/rename, or move to Obsidian trash. Requires the matching Gestione completa permission and returns a bounded preview without changing the vault.",
+      inputSchema: ToolInputSchemas.prepareManagedChange,
+      annotations: PREPARE_TOOL_ANNOTATIONS
+    },
+    async (input, extra) => await safelyInvoke(
+      () => handlers.prepareChange(input, { signal: extra.signal })
+    )
+  );
+  server.registerTool(
+    "obsidian_commit_managed_change",
+    {
+      title: "Commit a managed Obsidian note change",
+      description: "Consume one prepared management change while its permission remains active, recheck conflicts, execute through Bridge Control inside Obsidian, create a recovery backup, audit the outcome, and verify the result. Permanent deletion is never available.",
+      inputSchema: ToolInputSchemas.commitManagedChange,
       annotations: COMMIT_TOOL_ANNOTATIONS
     },
     async (input, extra) => await safelyInvoke(
@@ -34613,13 +35510,15 @@ function createObsidianServer(options = {}) {
     deniedFolders: config2.deniedFolders
   });
   const resolveAccess = options.resolveAccess ?? (config2.settingsPath === void 0 ? void 0 : createConfigAccessResolver(config2));
-  const runner = options.runner ?? createObsidianCliRunner(config2, void 0, {
-    allowWrites: mode !== "read"
-  });
+  const runner = options.runner ?? createObsidianCliRunner(
+    config2,
+    void 0,
+    mode === "management" ? { allowManagement: true } : mode === "write" || mode === "autonomous" ? { allowWrites: true } : {}
+  );
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
-      instructions: mode === "read" ? "Read-only access to local Obsidian vaults. Check obsidian_recent_write_events before an autonomous write sequence and after any write error so recovery state can be understood without asking for screenshots. Cite note paths and the line numbers returned by obsidian_read_note. Never claim that a note was changed." : mode === "autonomous" ? "Autonomous Obsidian changes are allowed only for a vault explicitly set to Accesso completo. Use obsidian_prepare_autonomous_change, inspect its exact preview internally, then use obsidian_commit_autonomous_change in the same task. Stop on any ambiguity, conflict, revocation, or failure; never reuse a change_id or claim success unless verified=true." : "Protected Obsidian changes require obsidian_prepare_change followed by explicit user approval and obsidian_commit_change. Never skip the diff, reuse a change_id, or claim success unless commit returns verified=true."
+      instructions: mode === "read" ? "Read-only access to local Obsidian vaults. Check obsidian_recent_write_events before an autonomous write sequence and after any write error so recovery state can be understood without asking for screenshots. Cite note paths and the line numbers returned by obsidian_read_note. Never claim that a note was changed." : mode === "autonomous" ? "Autonomous create and append changes are allowed only for a vault explicitly set to Accesso autonomo or Gestione completa. Use obsidian_prepare_autonomous_change, inspect its exact preview internally, then use obsidian_commit_autonomous_change in the same task. Stop on any ambiguity, conflict, revocation, or failure; never reuse a change_id or claim success unless verified=true." : mode === "management" ? "Managed Obsidian changes require Gestione completa and the matching edit, move, or trash permission. Use obsidian_prepare_managed_change and obsidian_commit_managed_change in the same task. Inspect the bounded preview internally, stop on conflicts or revocation, never reuse a change_id, never request permanent deletion, and claim success only when verified=true and audit_recorded=true." : "Protected Obsidian changes require obsidian_prepare_change followed by explicit user approval and obsidian_commit_change. Never skip the diff, reuse a change_id, or claim success unless commit returns verified=true."
     }
   );
   if (mode === "read") {
@@ -34660,6 +35559,35 @@ function createObsidianServer(options = {}) {
       ...options.now === void 0 ? {} : { now: options.now }
     });
   }
+  if (mode === "management") {
+    const dataDirectory = config2.dataDirectory;
+    if (dataDirectory === void 0) {
+      throw new Error("management mode requires BridgeConfig.dataDirectory");
+    }
+    if (resolveAccess === void 0) {
+      throw new Error(
+        "management mode requires shared Bridge Control settings"
+      );
+    }
+    const writablePolicy = options.writablePolicy ?? createWritablePathPolicy({
+      allowedFolders: config2.writableFolders ?? [],
+      deniedFolders: config2.deniedFolders,
+      caseSensitive: policy.caseSensitive
+    });
+    const store = options.managementStore ?? new PreparedManagementStore({
+      ttlMs: config2.changeTtlMs ?? 3e5,
+      ...options.now === void 0 ? {} : { now: options.now }
+    });
+    registerObsidianManagementTools(server, {
+      runner,
+      policy,
+      writablePolicy,
+      store,
+      resolveAccess,
+      dataDirectory,
+      ...options.now === void 0 ? {} : { now: options.now }
+    });
+  }
   return server;
 }
 function parseServerMode(args) {
@@ -34669,8 +35597,10 @@ function parseServerMode(args) {
       throw new Error(`unknown argument: ${argument}`);
     }
     const value = argument.slice("--mode=".length);
-    if (value !== "read" && value !== "write" && value !== "autonomous") {
-      throw new Error("--mode must be read, write, or autonomous");
+    if (value !== "read" && value !== "write" && value !== "autonomous" && value !== "management") {
+      throw new Error(
+        "--mode must be read, write, autonomous, or management"
+      );
     }
     mode = value;
   }
@@ -34683,7 +35613,7 @@ async function main() {
   await server.connect(new StdioServerTransport());
 }
 function isMainModule(moduleUrl = import.meta.url, entryPoint = process.argv[1]) {
-  return entryPoint !== void 0 && fileURLToPath(moduleUrl) === path8.resolve(entryPoint);
+  return entryPoint !== void 0 && fileURLToPath(moduleUrl) === path9.resolve(entryPoint);
 }
 if (isMainModule()) {
   main().catch((error51) => {
@@ -34705,6 +35635,7 @@ export {
   isMainModule,
   main,
   parseServerMode,
+  registerObsidianManagementTools,
   registerObsidianTools,
   registerObsidianWriteTools
 };

@@ -16,7 +16,7 @@ import {
 
 function document(vaults: Record<string, VaultSettings>): string {
   return `${JSON.stringify({
-    version: 3,
+    version: 4,
     updatedAt: "2026-07-11T10:00:00.000Z",
     vaults,
   })}\n`;
@@ -32,6 +32,7 @@ function entry(overrides: Partial<VaultSettings> = {}): VaultSettings {
     writeEnabled: true,
     writeFolders: ["Panel Write"],
     accessMode: "protected",
+    managementPermissions: { edit: false, move: false, trash: false },
     ...overrides,
   };
 }
@@ -81,6 +82,11 @@ describe("shared GUI settings", () => {
       true,
     );
     expect(access.accessMode).toBe("protected");
+    expect(access.managementPermissions).toEqual({
+      edit: false,
+      move: false,
+      trash: false,
+    });
   });
 
   it("migrates strict version-2 settings to protected access in memory", async () => {
@@ -109,15 +115,66 @@ describe("shared GUI settings", () => {
     expect(snapshot).toMatchObject({
       status: "loaded",
       settings: {
-        version: 3,
+        version: 4,
         vaults: {
-          [TEST_VAULT_ID]: { accessMode: "protected" },
+          [TEST_VAULT_ID]: {
+            accessMode: "protected",
+            managementPermissions: { edit: false, move: false, trash: false },
+          },
         },
       },
     });
     expect((await resolver(settingsPath)("Test Vault")).accessMode).toBe(
       "protected",
     );
+  });
+
+  it("migrates version-3 full access without inventing management grants", async () => {
+    const { settingsPath } = await fixture();
+    await writeFile(
+      settingsPath,
+      `${JSON.stringify({
+        version: 3,
+        updatedAt: "2026-07-11T10:00:00.000Z",
+        vaults: {
+          [TEST_VAULT_ID]: {
+            vaultName: "Test Vault",
+            vaultPath: join(tmpdir(), "Test Vault"),
+            enabled: true,
+            readMode: "off",
+            readFolders: [],
+            writeEnabled: false,
+            writeFolders: [],
+            accessMode: "full",
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    const snapshot = await readSharedSettings(settingsPath);
+    expect(snapshot).toMatchObject({
+      status: "loaded",
+      settings: {
+        version: 4,
+        vaults: {
+          [TEST_VAULT_ID]: {
+            accessMode: "full",
+            managementPermissions: { edit: false, move: false, trash: false },
+          },
+        },
+      },
+    });
+    const access = await resolver(settingsPath)("Test Vault");
+    expect(access.accessMode).toBe("full");
+    expect(access.writeEnabled).toBe(true);
+    expect(access.managementPermissions).toEqual({
+      edit: false,
+      move: false,
+      trash: false,
+    });
+    expect(isPathAllowed("Anywhere/A.md", access.readPolicy)).toBe(true);
+    expect(isPathAllowed("Anywhere/A.md", access.writablePolicy)).toBe(true);
   });
 
   it("grants full visible-vault read and write only from an enabled full entry", async () => {
@@ -139,6 +196,11 @@ describe("shared GUI settings", () => {
     const access = await resolver(settingsPath)("Test Vault");
     expect(access.accessMode).toBe("full");
     expect(access.writeEnabled).toBe(true);
+    expect(access.managementPermissions).toEqual({
+      edit: false,
+      move: false,
+      trash: false,
+    });
     expect(isPathAllowed("Root note.md", access.readPolicy)).toBe(true);
     expect(isPathAllowed("Root note.md", access.writablePolicy)).toBe(true);
     expect(isPathAllowed("Any/Nested note.md", access.writablePolicy)).toBe(true);
@@ -163,7 +225,84 @@ describe("shared GUI settings", () => {
     const disabled = await resolver(settingsPath)("Test Vault");
     expect(disabled.accessMode).toBe("protected");
     expect(disabled.writeEnabled).toBe(false);
+    expect(disabled.managementPermissions).toEqual({
+      edit: false,
+      move: false,
+      trash: false,
+    });
     expect(isPathAllowed("Root note.md", disabled.readPolicy)).toBe(false);
+  });
+
+  it("exposes management grants only from an enabled management entry", async () => {
+    const { settingsPath } = await fixture();
+    await writeFile(
+      settingsPath,
+      document({
+        [TEST_VAULT_ID]: entry({
+          accessMode: "management",
+          readMode: "off",
+          readFolders: [],
+          writeEnabled: false,
+          writeFolders: [],
+          managementPermissions: { edit: true, move: false, trash: true },
+        }),
+      }),
+      "utf8",
+    );
+
+    const access = await resolver(settingsPath)("Test Vault");
+    expect(access.accessMode).toBe("management");
+    expect(access.writeEnabled).toBe(true);
+    expect(isPathAllowed("Root note.md", access.readPolicy)).toBe(true);
+    expect(isPathAllowed("Nested/Note.md", access.writablePolicy)).toBe(true);
+    expect(access.managementPermissions).toEqual({
+      edit: true,
+      move: false,
+      trash: true,
+    });
+
+    await writeFile(
+      settingsPath,
+      document({
+        [TEST_VAULT_ID]: entry({
+          enabled: false,
+          accessMode: "management",
+          readMode: "all",
+          writeEnabled: true,
+          managementPermissions: { edit: true, move: true, trash: true },
+        }),
+      }),
+      "utf8",
+    );
+    const disabled = await resolver(settingsPath)("Test Vault");
+    expect(disabled.accessMode).toBe("protected");
+    expect(disabled.writeEnabled).toBe(false);
+    expect(isPathAllowed("Root note.md", disabled.readPolicy)).toBe(false);
+    expect(disabled.managementPermissions).toEqual({
+      edit: false,
+      move: false,
+      trash: false,
+    });
+  });
+
+  it("rejects stored management grants outside management mode", async () => {
+    const { settingsPath } = await fixture();
+    const resolveAccess = resolver(settingsPath);
+    for (const accessMode of ["full", "protected"] as const) {
+      await writeFile(
+        settingsPath,
+        document({
+          [TEST_VAULT_ID]: entry({
+            accessMode,
+            managementPermissions: { edit: true, move: true, trash: true },
+          }),
+        }),
+        "utf8",
+      );
+      await expect(resolveAccess("Test Vault")).rejects.toThrow(
+        "shared settings do not match schema",
+      );
+    }
   });
 
   it("denies legacy read access when no GUI file or read environment exists", async () => {
@@ -245,6 +384,8 @@ describe("shared GUI settings", () => {
   it("fails closed for malformed, extra-field, invalid-folder, and oversized files", async () => {
     const { settingsPath } = await fixture();
     const resolveAccess = resolver(settingsPath);
+    const missingManagementPermissions: Partial<VaultSettings> = { ...entry() };
+    delete missingManagementPermissions.managementPermissions;
 
     for (const invalid of [
       "{not-json",
@@ -254,6 +395,26 @@ describe("shared GUI settings", () => {
         vaults: { [TEST_VAULT_ID]: { ...entry(), unexpected: true } },
       }),
       document({ [TEST_VAULT_ID]: entry({ readFolders: ["../Outside"] }) }),
+      JSON.stringify({
+        version: 4,
+        updatedAt: "2026-07-11T10:00:00.000Z",
+        vaults: { [TEST_VAULT_ID]: missingManagementPermissions },
+      }),
+      JSON.stringify({
+        version: 4,
+        updatedAt: "2026-07-11T10:00:00.000Z",
+        vaults: {
+          [TEST_VAULT_ID]: {
+            ...entry(),
+            managementPermissions: {
+              edit: true,
+              move: true,
+              trash: true,
+              unexpected: true,
+            },
+          },
+        },
+      }),
       JSON.stringify({
         version: 3,
         updatedAt: "2026-07-11T10:00:00.000Z",

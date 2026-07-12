@@ -16,9 +16,9 @@ describe("public release metadata", () => {
       "companion/obsidian-bridge-control/manifest.json",
     );
 
-    expect(packageJson.version).toBe("0.4.1");
-    expect(plugin.version).toBe("0.4.1");
-    expect(companion.version).toBe("0.4.1");
+    expect(packageJson.version).toBe("0.5.0");
+    expect(plugin.version).toBe("0.5.0");
+    expect(companion.version).toBe("0.5.0");
   });
 
   it("publishes a pinned Git-backed Codex marketplace entry", () => {
@@ -39,7 +39,7 @@ describe("public release metadata", () => {
         source: {
           source: "url",
           url: "https://github.com/studentepercaso/obsidian-bridge.git",
-          ref: "0.4.1",
+          ref: "0.5.0",
         },
         policy: {
           installation: "AVAILABLE",
@@ -59,7 +59,7 @@ describe("public release metadata", () => {
     ).toContain("[English](README.md)");
   });
 
-  it("keeps protected and autonomous writers in separate approval domains", () => {
+  it("keeps protected, autonomous and management writers in separate approval domains", () => {
     const mcp = readJson(".mcp.json") as {
       mcpServers: Record<
         string,
@@ -75,6 +75,7 @@ describe("public release metadata", () => {
       "obsidian",
       "obsidian-writer",
       "obsidian-autonomous-writer",
+      "obsidian-manager",
     ]);
     expect(mcp.mcpServers.obsidian).toMatchObject({
       args: ["./dist/server.mjs", "--mode=read"],
@@ -89,6 +90,10 @@ describe("public release metadata", () => {
     });
     expect(mcp.mcpServers["obsidian-autonomous-writer"]).toMatchObject({
       args: ["./dist/server.mjs", "--mode=autonomous"],
+      default_tools_approval_mode: "auto",
+    });
+    expect(mcp.mcpServers["obsidian-manager"]).toMatchObject({
+      args: ["./dist/server.mjs", "--mode=management"],
       default_tools_approval_mode: "auto",
     });
   });

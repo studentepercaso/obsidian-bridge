@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.4.1 - INSTALLER WINDOWS
+OBSIDIAN BRIDGE 0.5.0 - INSTALLER WINDOWS
 =========================================
 
 Installazione semplice
@@ -8,8 +8,9 @@ Installazione semplice
 3. Scegli il vault, conferma e premi Installa Bridge.
 4. In Obsidian apri Bridge Control e scegli una modalita:
    - Accesso protetto: seleziona le cartelle Leggi/Scrivi e salva.
-   - Accesso completo: leggi l avviso con attenzione e attivalo solo
-     confermando l autorizzazione dedicata per quel vault.
+   - Accesso autonomo: lettura, creazione e aggiunta sull intero vault.
+   - Gestione completa: scegli separatamente modifica, spostamento e cestino,
+     poi conferma l avviso dedicato per quel vault.
 
 Non servono diritti di amministratore. Nessuna API key richiesta: il bridge
 usa la CLI locale ufficiale di Obsidian.
@@ -30,7 +31,8 @@ La casella autorizza l installazione e abilitazione del plugin community
 locale per Codex. Le cartelle non si digitano nell installer: si scelgono
 dal pannello visuale dentro Obsidian. Una nuova installazione non concede
 accesso alle note e parte in Accesso protetto. L installer non abilita mai
-Accesso completo: richiede sempre l attivazione esplicita dentro Bridge Control.
+Accesso autonomo o Gestione completa: richiedono sempre un attivazione
+esplicita dentro Bridge Control.
 Un aggiornamento conserva le autorizzazioni e gli errori gia segnati come
 controllati.
 
@@ -38,7 +40,7 @@ Cosa viene installato
 ---------------------
 - Il companion Bridge Control nel solo vault selezionato.
 - Nessuna nota o cartella viene creata nella configurazione iniziale predefinita.
-- La configurazione condivisa schema v3, legata all ID stabile a 16 caratteri
+- La configurazione condivisa schema v4, legata all ID stabile a 16 caratteri
   registrato in obsidian.json e non soltanto al nome visualizzato del vault.
 - Una copia stabile del plugin Codex in:
 
@@ -53,11 +55,14 @@ Modalita di accesso in Bridge Control
 -------------------------------------
 - Accesso protetto (consigliato): usa soltanto gli scope di lettura e scrittura
   scelti. Ogni creazione o aggiunta richiede anteprima e conferma separata.
-- Accesso completo (opt-in): dopo un avviso e una conferma esplicita per il
+- Accesso autonomo (opt-in): dopo un avviso e una conferma esplicita per il
   singolo vault, consente lettura, creazione e aggiunta autonome sulle note
-  visibili. Non abilita eliminazione, rinomina, spostamento, shell o
-  sovrascrittura arbitraria. Restano attivi controlli di percorso, hash,
-  backup, lock e audit.
+  visibili, ma non modifica in-place, rinomina, sposta o cestina.
+- Gestione completa (opt-in, rischio elevato): autorizza soltanto le caselle
+  selezionate tra modifica/frontmatter, rinomina/spostamento e cestino
+  Obsidian. Ogni operazione usa anteprima, hash, richiesta monouso, backup,
+  verifica e audit. La cancellazione permanente, shell, eval e comandi
+  arbitrari non sono disponibili.
 - Tornare ad Accesso protetto e immediato e conserva le precedenti scelte per
   cartella.
 
@@ -78,10 +83,11 @@ Il valore predefinito e:
 
 Se OBSIDIAN_BRIDGE_SETTINGS_PATH e valorizzata, deve essere un percorso
 assoluto valido e diventa il percorso usato sia dall installer sia dal bridge.
-Il file usa lo schema esatto versione 3. Una configurazione valida v2 viene
-migrata in modo prudente a v3 con Accesso protetto; la migrazione non concede
-mai Accesso completo. File v1, JSON malformato, campi aggiuntivi o limiti
-superati vengono rifiutati senza sovrascrittura.
+Il file usa lo schema esatto versione 4. Le configurazioni valide v2 e v3
+vengono migrate in modo prudente: v2 resta protetta e v3 conserva l eventuale
+accesso autonomo, ma nessuna migrazione concede permessi di gestione. File v1,
+JSON malformato, campi aggiuntivi o stati incoerenti vengono rifiutati senza
+sovrascrittura.
 
 Sicurezza e recupero
 --------------------

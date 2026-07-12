@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 - 2026-07-12
+
+- Rename the previous user-facing **Full access** profile to **Autonomous access** while preserving its stable `accessMode=full` value and its vault-wide read/create/append behavior.
+- Add a separate, explicitly activated **Full management** profile (`accessMode=management`) with independent edit, move, and trash grants. Migrations from version-2 or version-3 settings never infer these permissions.
+- Add a dedicated auto-approved management MCP process exposing only `obsidian_prepare_managed_change` and `obsidian_commit_managed_change`.
+- Support exact whole-note replacement, counted literal `replace_text`, frontmatter set/remove, move/rename, and move to Obsidian trash. Permanent deletion remains unavailable.
+- Register the fixed `bridge-control:commit` CLI handler in Bridge Control; use `Vault.process` plus public YAML helpers and an in-transform before-hash CAS for content/frontmatter, `Vault.rename` for isolated move/rename without backlink rewriting, and FileManager only for trash. Do not expose shell, `eval`, arbitrary commands, command palette, or plugin management.
+- Pass bounded, expiring, single-use, token-bound management requests through the private bridge data directory and recheck vault identity, physical scope, granular permission, source hash, destination state, and expiry before mutation.
+- Create a plaintext version-2 recovery backup before every managed operation, verify each postcondition, attempt only conflict-aware bounded recovery, and retain manual recovery evidence when an automatic reversal is unsafe or impossible.
+- Extend metadata-only audit diagnostics and **Problemi recenti** to replacement, frontmatter, move/rename, and trash outcomes, including an optional destination path without exposing note or backup bodies.
+- Share filesystem-backed locks across all mutating processes and lock both source and destination for move/rename.
+- Add strict version-4 shared settings, exact permission-snapshot activation, fail-closed revocation, management circuit breaking, protocol validation, handler tests, migration tests, and bilingual installation/release documentation.
+
 ## 0.4.1 - 2026-07-12
 
 - Fix the Bridge Control rerender crash that appeared immediately after successfully enabling Full access.

@@ -1,4 +1,4 @@
 interface:
   display_name: "Use Obsidian Vault"
-  short_description: "Read, cite, create, and append Obsidian notes"
-  default_prompt: "Use $use-obsidian-vault to find relevant notes and check the vault access mode before writing. Read recent metadata-only write failures before a full-access autonomous sequence and after any write error, without asking me for a screenshot. In protected access, show the exact preview and wait for my separate confirmation. In full access, inspect the exact preview internally and you may commit in the same task without a separate confirmation."
+  short_description: "Read, cite, and safely manage authorized Obsidian notes"
+  default_prompt: "Use $use-obsidian-vault to inspect the exact vault mode and permissions, read recent failures, show and await confirmation for protected create/append, internally verify autonomous or managed previews, commit only an explicitly granted operation once, read back the result, and never use permanent delete, shell, eval, or arbitrary Obsidian commands."

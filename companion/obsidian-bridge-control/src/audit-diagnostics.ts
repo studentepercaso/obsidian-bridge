@@ -24,6 +24,7 @@ const AUDIT_KEYS = new Set([
   "change_id",
   "vault",
   "path",
+  "target_path",
   "operation",
   "status",
   "authorization_mode",
@@ -38,6 +39,13 @@ const AUDIT_KEYS = new Set([
 
 export type AuditDiagnosticState = "ready" | "missing" | "unsafe" | "error";
 export type AuditSeverity = "success" | "warning" | "error";
+export type AuditOperation =
+  | "create"
+  | "append"
+  | "replace"
+  | "frontmatter"
+  | "move"
+  | "trash";
 export type AuditRecovery =
   | "none-needed"
   | "not-applied"
@@ -48,9 +56,10 @@ export interface AuditDiagnosticRecord {
   readonly timestamp: string;
   readonly changeId: string;
   readonly path: string;
-  readonly operation: "create" | "append";
+  readonly targetPath?: string;
+  readonly operation: AuditOperation;
   readonly status: "committed" | "failed";
-  readonly authorizationMode: "protected" | "autonomous";
+  readonly authorizationMode: "protected" | "autonomous" | "management";
   readonly errorCode?: string;
   readonly backupId?: string;
   readonly rollbackAttempted: boolean;
@@ -90,9 +99,10 @@ interface ParsedAuditRecord {
   readonly changeId: string;
   readonly vault: string;
   readonly path: string;
-  readonly operation: "create" | "append";
+  readonly targetPath?: string;
+  readonly operation: AuditOperation;
   readonly status: "committed" | "failed";
-  readonly authorizationMode: "protected" | "autonomous";
+  readonly authorizationMode: "protected" | "autonomous" | "management";
   readonly errorCode?: string;
   readonly backupId?: string;
   readonly rollbackAttempted?: boolean;
@@ -219,11 +229,18 @@ function parseAuditLine(line: string): ParsedAuditRecord | undefined {
     typeof value.vault !== "string" ||
     !VAULT_ID.test(value.vault) ||
     !isSafeNotePath(value.path) ||
-    (value.operation !== "create" && value.operation !== "append") ||
+    (value.target_path !== undefined && !isSafeNotePath(value.target_path)) ||
+    (value.operation !== "create" &&
+      value.operation !== "append" &&
+      value.operation !== "replace" &&
+      value.operation !== "frontmatter" &&
+      value.operation !== "move" &&
+      value.operation !== "trash") ||
     (value.status !== "committed" && value.status !== "failed") ||
     (value.authorization_mode !== undefined &&
       value.authorization_mode !== "protected" &&
-      value.authorization_mode !== "autonomous") ||
+      value.authorization_mode !== "autonomous" &&
+      value.authorization_mode !== "management") ||
     typeof value.before_sha256 !== "string" ||
     !SHA256.test(value.before_sha256) ||
     typeof value.after_sha256 !== "string" ||
@@ -248,6 +265,8 @@ function parseAuditLine(line: string): ParsedAuditRecord | undefined {
   }
 
   if (
+    (value.operation === "move" && value.target_path === undefined) ||
+    (value.operation !== "move" && value.target_path !== undefined) ||
     (value.status === "committed" && value.error_code !== undefined) ||
     (value.status === "failed" && value.error_code === undefined) ||
     (value.rollback_succeeded !== undefined &&
@@ -261,10 +280,16 @@ function parseAuditLine(line: string): ParsedAuditRecord | undefined {
     changeId: value.change_id,
     vault: value.vault,
     path: value.path,
+    ...(value.target_path === undefined
+      ? {}
+      : { targetPath: value.target_path }),
     operation: value.operation,
     status: value.status,
     authorizationMode:
-      value.authorization_mode === "autonomous" ? "autonomous" : "protected",
+      value.authorization_mode === "autonomous" ||
+      value.authorization_mode === "management"
+        ? value.authorization_mode
+        : "protected",
     ...(value.error_code === undefined ? {} : { errorCode: value.error_code }),
     ...(value.backup_id === undefined ? {} : { backupId: value.backup_id }),
     ...(value.rollback_attempted === undefined
@@ -328,6 +353,9 @@ function classifyAuditRecord(record: ParsedAuditRecord): AuditDiagnosticRecord {
     timestamp: record.timestamp,
     changeId: record.changeId,
     path: record.path,
+    ...(record.targetPath === undefined
+      ? {}
+      : { targetPath: record.targetPath }),
     operation: record.operation,
     status: record.status,
     authorizationMode: record.authorizationMode,

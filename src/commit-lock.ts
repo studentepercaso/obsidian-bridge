@@ -14,6 +14,7 @@ import path from "node:path";
 const LOCKS_DIRECTORY = "commit-locks";
 const OWNER_FILE = "owner.json";
 const MAX_OWNER_BYTES = 4_096;
+const TRANSIENT_RENAME_RETRY_DELAYS_MS = [10, 25, 50] as const;
 
 export const DEFAULT_COMMIT_LOCK_TIMEOUT_MS = 10_000;
 export const DEFAULT_COMMIT_LOCK_RETRY_DELAY_MS = 50;
@@ -377,6 +378,44 @@ function sameOwner(left: LockOwner | null, right: LockOwner | null): boolean {
   );
 }
 
+function isTransientRenameError(error: unknown): boolean {
+  return (
+    isNodeErrorWithCode(error, "EPERM") ||
+    isNodeErrorWithCode(error, "EBUSY")
+  );
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function verifyLockStillMatches(
+  lockDirectory: string,
+  expected: LockSnapshot,
+): Promise<boolean> {
+  let current: LockSnapshot;
+  try {
+    current = await snapshotLock(lockDirectory);
+  } catch (error) {
+    if (hasNodeErrorWithCode(error, "ENOENT")) return false;
+    throw error;
+  }
+
+  if (!sameDirectory(expected.stats, current.stats)) {
+    throw new CommitLockError(
+      "UNSAFE_LOCK_PATH",
+      "lock directory identity changed before an atomic transition",
+    );
+  }
+  if (!sameOwner(expected.owner, current.owner)) {
+    throw new CommitLockError(
+      "LOCK_OWNERSHIP_LOST",
+      "lock owner changed before an atomic transition",
+    );
+  }
+  return true;
+}
+
 function processMayStillBeAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -423,13 +462,27 @@ async function renameVerifiedAndRemove(
   transition: "release" | "stale",
 ): Promise<boolean> {
   const quarantinePath = `${lockDirectory}.${transition}-${randomUUID()}`;
-  try {
-    await rename(lockDirectory, quarantinePath);
-  } catch (error) {
-    if (isNodeErrorWithCode(error, "ENOENT")) return false;
-    throw new CommitLockError("LOCK_IO_ERROR", "lock cannot be renamed safely", {
-      cause: error,
-    });
+  for (let attempt = 0; ; attempt += 1) {
+    if (!(await verifyLockStillMatches(lockDirectory, snapshot))) return false;
+
+    try {
+      await rename(lockDirectory, quarantinePath);
+      break;
+    } catch (error) {
+      if (isNodeErrorWithCode(error, "ENOENT")) return false;
+      if (isTransientRenameError(error)) {
+        const retryDelayMs = TRANSIENT_RENAME_RETRY_DELAYS_MS[attempt];
+        if (retryDelayMs !== undefined) {
+          await delay(retryDelayMs);
+          continue;
+        }
+      }
+      throw new CommitLockError(
+        "LOCK_IO_ERROR",
+        "lock cannot be renamed safely",
+        { cause: error },
+      );
+    }
   }
 
   let moved: LockSnapshot;

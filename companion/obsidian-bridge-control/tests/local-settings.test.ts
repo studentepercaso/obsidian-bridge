@@ -5,6 +5,7 @@ import type { VaultBridgeSettings } from "../src/shared-settings";
 
 const DEFAULTS: VaultBridgeSettings = {
   accessMode: "protected",
+  managementPermissions: { edit: false, move: false, trash: false },
   enabled: false,
   readMode: "folders",
   readFolders: ["Bridge Test"],
@@ -28,11 +29,32 @@ describe("local plugin-data fallback", () => {
       ),
     ).toEqual({
       accessMode: "protected",
+      managementPermissions: { edit: false, move: false, trash: false },
       enabled: true,
       readMode: "all",
       readFolders: ["Study Notes"],
       writeEnabled: true,
       writeFolders: ["Study Notes"],
+    });
+  });
+
+  it("never restores management access or capabilities from the local cache", () => {
+    expect(
+      coerceProtectedLocalSettings(
+        {
+          accessMode: "management",
+          managementPermissions: { edit: true, move: true, trash: true },
+          enabled: true,
+          readMode: "all",
+          readFolders: ["Study Notes"],
+          writeEnabled: true,
+          writeFolders: ["Study Notes"],
+        },
+        DEFAULTS,
+      ),
+    ).toMatchObject({
+      accessMode: "protected",
+      managementPermissions: { edit: false, move: false, trash: false },
     });
   });
 

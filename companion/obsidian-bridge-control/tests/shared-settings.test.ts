@@ -13,6 +13,7 @@ import {
 } from "../src/shared-settings.js";
 
 describe("shared settings security", () => {
+  const noManagement = { edit: false, move: false, trash: false } as const;
   let sandbox = "";
   let vault = "";
   let configRoot = "";
@@ -83,6 +84,7 @@ describe("shared settings security", () => {
       vault,
       {
         accessMode: "protected",
+        managementPermissions: noManagement,
         enabled: true,
         readMode: "folders",
         readFolders: ["Projects"],
@@ -95,6 +97,7 @@ describe("shared settings security", () => {
       readVaultSettings(settingsFile, "0123456789abcdef"),
     ).resolves.toEqual({
       accessMode: "protected",
+      managementPermissions: noManagement,
       enabled: true,
       readMode: "folders",
       readFolders: ["Projects"],
@@ -102,14 +105,14 @@ describe("shared settings security", () => {
       writeFolders: ["Projects"],
     });
     expect(JSON.parse(await readFile(settingsFile, "utf8"))).toMatchObject({
-      version: 3,
+      version: 4,
       vaults: {
         "0123456789abcdef": { accessMode: "protected" },
       },
     });
   });
 
-  it("migrates every version-2 vault to protected mode before saving version 3", async () => {
+  it("migrates every version-2 vault to protected mode before saving version 4", async () => {
     const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
     await mkdir(join(configRoot, "ObsidianBridge"), { recursive: true });
     await writeFile(
@@ -139,6 +142,7 @@ describe("shared settings security", () => {
       vault,
       {
         accessMode: "full",
+        managementPermissions: noManagement,
         enabled: true,
         readMode: "off",
         readFolders: [],
@@ -152,7 +156,7 @@ describe("shared settings security", () => {
       version: number;
       vaults: Record<string, { accessMode: string }>;
     };
-    expect(stored.version).toBe(3);
+    expect(stored.version).toBe(4);
     expect(stored.vaults.fedcba9876543210?.accessMode).toBe("protected");
     expect(stored.vaults["0123456789abcdef"]?.accessMode).toBe("full");
     await expect(
@@ -160,10 +164,285 @@ describe("shared settings security", () => {
     ).resolves.toMatchObject({ accessMode: "full" });
   });
 
+  it("migrates version-3 full access without granting management permissions", async () => {
+    const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
+    await mkdir(join(configRoot, "ObsidianBridge"), { recursive: true });
+    await writeFile(
+      settingsFile,
+      `${JSON.stringify({
+        version: 3,
+        updatedAt: "2026-07-11T10:00:00.000Z",
+        vaults: {
+          "0123456789abcdef": {
+            vaultName: "Synthetic vault",
+            vaultPath: vault,
+            accessMode: "full",
+            enabled: true,
+            readMode: "off",
+            readFolders: [],
+            writeEnabled: false,
+            writeFolders: [],
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    await expect(
+      readVaultSettings(settingsFile, "0123456789abcdef"),
+    ).resolves.toMatchObject({
+      accessMode: "full",
+      managementPermissions: noManagement,
+    });
+
+    await mergeVaultSettings(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      {
+        accessMode: "full",
+        managementPermissions: noManagement,
+        enabled: true,
+        readMode: "off",
+        readFolders: [],
+        writeEnabled: false,
+        writeFolders: [],
+      },
+    );
+    const stored = JSON.parse(await readFile(settingsFile, "utf8")) as {
+      version: number;
+      vaults: Record<string, { managementPermissions: unknown }>;
+    };
+    expect(stored.version).toBe(4);
+    expect(stored.vaults["0123456789abcdef"]?.managementPermissions).toEqual(
+      noManagement,
+    );
+  });
+
+  it("requires an exact acknowledgement for management activation and permission increases", async () => {
+    const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
+    const protectedSettings = {
+      accessMode: "protected" as const,
+      managementPermissions: noManagement,
+      enabled: true,
+      readMode: "folders" as const,
+      readFolders: ["Projects"],
+      writeEnabled: true,
+      writeFolders: ["Projects"],
+    };
+    await mergeVaultSettings(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      protectedSettings,
+    );
+    const editOnly = {
+      ...protectedSettings,
+      accessMode: "management" as const,
+      managementPermissions: { edit: true, move: false, trash: false },
+    };
+
+    await expect(
+      mergeVaultSettings(
+        settingsFile,
+        "0123456789abcdef",
+        "Synthetic vault",
+        vault,
+        editOnly,
+      ),
+    ).rejects.toThrow("Gestione completa");
+    await expect(
+      mergeVaultSettings(
+        settingsFile,
+        "0123456789abcdef",
+        "Synthetic vault",
+        vault,
+        editOnly,
+        {
+          managementPermissionsConfirmed: {
+            edit: true,
+            move: true,
+            trash: false,
+          },
+        },
+      ),
+    ).rejects.toThrow("stessi permessi");
+
+    await expect(
+      mergeVaultSettings(
+        settingsFile,
+        "0123456789abcdef",
+        "Synthetic vault",
+        vault,
+        editOnly,
+        { managementPermissionsConfirmed: editOnly.managementPermissions },
+      ),
+    ).resolves.toMatchObject({ settings: editOnly });
+
+    const editAndMove = {
+      ...editOnly,
+      managementPermissions: { edit: true, move: true, trash: false },
+    };
+    await expect(
+      mergeVaultSettings(
+        settingsFile,
+        "0123456789abcdef",
+        "Synthetic vault",
+        vault,
+        editAndMove,
+      ),
+    ).rejects.toThrow("Gestione completa");
+    await expect(
+      mergeVaultSettings(
+        settingsFile,
+        "0123456789abcdef",
+        "Synthetic vault",
+        vault,
+        editAndMove,
+        { managementPermissionsConfirmed: editAndMove.managementPermissions },
+      ),
+    ).resolves.toMatchObject({
+      settings: { accessMode: "management", managementPermissions: editAndMove.managementPermissions },
+    });
+
+    await expect(
+      mergeVaultSettings(
+        settingsFile,
+        "0123456789abcdef",
+        "Synthetic vault",
+        vault,
+        {
+          ...editAndMove,
+          accessMode: "full",
+          managementPermissions: noManagement,
+        },
+      ),
+    ).resolves.toMatchObject({
+      settings: { accessMode: "full", managementPermissions: noManagement },
+    });
+  });
+
+  it("never restores a revoked management permission after verification fails", async () => {
+    const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
+    const managementSettings = {
+      accessMode: "management" as const,
+      managementPermissions: { edit: true, move: true, trash: false },
+      enabled: true,
+      readMode: "off" as const,
+      readFolders: [],
+      writeEnabled: false,
+      writeFolders: [],
+    };
+    await mergeVaultSettings(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      managementSettings,
+      { managementPermissionsConfirmed: managementSettings.managementPermissions },
+    );
+
+    const reduced = {
+      ...managementSettings,
+      managementPermissions: { edit: false, move: true, trash: false },
+    };
+    const result = await mergeVaultSettings(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      reduced,
+      {
+        testAfterWrite: async (attempt) => {
+          if (attempt === "primary") await writeFile(settingsFile, "not json", "utf8");
+        },
+      },
+    );
+    expect(result.warning).toContain("revoca/riduzione");
+    await expect(
+      readVaultSettings(settingsFile, "0123456789abcdef"),
+    ).resolves.toMatchObject({ managementPermissions: reduced.managementPermissions });
+
+    await mergeVaultSettings(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      { ...reduced, enabled: false },
+    );
+    const dormantRevocation = await mergeVaultSettings(
+      settingsFile,
+      "0123456789abcdef",
+      "Synthetic vault",
+      vault,
+      {
+        ...reduced,
+        accessMode: "full",
+        managementPermissions: noManagement,
+        enabled: false,
+      },
+      {
+        testAfterWrite: async (attempt) => {
+          if (attempt === "primary") await writeFile(settingsFile, "not json", "utf8");
+        },
+      },
+    );
+    expect(dormantRevocation.warning).toContain("revoca/riduzione");
+    await expect(
+      readVaultSettings(settingsFile, "0123456789abcdef"),
+    ).resolves.toMatchObject({
+      accessMode: "full",
+      managementPermissions: noManagement,
+      enabled: false,
+    });
+  });
+
+  it("rejects dormant or empty management permission combinations in version 4", async () => {
+    const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
+    await mkdir(join(configRoot, "ObsidianBridge"), { recursive: true });
+    const base = {
+      vaultName: "Synthetic vault",
+      vaultPath: vault,
+      enabled: true,
+      readMode: "off",
+      readFolders: [],
+      writeEnabled: false,
+      writeFolders: [],
+    };
+    for (const invalidEntry of [
+      {
+        ...base,
+        accessMode: "full",
+        managementPermissions: { edit: true, move: false, trash: false },
+      },
+      {
+        ...base,
+        accessMode: "management",
+        managementPermissions: noManagement,
+      },
+    ]) {
+      await writeFile(
+        settingsFile,
+        `${JSON.stringify({
+          version: 4,
+          updatedAt: "2026-07-12T10:00:00.000Z",
+          vaults: { "0123456789abcdef": invalidEntry },
+        })}\n`,
+        "utf8",
+      );
+      await expect(
+        readVaultSettings(settingsFile, "0123456789abcdef"),
+      ).rejects.toThrow("Configurazione non valida");
+    }
+  });
+
   it("checks protected-to-full transitions against current shared state under lock", async () => {
     const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
     const protectedSettings = {
       accessMode: "protected" as const,
+      managementPermissions: noManagement,
       enabled: true,
       readMode: "folders" as const,
       readFolders: ["Projects"],
@@ -221,6 +500,7 @@ describe("shared settings security", () => {
     const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
     const fullSettings = {
       accessMode: "full" as const,
+      managementPermissions: noManagement,
       enabled: true,
       readMode: "off" as const,
       readFolders: [],
@@ -286,6 +566,7 @@ describe("shared settings security", () => {
     const settingsFile = join(configRoot, "ObsidianBridge", "settings.json");
     const protectedSettings = {
       accessMode: "protected" as const,
+      managementPermissions: noManagement,
       enabled: true,
       readMode: "folders" as const,
       readFolders: ["Projects"],
@@ -338,6 +619,7 @@ describe("shared settings security", () => {
         vault,
         {
           accessMode: "protected",
+          managementPermissions: noManagement,
           enabled: false,
           readMode: "off",
           readFolders: [],
@@ -359,6 +641,7 @@ describe("shared settings security", () => {
       vault,
       {
         accessMode: "protected",
+        managementPermissions: noManagement,
         enabled: false,
         readMode: "off",
         readFolders: [],
@@ -396,6 +679,7 @@ describe("shared settings security", () => {
         vault,
         {
           accessMode: "protected",
+          managementPermissions: noManagement,
           enabled: true,
           readMode: "off",
           readFolders: [],

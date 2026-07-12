@@ -28,6 +28,10 @@ export const WRITE_CLI_COMMANDS = Object.freeze([
   "append",
 ] as const);
 
+export const MANAGEMENT_CLI_COMMANDS = Object.freeze([
+  "bridge-control:commit",
+] as const);
+
 // Obsidian 1.12.7 on Windows can hand JSON.parse an incomplete named-pipe
 // chunk when the CLI IPC frame approaches 4 KiB. Keep a full KiB of headroom
 // and split write content before it reaches this defense-in-depth guard.
@@ -45,7 +49,16 @@ export function cliIpcFrameBytes(
 
 type ReadOnlyCliCommand = (typeof READ_ONLY_CLI_COMMANDS)[number];
 type WriteCliCommand = (typeof WRITE_CLI_COMMANDS)[number];
-type AllowedCliCommand = ReadOnlyCliCommand | WriteCliCommand;
+type ManagementCliCommand = (typeof MANAGEMENT_CLI_COMMANDS)[number];
+type AllowedCliCommand =
+  | ReadOnlyCliCommand
+  | WriteCliCommand
+  | ManagementCliCommand;
+
+interface CliCapabilities {
+  readonly allowWrites?: boolean;
+  readonly allowManagement?: boolean;
+}
 
 const COMMAND_ARGUMENTS: Readonly<
   Record<
@@ -79,6 +92,10 @@ const COMMAND_ARGUMENTS: Readonly<
   append: {
     parameters: ["path", "content"],
     flags: ["inline"],
+  },
+  "bridge-control:commit": {
+    parameters: ["request", "token"],
+    flags: [],
   },
 });
 
@@ -126,7 +143,7 @@ export type SpawnImplementation = (
 
 function commandFromArgs(
   args: readonly string[],
-  allowWrites: boolean,
+  capabilities: CliCapabilities,
 ): {
   command: AllowedCliCommand;
   commandIndex: number;
@@ -145,12 +162,17 @@ function commandFromArgs(
   const isWriteCommand =
     command !== undefined &&
     (WRITE_CLI_COMMANDS as readonly string[]).includes(command);
-  if (!isReadCommand && !(allowWrites && isWriteCommand)) {
+  const isManagementCommand =
+    command !== undefined &&
+    (MANAGEMENT_CLI_COMMANDS as readonly string[]).includes(command);
+  if (
+    !isReadCommand &&
+    !(capabilities.allowWrites === true && isWriteCommand) &&
+    !(capabilities.allowManagement === true && isManagementCommand)
+  ) {
     throw new ObsidianCliError(
       "INVALID_ARGUMENTS",
-      allowWrites
-        ? "CLI command is not on the bridge allowlist"
-        : "CLI command is not on the read-only allowlist",
+      "CLI command is not on the enabled bridge allowlist",
     );
   }
 
@@ -177,17 +199,27 @@ function commandFromArgs(
 
 /** Defense in depth: only documented arguments for the read-only commands pass. */
 export function assertReadOnlyCliArgs(args: readonly string[]): void {
-  assertCliArgs(args, false);
+  assertCliArgs(args, {});
 }
 
 /** Defense in depth for the writer: reads plus create/append only. */
 export function assertWriteEnabledCliArgs(args: readonly string[]): void {
-  assertCliArgs(args, true);
+  assertCliArgs(args, { allowWrites: true });
 }
 
-function assertCliArgs(args: readonly string[], allowWrites: boolean): void {
-  const { command, commandIndex } = commandFromArgs(args, allowWrites);
+/** Defense in depth for the management transport: reads plus one custom handler. */
+export function assertManagementCliArgs(args: readonly string[]): void {
+  assertCliArgs(args, { allowManagement: true });
+}
+
+function assertCliArgs(
+  args: readonly string[],
+  capabilities: CliCapabilities,
+): void {
+  const { command, commandIndex } = commandFromArgs(args, capabilities);
   const allowed = COMMAND_ARGUMENTS[command];
+  const seenParameters = new Set<string>();
+  const seenFlags = new Set<string>();
 
   for (const argument of args.slice(commandIndex + 1)) {
     if (argument.length === 0 || argument.includes("\u0000")) {
@@ -196,28 +228,42 @@ function assertCliArgs(args: readonly string[], allowWrites: boolean): void {
 
     const equalsIndex = argument.indexOf("=");
     if (equalsIndex === -1) {
-      if (!allowed.flags.includes(argument)) {
+      if (!allowed.flags.includes(argument) || seenFlags.has(argument)) {
         throw new ObsidianCliError(
           "INVALID_ARGUMENTS",
           `flag is not allowed for ${command}`,
         );
       }
+      seenFlags.add(argument);
       continue;
     }
 
     const key = argument.slice(0, equalsIndex);
-    if (!allowed.parameters.includes(key)) {
+    if (!allowed.parameters.includes(key) || seenParameters.has(key)) {
       throw new ObsidianCliError(
         "INVALID_ARGUMENTS",
         `parameter is not allowed for ${command}`,
       );
     }
+    seenParameters.add(key);
     if (
       key !== "content" &&
       /[\u0001-\u001f\u007f]/u.test(argument)
     ) {
       throw new ObsidianCliError("INVALID_ARGUMENTS", "invalid CLI argument");
     }
+  }
+
+  if (
+    command === "bridge-control:commit" &&
+    (!seenParameters.has("request") ||
+      !seenParameters.has("token") ||
+      seenParameters.size !== 2)
+  ) {
+    throw new ObsidianCliError(
+      "INVALID_ARGUMENTS",
+      "bridge-control:commit requires exactly request and token",
+    );
   }
 
   const frameBytes = cliIpcFrameBytes(args);
@@ -246,6 +292,16 @@ export function buildWriteVaultArgs(
 ): string[] {
   const result = [`vault=${validateVault(vault)}`, command, ...args];
   assertWriteEnabledCliArgs(result);
+  return result;
+}
+
+export function buildManagementVaultArgs(
+  vault: string,
+  command: ManagementCliCommand,
+  args: readonly string[] = [],
+): string[] {
+  const result = [`vault=${validateVault(vault)}`, command, ...args];
+  assertManagementCliArgs(result);
   return result;
 }
 
@@ -303,17 +359,13 @@ function reportedCliError(stderr: string, stdout: string): string | undefined {
 export function createObsidianCliRunner(
   config: BridgeConfig = loadBridgeConfig(),
   spawnImplementation: SpawnImplementation = spawn,
-  capabilities: { readonly allowWrites?: boolean } = {},
+  capabilities: CliCapabilities = {},
 ): ObsidianCliRunner {
   return async (
     args: readonly string[],
     invocation: CliInvocationOptions = {},
   ): Promise<CliResult> => {
-    if (capabilities.allowWrites === true) {
-      assertWriteEnabledCliArgs(args);
-    } else {
-      assertReadOnlyCliArgs(args);
-    }
+    assertCliArgs(args, capabilities);
 
     if (invocation.signal?.aborted === true) {
       throw new ObsidianCliError("ABORTED", "Obsidian CLI call was aborted");

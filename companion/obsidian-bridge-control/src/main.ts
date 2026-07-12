@@ -3,8 +3,10 @@ import {
   ButtonComponent,
   DropdownComponent,
   FileSystemAdapter,
+  getFrontMatterInfo,
   Modal,
   Notice,
+  parseYaml,
   Platform,
   Plugin,
   PluginSettingTab,
@@ -13,14 +15,17 @@ import {
   TFile,
   TextAreaComponent,
   ToggleComponent,
+  stringifyYaml,
 } from "obsidian";
 import {
   CliDiagnostic,
   DesktopPlatform,
+  ManagementPermissions,
   ReadMode,
   VaultBridgeSettings,
   VaultIdentity,
   diagnoseCli,
+  disabledManagementPermissions,
   mergeVaultSettings,
   parseFolderList,
   readVaultSettings,
@@ -36,15 +41,27 @@ import {
 } from "./folder-selection";
 import {
   AuditDiagnosticsResult,
+  bridgeDataDirectory,
   readAuditDiagnostics,
 } from "./audit-diagnostics";
 import { coerceProtectedLocalSettings } from "./local-settings";
 import { runConfirmedActivation } from "./activation-flow";
+import {
+  ManagementRequestHandler,
+  type ManagementAuthorizationDecision,
+  type ManagementAuthorizationPhase,
+  type ManagementVaultApi,
+} from "./management-handler";
+import {
+  hashPresentDocument,
+  type ManagementRequest,
+} from "./management-protocol";
 
-const PLUGIN_DATA_VERSION = 3;
+const PLUGIN_DATA_VERSION = 4;
 
 const DEFAULT_SETTINGS: VaultBridgeSettings = {
   accessMode: "protected",
+  managementPermissions: disabledManagementPermissions(),
   enabled: true,
   readMode: "off",
   readFolders: [],
@@ -73,6 +90,7 @@ function currentPlatform(): DesktopPlatform {
 function copySettings(settings: VaultBridgeSettings): VaultBridgeSettings {
   return {
     accessMode: settings.accessMode,
+    managementPermissions: { ...settings.managementPermissions },
     enabled: settings.enabled,
     readMode: settings.readMode,
     readFolders: [...settings.readFolders],
@@ -83,6 +101,50 @@ function copySettings(settings: VaultBridgeSettings): VaultBridgeSettings {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parsedFrontMatter(content: string): Record<string, unknown> {
+  const info = getFrontMatterInfo(content);
+  if (!info.exists) return {};
+  const parsed: unknown = parseYaml(info.frontmatter);
+  if (parsed === null || parsed === undefined) return {};
+  if (!isRecord(parsed)) {
+    throw new Error("Il frontmatter persistito non è un oggetto YAML valido.");
+  }
+  return parsed;
+}
+
+function rewriteFrontMatter(
+  content: string,
+  update: (frontmatter: Record<string, unknown>) => void,
+): string {
+  const info = getFrontMatterInfo(content);
+  const frontmatter = parsedFrontMatter(content);
+  update(frontmatter);
+  const eol = content.includes("\r\n") ? "\r\n" : "\n";
+  const serialized = stringifyYaml(frontmatter)
+    .replace(/\r\n/gu, "\n")
+    .replace(/\r/gu, "\n")
+    .replace(/\n+$/u, "");
+  const yaml = serialized.length === 0
+    ? ""
+    : `${serialized.replace(/\n/gu, eol)}${eol}`;
+  if (info.exists) {
+    return `${content.slice(0, info.from)}${yaml}${content.slice(info.to)}`;
+  }
+  const bom = content.startsWith("\uFEFF") ? "\uFEFF" : "";
+  return `${bom}---${eol}${yaml}---${eol}${content.slice(bom.length)}`;
+}
+
+function changeConflict(message: string): Error & { readonly code: string } {
+  return Object.assign(new Error(message), { code: "CHANGE_CONFLICT" as const });
+}
+
+function managementCapability(
+  operation: ManagementRequest["operation"],
+): keyof ManagementPermissions {
+  if (operation === "replace" || operation === "frontmatter") return "edit";
+  return operation === "move" ? "move" : "trash";
 }
 
 function reviewedChangeIds(value: unknown): string[] {
@@ -99,14 +161,14 @@ function reviewedChangeIds(value: unknown): string[] {
 }
 
 function describeReading(settings: VaultBridgeSettings): string {
-  if (settings.enabled && settings.accessMode === "full") return "Tutto il vault";
+  if (settings.enabled && settings.accessMode !== "protected") return "Tutto il vault";
   if (!settings.enabled || settings.readMode === "off") return "Disattivata";
   if (settings.readMode === "all") return "Tutto il vault";
   return settings.readFolders.length > 0 ? settings.readFolders.join(", ") : "Nessuna cartella";
 }
 
 function describeWriting(settings: VaultBridgeSettings): string {
-  if (settings.enabled && settings.accessMode === "full") {
+  if (settings.enabled && settings.accessMode !== "protected") {
     return "Tutto il vault · automatica";
   }
   if (!settings.enabled || !settings.writeEnabled) return "Disattivata";
@@ -257,7 +319,7 @@ class FolderAccessModal extends Modal {
   }
 }
 
-class FullAccessConfirmationModal extends Modal {
+class AutonomousAccessConfirmationModal extends Modal {
   constructor(
     app: App,
     private readonly vaultName: string,
@@ -270,7 +332,7 @@ class FullAccessConfirmationModal extends Modal {
   onOpen(): void {
     this.modalEl.addClass("bridge-control-confirm-modal");
     this.contentEl.empty();
-    this.contentEl.createEl("h2", { text: "Attiva accesso completo" });
+    this.contentEl.createEl("h2", { text: "Attiva accesso autonomo" });
     this.contentEl.createEl("p", {
       text: `Nel vault “${this.vaultName}” ChatGPT potrà leggere tutte le note visibili, creare note e aggiungere testo senza chiedere conferma ogni volta.`,
     });
@@ -288,7 +350,7 @@ class FullAccessConfirmationModal extends Modal {
     const checkbox = acknowledgement.createEl("input");
     checkbox.type = "checkbox";
     acknowledgement.createSpan({
-      text: "Ho capito e autorizzo l'accesso completo a questo vault.",
+      text: "Ho capito e autorizzo l'accesso autonomo a questo vault.",
     });
 
     const actions = this.contentEl.createDiv({
@@ -297,7 +359,7 @@ class FullAccessConfirmationModal extends Modal {
     const cancel = actions.createEl("button", { text: "Annulla" });
     cancel.addEventListener("click", () => this.close());
     const confirm = actions.createEl("button", {
-      text: "Attiva accesso completo",
+      text: "Attiva accesso autonomo",
       cls: "mod-warning",
     });
     confirm.disabled = true;
@@ -318,12 +380,143 @@ class FullAccessConfirmationModal extends Modal {
         );
         cancel.disabled = false;
         confirm.disabled = !checkbox.checked;
-        confirm.setText("Attiva accesso completo");
+        confirm.setText("Attiva accesso autonomo");
         return;
       }
       if (outcome.uiError !== undefined) {
         new Notice(
-          `Accesso completo attivato e verificato, ma il pannello non è stato aggiornato. Chiudi e riapri le impostazioni. Dettaglio: ${outcome.uiError instanceof Error ? outcome.uiError.message : String(outcome.uiError)}`,
+          `Accesso autonomo attivato e verificato, ma il pannello non è stato aggiornato. Chiudi e riapri le impostazioni. Dettaglio: ${outcome.uiError instanceof Error ? outcome.uiError.message : String(outcome.uiError)}`,
+        );
+      }
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+class ManagementAccessConfirmationModal extends Modal {
+  constructor(
+    app: App,
+    private readonly vaultName: string,
+    private readonly initialPermissions: Readonly<ManagementPermissions>,
+    private readonly onConfirm: (permissions: ManagementPermissions) => Promise<void>,
+    private readonly onConfirmed: () => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("bridge-control-confirm-modal");
+    this.contentEl.empty();
+    this.contentEl.createEl("h2", { text: "Configura Gestione completa" });
+    this.contentEl.createEl("p", {
+      text: `Nel vault “${this.vaultName}” ChatGPT potrà eseguire autonomamente soltanto le operazioni che autorizzi qui.`,
+    });
+
+    const warning = this.contentEl.createDiv({
+      cls: "bridge-control__warning bridge-control__management-warning",
+    });
+    warning.createEl("strong", { text: "Operazioni che modificano note esistenti" });
+    warning.createEl("p", {
+      text: "Backup, hash, lock, verifica e registro attività restano obbligatori. Il cestino usa quello di Obsidian: la cancellazione definitiva resta vietata.",
+    });
+
+    const selected: ManagementPermissions = { ...this.initialPermissions };
+    const permissionList = this.contentEl.createDiv({
+      cls: "bridge-control__management-permissions",
+    });
+    let acknowledgementChecked = false;
+    let confirm: HTMLButtonElement | undefined;
+    const syncConfirm = (): void => {
+      const anySelected = selected.edit || selected.move || selected.trash;
+      if (confirm !== undefined) confirm.disabled = !acknowledgementChecked || !anySelected;
+    };
+    const addPermission = (
+      key: keyof ManagementPermissions,
+      title: string,
+      description: string,
+    ): void => {
+      const label = permissionList.createEl("label", {
+        cls: "bridge-control__management-permission",
+      });
+      const checkbox = label.createEl("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = selected[key];
+      const copy = label.createDiv();
+      copy.createEl("strong", { text: title });
+      copy.createEl("small", { text: description });
+      checkbox.addEventListener("change", () => {
+        selected[key] = checkbox.checked;
+        syncConfirm();
+      });
+    };
+
+    addPermission(
+      "edit",
+      "Modifica note e frontmatter",
+      "Può sostituire contenuto già presente nelle note Markdown autorizzate.",
+    );
+    addPermission(
+      "move",
+      "Rinomina e sposta note",
+      "Può cambiare nome o cartella. Non riscrive backlink o altre note: la loro eventuale correzione richiede Modifica.",
+    );
+    addPermission(
+      "trash",
+      "Sposta note nel cestino",
+      "Può inviare note al cestino configurato in Obsidian, mai eliminarle definitivamente.",
+    );
+
+    const acknowledgement = this.contentEl.createEl("label", {
+      cls: "bridge-control__acknowledgement",
+    });
+    const acknowledgementCheckbox = acknowledgement.createEl("input");
+    acknowledgementCheckbox.type = "checkbox";
+    acknowledgement.createSpan({
+      text: "Ho compreso i rischi e autorizzo soltanto i permessi selezionati per questo vault.",
+    });
+    acknowledgementCheckbox.addEventListener("change", () => {
+      acknowledgementChecked = acknowledgementCheckbox.checked;
+      syncConfirm();
+    });
+
+    const actions = this.contentEl.createDiv({
+      cls: "bridge-control__action-buttons bridge-control__confirm-actions",
+    });
+    const cancel = actions.createEl("button", { text: "Annulla" });
+    cancel.addEventListener("click", () => this.close());
+    confirm = actions.createEl("button", {
+      text: "Attiva Gestione completa",
+      cls: "mod-warning",
+    });
+    syncConfirm();
+    confirm.addEventListener("click", async () => {
+      if (confirm === undefined) return;
+      confirm.disabled = true;
+      cancel.disabled = true;
+      confirm.setText("Verifica in corso…");
+      const confirmedPermissions = { ...selected };
+      const outcome = await runConfirmedActivation(
+        () => this.onConfirm(confirmedPermissions),
+        () => {
+          this.close();
+          this.onConfirmed();
+        },
+      );
+      if (!outcome.activated) {
+        new Notice(
+          `Attivazione non riuscita: ${outcome.activationError instanceof Error ? outcome.activationError.message : String(outcome.activationError)}`,
+        );
+        cancel.disabled = false;
+        confirm.setText("Attiva Gestione completa");
+        syncConfirm();
+        return;
+      }
+      if (outcome.uiError !== undefined) {
+        new Notice(
+          `Gestione completa attivata e verificata, ma il pannello non è stato aggiornato. Chiudi e riapri le impostazioni. Dettaglio: ${outcome.uiError instanceof Error ? outcome.uiError.message : String(outcome.uiError)}`,
         );
       }
     });
@@ -344,6 +537,8 @@ export default class BridgeControlPlugin extends Plugin {
   private reviewedAuditChangeIds = new Set<string>();
   private localDataWriteQueue: Promise<unknown> = Promise.resolve();
   private settingsSaveQueue: Promise<unknown> = Promise.resolve();
+  private managementHandler: ManagementRequestHandler | undefined;
+  private managementUnavailableReason: string | undefined;
   private firstRun = false;
 
   private updateLocalData<T>(
@@ -366,6 +561,22 @@ export default class BridgeControlPlugin extends Plugin {
   async onload(): Promise<void> {
     this.sharedPath = sharedSettingsPath(currentPlatform());
     this.firstRun = await this.loadSettings();
+
+    try {
+      this.registerManagementCliHandler();
+    } catch (error) {
+      // Keep the settings panel available, but leave management unavailable.
+      // This is a startup error (not debug telemetry) and contains no note data.
+      this.managementHandler = undefined;
+      this.managementUnavailableReason =
+        "Gestione completa non disponibile: il comando locale di modifica non è stato registrato. Riavvia Obsidian e verifica il pannello.";
+      this.verification = {
+        ok: false,
+        at: new Date().toISOString(),
+        message: this.managementUnavailableReason,
+      };
+      console.error("Bridge Control management handler is unavailable", error);
+    }
 
     this.addSettingTab(new BridgeControlSettingTab(this.app, this));
     this.addRibbonIcon("sliders-horizontal", "Configura Bridge Control", () => {
@@ -448,9 +659,148 @@ export default class BridgeControlPlugin extends Plugin {
     return adapter.getBasePath();
   }
 
+  private markdownFile(filePath: string): TFile | null {
+    const file = this.app.vault.getFileByPath(filePath);
+    if (file === null) return null;
+    if (file.extension.toLocaleLowerCase() !== "md") {
+      throw new Error("La gestione controllata accetta soltanto note Markdown.");
+    }
+    return file;
+  }
+
+  private managementVaultApi(): ManagementVaultApi {
+    return {
+      readMarkdown: async (filePath) => {
+        const file = this.markdownFile(filePath);
+        return file === null ? null : await this.app.vault.read(file);
+      },
+      processMarkdown: async (filePath, update) => {
+        const file = this.markdownFile(filePath);
+        if (file === null) throw new Error("La nota da modificare non esiste.");
+        return await this.app.vault.process(file, update);
+      },
+      rewriteFrontMatterMarkdown: async (
+        filePath,
+        beforeSha256,
+        update,
+      ) => {
+        const file = this.markdownFile(filePath);
+        if (file === null) throw new Error("La nota da modificare non esiste.");
+        return await this.app.vault.process(file, (current) => {
+          if (hashPresentDocument(current) !== beforeSha256) {
+            throw changeConflict(
+              "La nota è cambiata prima della modifica atomica del frontmatter.",
+            );
+          }
+          return rewriteFrontMatter(current, update);
+        });
+      },
+      readFrontMatter: async (filePath) => {
+        const file = this.markdownFile(filePath);
+        if (file === null) throw new Error("La nota da verificare non esiste.");
+        const content = await this.app.vault.read(file);
+        return parsedFrontMatter(content);
+      },
+      renameFile: async (filePath, destination) => {
+        const file = this.markdownFile(filePath);
+        if (file === null) throw new Error("La nota da spostare non esiste.");
+        await this.app.vault.rename(file, destination);
+      },
+      trashFile: async (filePath) => {
+        const file = this.markdownFile(filePath);
+        if (file === null) throw new Error("La nota da cestinare non esiste.");
+        await this.app.fileManager.trashFile(file);
+      },
+    };
+  }
+
+  private async authorizeManagementRequest(
+    request: ManagementRequest,
+    registeredIdentity: VaultIdentity,
+    _phase: ManagementAuthorizationPhase,
+  ): Promise<ManagementAuthorizationDecision> {
+    const deny = (error_code: string): ManagementAuthorizationDecision => ({
+      allowed: false,
+      mode: "management",
+      error_code,
+    });
+
+    try {
+      // Re-resolve the physical vault and re-read the authoritative shared file
+      // on both the initial and commit authorization phases. Cached UI state is
+      // deliberately never consulted here.
+      const currentIdentity = await resolveVaultIdentity(
+        currentPlatform(),
+        this.app.vault.getName(),
+        this.vaultBasePath(),
+      );
+      if (
+        currentIdentity.id !== registeredIdentity.id ||
+        currentIdentity.id !== request.vault_id ||
+        currentIdentity.path !== registeredIdentity.path
+      ) {
+        return deny("VAULT_IDENTITY_CHANGED");
+      }
+
+      const current = await readVaultSettings(this.sharedPath, currentIdentity.id);
+      if (current === undefined) return deny("MANAGEMENT_CONFIGURATION_MISSING");
+      if (!current.enabled) return deny("BRIDGE_DISABLED");
+      if (current.accessMode !== "management") {
+        return deny("MANAGEMENT_ACCESS_REVOKED");
+      }
+      if (!current.managementPermissions[managementCapability(request.operation)]) {
+        return deny("MANAGEMENT_PERMISSION_REVOKED");
+      }
+      return { allowed: true, mode: "management" };
+    } catch {
+      return deny("AUTHORIZATION_FAILED");
+    }
+  }
+
+  private registerManagementCliHandler(): void {
+    const registeredIdentity = this.identity;
+    if (registeredIdentity === undefined) {
+      throw new Error("Vault identity is unavailable for management registration.");
+    }
+
+    const handler = new ManagementRequestHandler({
+      dataDirectory: bridgeDataDirectory(currentPlatform()),
+      vaultId: registeredIdentity.id,
+      api: this.managementVaultApi(),
+      authorize: async (request, phase) =>
+        await this.authorizeManagementRequest(request, registeredIdentity, phase),
+    });
+    this.registerCliHandler(
+      "bridge-control:commit",
+      "Esegue una richiesta di Gestione completa già preparata e autorizzata.",
+      {
+        request: {
+          value: "<uuid>",
+          description: "ID monouso della richiesta preparata",
+          required: true,
+        },
+        token: {
+          value: "<64hex>",
+          description: "Token monouso della richiesta preparata",
+          required: true,
+        },
+      },
+      async (params) =>
+        await handler.handle({
+          request_id: typeof params.request === "string" ? params.request : "",
+          token: typeof params.token === "string" ? params.token : "",
+        }),
+    );
+    this.managementHandler = handler;
+    this.managementUnavailableReason = undefined;
+  }
+
   async saveAndVerify(
     nextSettings: VaultBridgeSettings,
-    options: { readonly fullAccessConfirmed?: boolean } = {},
+    options: {
+      readonly fullAccessConfirmed?: boolean;
+      readonly managementPermissionsConfirmed?: Readonly<ManagementPermissions>;
+    } = {},
   ): Promise<void> {
     const operation = this.settingsSaveQueue.then(async () => {
       try {
@@ -470,9 +820,21 @@ export default class BridgeControlPlugin extends Plugin {
 
   private async performSaveAndVerify(
     nextSettings: VaultBridgeSettings,
-    options: { readonly fullAccessConfirmed?: boolean },
+    options: {
+      readonly fullAccessConfirmed?: boolean;
+      readonly managementPermissionsConfirmed?: Readonly<ManagementPermissions>;
+    },
   ): Promise<void> {
     const normalized = copySettings(nextSettings);
+    if (
+      normalized.accessMode === "management" &&
+      this.managementHandler === undefined
+    ) {
+      throw new Error(
+        this.managementUnavailableReason ??
+          "Gestione completa non disponibile: il comando locale di modifica non è attivo. Riavvia Obsidian e riprova.",
+      );
+    }
     const identity = await resolveVaultIdentity(
       currentPlatform(),
       this.app.vault.getName(),
@@ -514,6 +876,7 @@ export default class BridgeControlPlugin extends Plugin {
             vaultName: identity.name,
             vaultPath: identity.path,
             accessMode: normalized.accessMode,
+            managementPermissions: { ...normalized.managementPermissions },
             enabled: normalized.enabled,
             readMode: normalized.readMode,
             readFolders: normalized.readFolders,
@@ -647,6 +1010,10 @@ function renderControlPanel(
     const warnings: string[] = [];
     const readFolders = parseFolderList(readFoldersRaw);
     const writeFolders = parseFolderList(writeFoldersRaw);
+    const anyManagementPermission =
+      draft.managementPermissions.edit ||
+      draft.managementPermissions.move ||
+      draft.managementPermissions.trash;
 
     errors.push(...readFolders.errors.map((error) => `Lettura: ${error}`));
     errors.push(...writeFolders.errors.map((error) => `Scrittura: ${error}`));
@@ -688,10 +1055,19 @@ function renderControlPanel(
     if (!draft.enabled) {
       warnings.push("Il bridge è disattivato per questo vault; le altre scelte restano salvate.");
     }
+    if (draft.accessMode === "management" && !anyManagementPermission) {
+      errors.push("Gestione completa richiede almeno un permesso selezionato.");
+    }
+    if (draft.accessMode !== "management" && anyManagementPermission) {
+      errors.push("I permessi di gestione possono essere usati soltanto in Gestione completa.");
+    }
     if (draft.enabled && draft.accessMode === "full") {
       warnings.push(
-        "Accesso completo attivo: lettura e scrittura dell'intero vault senza conferma per ogni modifica.",
+        "Accesso autonomo attivo: lettura, creazione e aggiunta nell'intero vault senza conferma per ogni modifica.",
       );
+    }
+    if (draft.enabled && draft.accessMode === "management") {
+      warnings.push("Gestione completa attiva con i soli permessi selezionati nel pannello.");
     }
 
     if (errors.length > 0) return { errors, warnings };
@@ -700,6 +1076,7 @@ function renderControlPanel(
       warnings,
       settings: {
         accessMode: draft.accessMode,
+        managementPermissions: { ...draft.managementPermissions },
         enabled: draft.enabled,
         readMode: draft.readMode,
         readFolders: readFolders.folders,
@@ -723,18 +1100,38 @@ function renderControlPanel(
       ...draft,
       readFolders: parseFolderList(readFoldersRaw).folders,
     }));
-    addStatusItem(grid, "Scrittura", describeWriting({
+    addStatusItem(grid, "Creazione e aggiunta", describeWriting({
       ...draft,
       writeFolders: parseFolderList(writeFoldersRaw).folders,
     }));
+    const managementActive = draft.enabled && draft.accessMode === "management";
+    addStatusItem(
+      grid,
+      "Modifica",
+      managementActive && draft.managementPermissions.edit ? "Autorizzata" : "Disattivata",
+    );
+    addStatusItem(
+      grid,
+      "Rinomina e sposta",
+      managementActive && draft.managementPermissions.move ? "Autorizzata" : "Disattivata",
+    );
+    addStatusItem(
+      grid,
+      "Cestino",
+      managementActive && draft.managementPermissions.trash ? "Autorizzato" : "Disattivato",
+    );
     addStatusItem(
       grid,
       "Modalità",
-      draft.accessMode === "full"
+      draft.accessMode === "management"
         ? draft.enabled
-          ? "Accesso completo · autonomo"
-          : "Accesso completo configurato · bridge disattivato"
-        : "Accesso protetto",
+          ? "Gestione completa"
+          : "Gestione completa configurata · bridge disattivato"
+        : draft.accessMode === "full"
+          ? draft.enabled
+            ? "Accesso autonomo"
+            : "Accesso autonomo configurato · bridge disattivato"
+          : "Accesso protetto",
     );
     addStatusItem(grid, "Stato", dirty ? "Modifiche da salvare" : plugin.verification?.message ?? "In attesa");
 
@@ -866,66 +1263,94 @@ function renderControlPanel(
 
   const modeCard = containerEl.createDiv({
     cls: `bridge-control__card bridge-control__mode-card ${
-      draft.accessMode === "full" ? "is-full" : "is-protected"
+      draft.accessMode === "management"
+        ? "is-management"
+        : draft.accessMode === "full"
+          ? "is-full"
+          : "is-protected"
     }`,
   });
   const modeTitle = modeCard.createDiv({ cls: "bridge-control__card-title" });
   modeTitle.createEl("h3", {
     text:
-      draft.accessMode === "full"
-        ? "Accesso completo"
-        : "Accesso protetto",
+      draft.accessMode === "management"
+        ? "Gestione completa"
+        : draft.accessMode === "full"
+          ? "Accesso autonomo"
+          : "Accesso protetto",
   });
   modeTitle.createSpan({
     text:
-      draft.accessMode === "full"
+      draft.accessMode === "management"
         ? draft.enabled
-          ? "Autonomo"
-          : "Configurato · bridge spento"
-        : "Consigliato",
-    cls: `bridge-control__badge ${draft.accessMode === "full" ? "is-warn" : "is-ok"}`,
+          ? "Rischio elevato"
+          : "Configurata · bridge spento"
+        : draft.accessMode === "full"
+          ? draft.enabled
+            ? "Autonomo"
+            : "Configurato · bridge spento"
+          : "Consigliato",
+    cls: `bridge-control__badge ${draft.accessMode === "protected" ? "is-ok" : "is-warn"}`,
   });
   modeCard.createEl("p", {
     text:
-      draft.accessMode === "full"
+      draft.accessMode === "management"
         ? draft.enabled
-          ? "ChatGPT può leggere e scrivere in tutto il vault senza una conferma per ogni modifica. Le operazioni distruttive restano disabilitate."
-          : "L'accesso completo è configurato ma inattivo perché il bridge è spento. Riattivando il bridge tornerà operativo."
-        : "ChatGPT usa soltanto le cartelle scelte e richiede conferma prima di ogni scrittura.",
+          ? "ChatGPT può creare e aggiungere contenuto e può eseguire soltanto le operazioni di gestione autorizzate qui sotto."
+          : "Gestione completa è configurata ma inattiva perché il bridge è spento."
+        : draft.accessMode === "full"
+          ? draft.enabled
+            ? "ChatGPT legge tutto il vault, crea note e aggiunge contenuto autonomamente. Non può modificare, rinominare, spostare o cestinare note."
+            : "L'accesso autonomo è configurato ma inattivo perché il bridge è spento."
+          : "ChatGPT usa soltanto le cartelle scelte e richiede conferma prima di ogni scrittura.",
   });
-  const modeButton = modeCard.createEl("button", {
-    text:
-      draft.accessMode === "full"
-        ? "Torna ad accesso protetto"
-        : "Attiva accesso completo…",
-    cls: draft.accessMode === "full" ? "" : "mod-warning",
-  });
-  modeButton.addEventListener("click", () => {
+  if (draft.accessMode === "management") {
+    const permissionSummary = modeCard.createEl("ul", {
+      cls: "bridge-control__management-summary",
+    });
+    permissionSummary.createEl("li", {
+      text: `Modifica note e frontmatter: ${draft.managementPermissions.edit ? "sì" : "no"}`,
+    });
+    permissionSummary.createEl("li", {
+      text: `Rinomina e sposta: ${draft.managementPermissions.move ? "sì" : "no"}`,
+    });
+    permissionSummary.createEl("li", {
+      text: `Cestino Obsidian: ${draft.managementPermissions.trash ? "sì" : "no"}`,
+    });
+  }
+
+  const modeActions = modeCard.createDiv({ cls: "bridge-control__action-buttons" });
+  const ensureCleanDraft = (): boolean => {
     if (dirty) {
       new Notice("Prima salva oppure annulla le modifiche ancora in sospeso.");
-      return;
+      return false;
     }
-    if (draft.accessMode === "full") {
-      modeButton.disabled = true;
-      void plugin
-        .saveAndVerify({
-          ...copySettings(plugin.settings),
-          accessMode: "protected",
-        })
-        .then(() => {
-          new Notice("Accesso protetto ripristinato immediatamente.");
-          renderControlPanel(containerEl, plugin, firstRun);
-        })
-        .catch((error: unknown) => {
-          renderControlPanel(containerEl, plugin, firstRun);
-          new Notice(
-            `Ripristino non riuscito: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        });
-      return;
-    }
-
-    new FullAccessConfirmationModal(
+    return true;
+  };
+  const applyLowerMode = (
+    button: HTMLButtonElement,
+    accessMode: "protected" | "full",
+    successMessage: string,
+  ): void => {
+    if (!ensureCleanDraft()) return;
+    button.disabled = true;
+    void plugin.saveAndVerify({
+      ...copySettings(plugin.settings),
+      accessMode,
+      managementPermissions: disabledManagementPermissions(),
+    }).then(() => {
+      new Notice(successMessage);
+      renderControlPanel(containerEl, plugin, firstRun);
+    }).catch((error: unknown) => {
+      renderControlPanel(containerEl, plugin, firstRun);
+      new Notice(
+        `Cambio modalità non riuscito: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  };
+  const openAutonomousConfirmation = (): void => {
+    if (!ensureCleanDraft()) return;
+    new AutonomousAccessConfirmationModal(
       plugin.app,
       plugin.app.vault.getName(),
       async () => {
@@ -934,16 +1359,85 @@ function renderControlPanel(
             ...copySettings(plugin.settings),
             enabled: true,
             accessMode: "full",
+            managementPermissions: disabledManagementPermissions(),
           },
           { fullAccessConfirmed: true },
         );
       },
       () => {
         renderControlPanel(containerEl, plugin, firstRun);
-        new Notice("Accesso completo attivato e verificato.");
+        new Notice("Accesso autonomo attivato e verificato.");
       },
     ).open();
-  });
+  };
+  const openManagementConfirmation = (): void => {
+    if (!ensureCleanDraft()) return;
+    const initialPermissions = plugin.settings.accessMode === "management"
+      ? plugin.settings.managementPermissions
+      : disabledManagementPermissions();
+    new ManagementAccessConfirmationModal(
+      plugin.app,
+      plugin.app.vault.getName(),
+      initialPermissions,
+      async (permissions) => {
+        await plugin.saveAndVerify(
+          {
+            ...copySettings(plugin.settings),
+            enabled: true,
+            accessMode: "management",
+            managementPermissions: { ...permissions },
+          },
+          { managementPermissionsConfirmed: { ...permissions } },
+        );
+      },
+      () => {
+        renderControlPanel(containerEl, plugin, firstRun);
+        new Notice("Gestione completa attivata e verificata.");
+      },
+    ).open();
+  };
+
+  if (draft.accessMode === "protected") {
+    const autonomousButton = modeActions.createEl("button", {
+      text: "Attiva accesso autonomo…",
+    });
+    autonomousButton.addEventListener("click", openAutonomousConfirmation);
+    const managementButton = modeActions.createEl("button", {
+      text: "Configura Gestione completa…",
+      cls: "mod-warning",
+    });
+    managementButton.addEventListener("click", openManagementConfirmation);
+  } else if (draft.accessMode === "full") {
+    const protectedButton = modeActions.createEl("button", {
+      text: "Torna ad accesso protetto",
+    });
+    protectedButton.addEventListener("click", () => {
+      applyLowerMode(protectedButton, "protected", "Accesso protetto ripristinato immediatamente.");
+    });
+    const managementButton = modeActions.createEl("button", {
+      text: "Configura Gestione completa…",
+      cls: "mod-warning",
+    });
+    managementButton.addEventListener("click", openManagementConfirmation);
+  } else {
+    const protectedButton = modeActions.createEl("button", {
+      text: "Torna ad accesso protetto",
+    });
+    protectedButton.addEventListener("click", () => {
+      applyLowerMode(protectedButton, "protected", "Accesso protetto ripristinato immediatamente.");
+    });
+    const autonomousButton = modeActions.createEl("button", {
+      text: "Disattiva gestione · mantieni accesso autonomo",
+    });
+    autonomousButton.addEventListener("click", () => {
+      applyLowerMode(autonomousButton, "full", "Permessi di gestione revocati immediatamente.");
+    });
+    const managementButton = modeActions.createEl("button", {
+      text: "Modifica permessi…",
+      cls: "mod-warning",
+    });
+    managementButton.addEventListener("click", openManagementConfirmation);
+  }
 
   const pickerCard = containerEl.createDiv({ cls: "bridge-control__card bridge-control__picker-card" });
   pickerCard.createEl("h3", { text: "Scegli le cartelle" });
@@ -955,10 +1449,10 @@ function renderControlPanel(
     cls: "mod-cta bridge-control__picker-button",
   });
   pickerButton.addEventListener("click", openFolderPicker);
-  pickerButton.disabled = draft.accessMode === "full";
+  pickerButton.disabled = draft.accessMode !== "protected";
   pickerCard.createEl("small", {
     text:
-      draft.accessMode === "full"
+      draft.accessMode !== "protected"
         ? "Le scelte per cartella restano memorizzate e torneranno attive quando ripristini l'accesso protetto."
         : "La scrittura resta controllata: ogni modifica richiede anteprima e conferma in chat.",
   });
@@ -1167,7 +1661,7 @@ function renderControlPanel(
   advanced.createEl("summary", { text: "Opzioni avanzate di accesso" });
   advanced.createEl("p", {
     text:
-      draft.accessMode === "full"
+      draft.accessMode !== "protected"
         ? "Le scelte per cartella sono conservate ma modificabili solo in Accesso protetto."
         : "Qui puoi usare modalità speciali o modificare manualmente i percorsi relativi al vault.",
     cls: "bridge-control__advanced-intro",
@@ -1186,10 +1680,10 @@ function renderControlPanel(
         .onChange((value) => {
           draft.readMode = value as ReadMode;
           readFoldersComponent.inputEl.disabled =
-            draft.accessMode === "full" || draft.readMode !== "folders";
+            draft.accessMode !== "protected" || draft.readMode !== "folders";
           markDirty();
         });
-      dropdown.selectEl.disabled = draft.accessMode === "full";
+      dropdown.selectEl.disabled = draft.accessMode !== "protected";
     });
   readModeSetting.settingEl.addClass("bridge-control__setting");
 
@@ -1205,13 +1699,13 @@ function renderControlPanel(
           readFoldersRaw = value;
           markDirty();
         });
-      text.inputEl.disabled = draft.accessMode === "full" || draft.readMode !== "folders";
+      text.inputEl.disabled = draft.accessMode !== "protected" || draft.readMode !== "folders";
       text.inputEl.rows = 2;
     })
     .addButton((button) =>
       button
         .setButtonText("Scegli…")
-        .setDisabled(draft.accessMode === "full")
+        .setDisabled(draft.accessMode !== "protected")
         .onClick(openFolderPicker),
     );
   readFoldersSetting.settingEl.addClasses([
@@ -1227,10 +1721,10 @@ function renderControlPanel(
       toggle.setValue(draft.writeEnabled).onChange((value) => {
           draft.writeEnabled = value;
           writeFoldersComponent.inputEl.disabled =
-            draft.accessMode === "full" || !draft.writeEnabled;
+            draft.accessMode !== "protected" || !draft.writeEnabled;
           markDirty();
         });
-      toggle.setDisabled(draft.accessMode === "full");
+      toggle.setDisabled(draft.accessMode !== "protected");
     });
   writeToggleSetting.settingEl.addClass("bridge-control__setting");
 
@@ -1246,13 +1740,13 @@ function renderControlPanel(
           writeFoldersRaw = value;
           markDirty();
         });
-      text.inputEl.disabled = draft.accessMode === "full" || !draft.writeEnabled;
+      text.inputEl.disabled = draft.accessMode !== "protected" || !draft.writeEnabled;
       text.inputEl.rows = 2;
     })
     .addButton((button) =>
       button
         .setButtonText("Scegli…")
-        .setDisabled(draft.accessMode === "full")
+        .setDisabled(draft.accessMode !== "protected")
         .onClick(openFolderPicker),
     );
   writeFoldersSetting.settingEl.addClasses([

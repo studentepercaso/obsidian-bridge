@@ -18,6 +18,11 @@ import {
 } from "./audit-reader.js";
 import { loadBridgeConfig, type BridgeConfig } from "./config.js";
 import {
+  createManagementToolHandlers,
+  ManagementToolInputSchemas,
+  PreparedManagementStore,
+} from "./management-workflow.js";
+import {
   assertPathAllowed,
   constrainSearchFolders,
   createPathPolicy,
@@ -52,9 +57,9 @@ import {
 } from "./write-workflow.js";
 
 export const SERVER_NAME = "obsidian-bridge";
-export const SERVER_VERSION = "0.4.1";
+export const SERVER_VERSION = "0.5.0";
 
-export type ServerMode = "read" | "write" | "autonomous";
+export type ServerMode = "read" | "write" | "autonomous" | "management";
 
 export const READ_ONLY_TOOL_ANNOTATIONS: ToolAnnotations = Object.freeze({
   readOnlyHint: true,
@@ -169,6 +174,8 @@ export const ToolInputSchemas = Object.freeze({
     .strict(),
   prepareChange: WriteToolInputSchemas.prepareChange,
   commitChange: WriteToolInputSchemas.commitChange,
+  prepareManagedChange: ManagementToolInputSchemas.prepareChange,
+  commitManagedChange: ManagementToolInputSchemas.commitChange,
 });
 
 export type ListVaultsInput = z.infer<typeof ToolInputSchemas.listVaults>;
@@ -211,6 +218,7 @@ export function createToolHandlers(runtime: ToolRuntime) {
           writablePolicy: createWritablePathPolicy({ allowedFolders: [] }),
           writeEnabled: false,
           accessMode: "protected",
+          managementPermissions: { edit: false, move: false, trash: false },
           vaultSelector: vault,
           vaultName: vault,
           source: "environment",
@@ -278,7 +286,12 @@ export function createToolHandlers(runtime: ToolRuntime) {
       const vaults: Array<{
         readonly name: string;
         readonly id?: string;
-        readonly access_mode: "protected" | "full";
+        readonly access_mode: "protected" | "full" | "management";
+        readonly management_permissions?: {
+          readonly edit: boolean;
+          readonly move: boolean;
+          readonly trash: boolean;
+        };
       }> = [];
       for (const vault of discovered) {
         const access = await readAccess(vault.name);
@@ -294,6 +307,7 @@ export function createToolHandlers(runtime: ToolRuntime) {
                   name: access.vaultName,
                   id: access.vaultSelector,
                   access_mode: access.accessMode,
+                  management_permissions: access.managementPermissions,
                 }
               : { ...vault, access_mode: "protected" },
           );
@@ -650,6 +664,19 @@ export function createToolHandlers(runtime: ToolRuntime) {
           // audit metadata after their read grant is removed.
           continue;
         }
+        let targetPath: string | undefined;
+        if (event.target_path !== undefined) {
+          try {
+            targetPath = assertPathAllowed(
+              event.target_path,
+              access.readPolicy,
+            );
+          } catch {
+            // A move event can reveal both endpoints, so disclose neither when
+            // either endpoint is outside the current read grant.
+            continue;
+          }
+        }
 
         eligibleCount += 1;
         if (events.length < limit) {
@@ -661,6 +688,7 @@ export function createToolHandlers(runtime: ToolRuntime) {
               ? { vault_id: access.vaultSelector }
               : {}),
             path: notePath,
+            ...(targetPath === undefined ? {} : { target_path: targetPath }),
             operation: event.operation,
             authorization_mode: event.authorization_mode,
             status: event.status,
@@ -879,7 +907,7 @@ export function registerObsidianWriteTools(
         : "Prepare an Obsidian note change",
       description:
         autonomous
-          ? "Prepare a bounded create or append only for a vault explicitly set to Accesso completo. Returns an internally reviewable preview and single-use change_id without modifying the vault."
+          ? "Prepare a bounded create or append only for a vault explicitly set to Accesso autonomo or Gestione completa. Returns an internally reviewable preview and single-use change_id without modifying the vault."
           : "Prepare a bounded create or append in an explicitly writable protected vault and folder. Returns the exact proposed content, a diff, and a short-lived single-use change_id without modifying the vault.",
       inputSchema: ToolInputSchemas.prepareChange,
       annotations: PREPARE_TOOL_ANNOTATIONS,
@@ -898,9 +926,64 @@ export function registerObsidianWriteTools(
         : "Commit an Obsidian note change",
       description:
         autonomous
-          ? "Consume one autonomous change_id only while Accesso completo remains active, reject conflicts, back up existing content, write through the allowlisted Obsidian CLI, and verify the result."
+          ? "Consume one autonomous change_id only while Accesso autonomo or Gestione completa remains active, reject conflicts, back up existing content, write through the allowlisted Obsidian CLI, and verify the result."
           : "Consume one protected change_id after user confirmation, reject conflicts, back up existing content, modify through the allowlisted Obsidian CLI, and verify the result.",
       inputSchema: ToolInputSchemas.commitChange,
+      annotations: COMMIT_TOOL_ANNOTATIONS,
+    },
+    async (input, extra) =>
+      await safelyInvoke(() =>
+        handlers.commitChange(input, { signal: extra.signal }),
+      ),
+  );
+}
+
+export interface ManagementToolRegistrationRuntime {
+  readonly runner: ObsidianCliRunner;
+  readonly policy: PathPolicy;
+  readonly writablePolicy: PathPolicy;
+  readonly store: PreparedManagementStore;
+  readonly resolveAccess: VaultAccessResolver;
+  readonly dataDirectory: string;
+  readonly now?: () => number;
+}
+
+export function registerObsidianManagementTools(
+  server: McpServer,
+  runtime: ManagementToolRegistrationRuntime,
+): void {
+  const handlers = createManagementToolHandlers({
+    runner: runtime.runner,
+    readPolicy: runtime.policy,
+    writablePolicy: runtime.writablePolicy,
+    store: runtime.store,
+    resolveAccess: runtime.resolveAccess,
+    dataDirectory: runtime.dataDirectory,
+    ...(runtime.now === undefined ? {} : { now: runtime.now }),
+  });
+
+  server.registerTool(
+    "obsidian_prepare_managed_change",
+    {
+      title: "Prepare a managed Obsidian note change",
+      description:
+        "Prepare an exact in-place replacement, literal text edit, frontmatter change, move/rename, or move to Obsidian trash. Requires the matching Gestione completa permission and returns a bounded preview without changing the vault.",
+      inputSchema: ToolInputSchemas.prepareManagedChange,
+      annotations: PREPARE_TOOL_ANNOTATIONS,
+    },
+    async (input, extra) =>
+      await safelyInvoke(() =>
+        handlers.prepareChange(input, { signal: extra.signal }),
+      ),
+  );
+
+  server.registerTool(
+    "obsidian_commit_managed_change",
+    {
+      title: "Commit a managed Obsidian note change",
+      description:
+        "Consume one prepared management change while its permission remains active, recheck conflicts, execute through Bridge Control inside Obsidian, create a recovery backup, audit the outcome, and verify the result. Permanent deletion is never available.",
+      inputSchema: ToolInputSchemas.commitManagedChange,
       annotations: COMMIT_TOOL_ANNOTATIONS,
     },
     async (input, extra) =>
@@ -918,6 +1001,7 @@ export interface CreateServerOptions {
   readonly runner?: ObsidianCliRunner;
   readonly mode?: ServerMode;
   readonly changeStore?: PreparedChangeStore;
+  readonly managementStore?: PreparedManagementStore;
   readonly storage?: ChangeStorage;
   readonly now?: () => number;
   readonly resolveAccess?: VaultAccessResolver;
@@ -941,9 +1025,15 @@ export function createObsidianServer(
       : createConfigAccessResolver(config));
   const runner =
     options.runner ??
-    createObsidianCliRunner(config, undefined, {
-      allowWrites: mode !== "read",
-    });
+    createObsidianCliRunner(
+      config,
+      undefined,
+      mode === "management"
+        ? { allowManagement: true }
+        : mode === "write" || mode === "autonomous"
+          ? { allowWrites: true }
+          : {},
+    );
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
@@ -951,8 +1041,10 @@ export function createObsidianServer(
         mode === "read"
           ? "Read-only access to local Obsidian vaults. Check obsidian_recent_write_events before an autonomous write sequence and after any write error so recovery state can be understood without asking for screenshots. Cite note paths and the line numbers returned by obsidian_read_note. Never claim that a note was changed."
           : mode === "autonomous"
-            ? "Autonomous Obsidian changes are allowed only for a vault explicitly set to Accesso completo. Use obsidian_prepare_autonomous_change, inspect its exact preview internally, then use obsidian_commit_autonomous_change in the same task. Stop on any ambiguity, conflict, revocation, or failure; never reuse a change_id or claim success unless verified=true."
-            : "Protected Obsidian changes require obsidian_prepare_change followed by explicit user approval and obsidian_commit_change. Never skip the diff, reuse a change_id, or claim success unless commit returns verified=true.",
+            ? "Autonomous create and append changes are allowed only for a vault explicitly set to Accesso autonomo or Gestione completa. Use obsidian_prepare_autonomous_change, inspect its exact preview internally, then use obsidian_commit_autonomous_change in the same task. Stop on any ambiguity, conflict, revocation, or failure; never reuse a change_id or claim success unless verified=true."
+            : mode === "management"
+              ? "Managed Obsidian changes require Gestione completa and the matching edit, move, or trash permission. Use obsidian_prepare_managed_change and obsidian_commit_managed_change in the same task. Inspect the bounded preview internally, stop on conflicts or revocation, never reuse a change_id, never request permanent deletion, and claim success only when verified=true and audit_recorded=true."
+              : "Protected Obsidian changes require obsidian_prepare_change followed by explicit user approval and obsidian_commit_change. Never skip the diff, reuse a change_id, or claim success unless commit returns verified=true.",
     },
   );
   if (mode === "read") {
@@ -1001,6 +1093,39 @@ export function createObsidianServer(
       ...(options.now === undefined ? {} : { now: options.now }),
     });
   }
+  if (mode === "management") {
+    const dataDirectory = config.dataDirectory;
+    if (dataDirectory === undefined) {
+      throw new Error("management mode requires BridgeConfig.dataDirectory");
+    }
+    if (resolveAccess === undefined) {
+      throw new Error(
+        "management mode requires shared Bridge Control settings",
+      );
+    }
+    const writablePolicy =
+      options.writablePolicy ??
+      createWritablePathPolicy({
+        allowedFolders: config.writableFolders ?? [],
+        deniedFolders: config.deniedFolders,
+        caseSensitive: policy.caseSensitive,
+      });
+    const store =
+      options.managementStore ??
+      new PreparedManagementStore({
+        ttlMs: config.changeTtlMs ?? 300_000,
+        ...(options.now === undefined ? {} : { now: options.now }),
+      });
+    registerObsidianManagementTools(server, {
+      runner,
+      policy,
+      writablePolicy,
+      store,
+      resolveAccess,
+      dataDirectory,
+      ...(options.now === undefined ? {} : { now: options.now }),
+    });
+  }
   return server;
 }
 
@@ -1014,9 +1139,12 @@ export function parseServerMode(args: readonly string[]): ServerMode {
     if (
       value !== "read" &&
       value !== "write" &&
-      value !== "autonomous"
+      value !== "autonomous" &&
+      value !== "management"
     ) {
-      throw new Error("--mode must be read, write, or autonomous");
+      throw new Error(
+        "--mode must be read, write, autonomous, or management",
+      );
     }
     mode = value;
   }

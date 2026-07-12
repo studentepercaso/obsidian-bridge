@@ -55,9 +55,52 @@
   background: var(--background-modifier-hover);
 }
 
+.bridge-control__mode-card.is-management {
+  border-inline-start: 4px solid var(--text-error);
+  background: var(--background-modifier-hover);
+}
+
 .bridge-control__mode-card p,
-.bridge-control__full-warning p {
+.bridge-control__full-warning p,
+.bridge-control__management-warning p {
   margin: 8px 0 12px;
+}
+
+.bridge-control__management-permissions {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.bridge-control__management-permission {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.bridge-control__management-permission input {
+  margin-top: 3px;
+}
+
+.bridge-control__management-permission strong,
+.bridge-control__management-permission small {
+  display: block;
+}
+
+.bridge-control__management-permission small {
+  margin-top: 3px;
+  color: var(--text-muted);
+}
+
+.bridge-control__management-summary {
+  margin: 8px 0 14px;
+  padding-inline-start: 22px;
+  color: var(--text-muted);
 }
 
 .bridge-control__acknowledgement {

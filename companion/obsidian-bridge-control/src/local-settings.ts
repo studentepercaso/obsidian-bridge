@@ -1,4 +1,5 @@
 import {
+  disabledManagementPermissions,
   parseFolderList,
   type ReadMode,
   type VaultBridgeSettings,
@@ -33,6 +34,7 @@ export function coerceProtectedLocalSettings(
     return {
       ...fallback,
       accessMode: "protected",
+      managementPermissions: disabledManagementPermissions(),
       readFolders: [...fallback.readFolders],
       writeFolders: [...fallback.writeFolders],
     };
@@ -53,6 +55,7 @@ export function coerceProtectedLocalSettings(
 
   return {
     accessMode: "protected",
+    managementPermissions: disabledManagementPermissions(),
     enabled: typeof value.enabled === "boolean" ? value.enabled : fallback.enabled,
     readMode,
     readFolders,

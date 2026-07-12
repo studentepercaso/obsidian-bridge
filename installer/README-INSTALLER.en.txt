@@ -1,30 +1,33 @@
-OBSIDIAN BRIDGE 0.4.1 - READ THIS FIRST
+OBSIDIAN BRIDGE 0.5.0 - READ THIS FIRST
 
 1. Extract the complete ZIP to a normal folder.
 2. Double-click INSTALLA-OBSIDIAN-BRIDGE.cmd.
 3. Select an Obsidian vault and complete the guided installation.
 4. Open Obsidian > Settings > Community plugins > Bridge Control.
-5. Keep protected access and choose folders, or explicitly enable full access.
+5. Keep protected access, enable autonomous access, or explicitly choose the
+   individual permissions offered by Full management.
 
-The user interface of the 0.4.1 installer and Bridge Control panel is currently
+The user interface of the 0.5.0 installer and Bridge Control panel is currently
 in Italian. No administrator rights or OpenAI API key are required.
 
 New vaults start with protected mode and no note access. Folder-scoped writing
-requires a preview and separate confirmation. Full access requires one explicit
-per-vault acknowledgement and then permits autonomous create and append while
-keeping path, hash, backup, lock, audit, and non-destructive-operation controls.
-The installer never enables full access automatically. Updating preserves an
-existing protected/full choice and the IDs of recent errors already reviewed.
+requires a preview and separate confirmation. Autonomous access permits create
+and append after one acknowledgement. Full management separately grants edit,
+move, and Obsidian-trash operations, with previews, hashes, one-time requests,
+backups, verification, and audit. The installer never enables either elevated
+mode automatically. Updating preserves valid choices and reviewed error IDs.
 
 Access modes in Bridge Control:
 - Protected access (recommended): only the selected read/write folders are in
   scope. Every create or append requires an exact preview and a separate user
   confirmation.
-- Full access (opt-in): after a dedicated warning and acknowledgement for that
-  vault, the bridge may read visible notes and autonomously create or append.
-  Delete, rename, move, shell access, arbitrary overwrite, hidden paths, and
-  redirects outside the vault remain unavailable. Returning to protected access
-  is immediate and restores the saved per-folder choices.
+- Autonomous access (opt-in): after a dedicated warning, the bridge may read
+  visible notes and autonomously create or append, but cannot edit in place,
+  rename, move, or trash.
+- Full management (opt-in, elevated risk): separately grants note/frontmatter
+  editing, rename/move, and Obsidian trash. Permanent deletion, shell access,
+  eval, arbitrary commands, hidden paths, and redirects outside the vault are
+  unavailable. Returning to a lower mode takes effect immediately.
 
 The Recent problems section reads only bounded local audit metadata, never note
 contents. It explains whether a failed write was stopped before applying,
@@ -32,10 +35,10 @@ restored automatically, or needs manual review; it can open an existing affected
 note and remember up to 100 problems marked as reviewed. Check this section
 before retrying a failed change.
 
-Shared settings use strict schema version 3 and a stable 16-character vault ID
-from Obsidian's vault registry. A valid schema-v2 configuration is migrated to
-version 3 in protected mode; migration never grants full access. Malformed or
-unknown data is rejected without overwriting it.
+Shared settings use strict schema version 4 and a stable 16-character vault ID
+from Obsidian's vault registry. Valid schema-v2/v3 configurations migrate
+fail-closed: an old autonomous grant may remain autonomous, but migration never
+invents edit, move, or trash permission. Malformed data is not overwritten.
 
 If diagnostics cannot find the official Obsidian CLI, enable it in:
 Obsidian > Settings > General > Command line interface.

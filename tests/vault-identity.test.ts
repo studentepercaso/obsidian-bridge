@@ -14,6 +14,7 @@ function access(vaultPath: string): VaultAccess {
     writablePolicy: createWritablePathPolicy({ allowedFolders: ["Bridge Test"] }),
     writeEnabled: true,
     accessMode: "protected",
+    managementPermissions: { edit: false, move: false, trash: false },
     vaultSelector: "0123456789abcdef",
     vaultName: "Test Vault",
     vaultPath,

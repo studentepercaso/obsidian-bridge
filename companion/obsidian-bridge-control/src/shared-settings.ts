@@ -18,10 +18,17 @@ import { cliReportsDisabled, cliReportsVersion } from "./cli-status";
 
 export type DesktopPlatform = "windows" | "macos" | "linux";
 export type ReadMode = "off" | "all" | "folders";
-export type AccessMode = "protected" | "full";
+export type AccessMode = "protected" | "full" | "management";
+
+export interface ManagementPermissions {
+  edit: boolean;
+  move: boolean;
+  trash: boolean;
+}
 
 export interface VaultBridgeSettings {
   accessMode: AccessMode;
+  managementPermissions: ManagementPermissions;
   enabled: boolean;
   readMode: ReadMode;
   readFolders: string[];
@@ -30,7 +37,7 @@ export interface VaultBridgeSettings {
 }
 
 export interface SharedSettingsFile {
-  version: 3;
+  version: 4;
   updatedAt: string;
   vaults: Record<string, SharedVaultSettings>;
 }
@@ -49,6 +56,8 @@ export interface VaultIdentity {
 export interface MergeVaultSettingsOptions {
   /** Required only for a protected/missing -> full transition under the file lock. */
   readonly fullAccessConfirmed?: boolean;
+  /** Exact capabilities acknowledged in the dedicated management warning. */
+  readonly managementPermissionsConfirmed?: Readonly<ManagementPermissions>;
   /** @internal Deterministic fault injection used only by the test suite. */
   readonly testAfterWrite?: (
     attempt: "primary" | "revocation-reassert",
@@ -89,6 +98,30 @@ const SHARED_SETTINGS_MAX_BYTES = 64 * 1024;
 const LOCK_WAIT_MS = 3_000;
 const LOCK_OWNER_MAX_BYTES = 4_096;
 const VAULT_ID = /^[0-9a-f]{16}$/u;
+
+export function disabledManagementPermissions(): ManagementPermissions {
+  return { edit: false, move: false, trash: false };
+}
+
+function copyManagementPermissions(
+  permissions: Readonly<ManagementPermissions>,
+): ManagementPermissions {
+  return {
+    edit: permissions.edit,
+    move: permissions.move,
+    trash: permissions.trash,
+  };
+}
+
+function managementPermissionsEqual(
+  left: Readonly<ManagementPermissions> | undefined,
+  right: Readonly<ManagementPermissions>,
+): boolean {
+  return left !== undefined &&
+    left.edit === right.edit &&
+    left.move === right.move &&
+    left.trash === right.trash;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -202,9 +235,24 @@ function validateFolders(value: unknown): string[] | undefined {
   return result;
 }
 
+function validateManagementPermissions(
+  value: unknown,
+): ManagementPermissions | undefined {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ["edit", "move", "trash"]) ||
+    typeof value.edit !== "boolean" ||
+    typeof value.move !== "boolean" ||
+    typeof value.trash !== "boolean"
+  ) {
+    return undefined;
+  }
+  return { edit: value.edit, move: value.move, trash: value.trash };
+}
+
 function validateVaultEntry(
   value: unknown,
-  version: 2 | 3,
+  version: 2 | 3 | 4,
 ): SharedVaultSettings | undefined {
   if (!isRecord(value)) return undefined;
   const expectedKeys = [
@@ -215,7 +263,8 @@ function validateVaultEntry(
     "readFolders",
     "writeEnabled",
     "writeFolders",
-    ...(version === 3 ? ["accessMode"] : []),
+    ...(version >= 3 ? ["accessMode"] : []),
+    ...(version === 4 ? ["managementPermissions"] : []),
   ];
   if (!hasExactKeys(value, expectedKeys)) return undefined;
   if (
@@ -240,13 +289,27 @@ function validateVaultEntry(
   if (readFolders === undefined || writeFolders === undefined) return undefined;
   if (typeof value.writeEnabled !== "boolean") return undefined;
   if (
-    version === 3 &&
+    version >= 3 &&
     value.accessMode !== "protected" &&
-    value.accessMode !== "full"
+    value.accessMode !== "full" &&
+    value.accessMode !== "management"
+  ) return undefined;
+
+  const accessMode = version >= 3 ? value.accessMode as AccessMode : "protected";
+  const managementPermissions = version === 4
+    ? validateManagementPermissions(value.managementPermissions)
+    : disabledManagementPermissions();
+  if (managementPermissions === undefined) return undefined;
+  const anyManagementPermission =
+    managementPermissions.edit || managementPermissions.move || managementPermissions.trash;
+  if (
+    (accessMode === "management" && !anyManagementPermission) ||
+    (accessMode !== "management" && anyManagementPermission)
   ) return undefined;
 
   return {
-    accessMode: version === 3 ? value.accessMode as AccessMode : "protected",
+    accessMode,
+    managementPermissions,
     vaultName: value.vaultName,
     vaultPath: normalize(value.vaultPath),
     enabled: value.enabled,
@@ -289,7 +352,7 @@ async function readSharedRoot(filePath: string): Promise<SharedSettingsFile | un
     if (!isRecord(parsed) || !hasExactKeys(parsed, ["version", "updatedAt", "vaults"])) {
       throw new Error("Il file condiviso non rispetta lo schema previsto.");
     }
-    if (parsed.version !== 2 && parsed.version !== 3) {
+    if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4) {
       throw new Error(`Versione del file condiviso non supportata: ${String(parsed.version)}.`);
     }
     if (
@@ -309,7 +372,7 @@ async function readSharedRoot(filePath: string): Promise<SharedSettingsFile | un
       if (entry === undefined) throw new Error(`Configurazione non valida per il vault ${vaultId}.`);
       vaults[vaultId] = entry;
     }
-    return { version: 3, updatedAt: parsed.updatedAt, vaults };
+    return { version: 4, updatedAt: parsed.updatedAt, vaults };
   } catch (error) {
     if (error instanceof SyntaxError) {
       throw new Error("Il file condiviso contiene JSON non valido; non è stato sovrascritto.");
@@ -474,11 +537,21 @@ function activeRevocationOrScopeChange(
   current: SharedVaultSettings | undefined,
   next: VaultBridgeSettings,
 ): boolean {
-  if (current === undefined || !current.enabled) return false;
-  if (!next.enabled) return true;
-  if (current.accessMode === "full" && next.accessMode === "protected") {
+  if (current === undefined) return false;
+  if (current.enabled && !next.enabled) return true;
+  if (
+    (current.accessMode === "full" || current.accessMode === "management") &&
+    next.accessMode === "protected"
+  ) {
     return true;
   }
+  if (
+    current.accessMode === "management" &&
+    (next.accessMode !== "management" ||
+      (current.managementPermissions.edit && !next.managementPermissions.edit) ||
+      (current.managementPermissions.move && !next.managementPermissions.move) ||
+      (current.managementPermissions.trash && !next.managementPermissions.trash))
+  ) return true;
   if (
     current.accessMode === "protected" &&
     next.accessMode === "protected"
@@ -497,6 +570,19 @@ function activeRevocationOrScopeChange(
     );
   }
   return false;
+}
+
+function managementPrivilegeIncrease(
+  current: SharedVaultSettings | undefined,
+  next: VaultBridgeSettings,
+): boolean {
+  if (next.accessMode !== "management") return false;
+  if (current?.accessMode !== "management") return true;
+  return (
+    (!current.managementPermissions.edit && next.managementPermissions.edit) ||
+    (!current.managementPermissions.move && next.managementPermissions.move) ||
+    (!current.managementPermissions.trash && next.managementPermissions.trash)
+  );
 }
 
 export async function mergeVaultSettings(
@@ -526,22 +612,45 @@ export async function mergeVaultSettings(
   try {
     const existing = await readSharedRoot(filePath);
     const currentEntry = existing?.vaults[vaultId];
+    const anyManagementPermission =
+      settings.managementPermissions.edit ||
+      settings.managementPermissions.move ||
+      settings.managementPermissions.trash;
+    if (
+      (settings.accessMode === "management" && !anyManagementPermission) ||
+      (settings.accessMode !== "management" && anyManagementPermission)
+    ) {
+      throw new Error("La modalità e i permessi di gestione non sono coerenti.");
+    }
     if (
       settings.accessMode === "full" &&
       currentEntry?.accessMode !== "full" &&
+      currentEntry?.accessMode !== "management" &&
       options.fullAccessConfirmed !== true
     ) {
       throw new Error(
-        "L'accesso completo deve essere attivato dalla finestra di conferma dedicata.",
+        "L'accesso autonomo deve essere attivato dalla finestra di conferma dedicata.",
+      );
+    }
+    if (
+      managementPrivilegeIncrease(currentEntry, settings) &&
+      !managementPermissionsEqual(
+        options.managementPermissionsConfirmed,
+        settings.managementPermissions,
+      )
+    ) {
+      throw new Error(
+        "La Gestione completa deve essere autorizzata dalla finestra di conferma dedicata con gli stessi permessi richiesti.",
       );
     }
     const merged: SharedSettingsFile = {
-      version: 3,
+      version: 4,
       updatedAt: new Date().toISOString(),
       vaults: {
         ...(existing?.vaults ?? {}),
         [vaultId]: {
           accessMode: settings.accessMode,
+          managementPermissions: copyManagementPermissions(settings.managementPermissions),
           vaultName: normalizedName,
           vaultPath: physicalVaultPath,
           enabled: settings.enabled,
@@ -558,6 +667,10 @@ export async function mergeVaultSettings(
       if (
         verifiedEntry === undefined ||
         verifiedEntry.accessMode !== settings.accessMode ||
+        !managementPermissionsEqual(
+          verifiedEntry.managementPermissions,
+          settings.managementPermissions,
+        ) ||
         verifiedEntry.vaultName !== normalizedName ||
         verifiedEntry.vaultPath !== physicalVaultPath ||
         verifiedEntry.enabled !== settings.enabled ||
@@ -615,7 +728,7 @@ export async function mergeVaultSettings(
           }
           if (quarantined) {
             throw new Error(
-              `La revoca non è stata verificabile: il file condiviso è stato messo in quarantena in ${quarantinePath}. L'accesso completo è disabilitato in modo prudente; riapri il pannello per riconfigurare i vault.`,
+              `La revoca non è stata verificabile: il file condiviso è stato messo in quarantena in ${quarantinePath}. Gli accessi autonomo e di gestione sono disabilitati in modo prudente; riapri il pannello per riconfigurare i vault.`,
             );
           }
           throw new Error(
@@ -654,6 +767,7 @@ export async function mergeVaultSettings(
     result = {
       settings: {
         accessMode: settings.accessMode,
+        managementPermissions: copyManagementPermissions(settings.managementPermissions),
         enabled: settings.enabled,
         readMode: settings.readMode,
         readFolders: [...settings.readFolders],
@@ -708,6 +822,7 @@ export async function readVaultSettings(
   if (entry === undefined) return undefined;
   return {
     accessMode: entry.accessMode,
+    managementPermissions: copyManagementPermissions(entry.managementPermissions),
     enabled: entry.enabled,
     readMode: entry.readMode,
     readFolders: [...entry.readFolders],
