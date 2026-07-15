@@ -9,7 +9,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/studentepercaso/obsidian-bridge.git",
-          "ref": "0.5.4"
+          "ref": "0.5.5"
       },
       "policy": {
         "installation": "AVAILABLE",

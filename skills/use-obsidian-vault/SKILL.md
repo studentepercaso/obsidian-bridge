@@ -38,7 +38,7 @@ Create/append remain a separate two-step protocol in every mode.
 
 These tools support only `create` and `append`. Management mode does not turn them into replacement or deletion tools.
 
-Create/append writing requires a Bridge Control settings-backed vault. If the bridge reports legacy environment-only writing, stop and direct the user to configure that vault in Bridge Control; never substitute CLI stdout or direct filesystem access. The resulting append document must remain at or below 1 MiB, and a create target's parent folder must already exist.
+Create/append writing requires a Bridge Control settings-backed vault. If the bridge reports legacy environment-only writing, stop and direct the user to configure that vault in Bridge Control; never substitute CLI stdout or direct filesystem access. Each create/append proposal can contain at most 64 KiB of UTF-8 content and its complete preview is bounded to 192 KiB. The resulting append document must remain at or below 1 MiB, a create target's parent folder must already exist, and long content must remain split into complete CLI IPC frames of at most 3072 UTF-8 bytes.
 
 ## Managed operations
 

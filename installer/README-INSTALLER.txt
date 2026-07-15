@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.4 - INSTALLER WINDOWS
+OBSIDIAN BRIDGE 0.5.5 - INSTALLER WINDOWS
 =========================================
 
 Installazione semplice
@@ -72,15 +72,18 @@ Problemi recenti
 ----------------
 Bridge Control include la sezione Problemi recenti. Legge in sola lettura i
 metadati locali del registro audit, senza mostrare il contenuto delle note. La
-versione 0.5.4 puo mostrare una fase di errore limitata e un codice causa sicuro,
+versione 0.5.5 puo mostrare una fase di errore limitata e un codice causa sicuro,
 ma mai messaggi grezzi delle eccezioni, output della CLI, contenuto proposto o
 corpo dei backup. Indica se una scrittura e stata fermata, ripristinata o richiede
-un controllo manuale. La versione 0.5.4 usa la stessa osservazione UTF-8 esatta
+un controllo manuale. La versione 0.5.5 usa la stessa osservazione UTF-8 esatta
 basata sulle impostazioni per prepare create/append, controllo conflitto,
 acquisizione backup, verifica dei blocchi e finale e classificazione del
 recupero. Le mutazioni usano ancora soltanto la CLI ufficiale allowlistata.
-Documenti risultanti da append oltre 1 MiB e destinazioni create con cartella padre mancante
-vengono rifiutate prima della mutazione. Il writer legacy configurato soltanto
+Ogni proposta create/append accetta al massimo 64 KiB di contenuto UTF-8 e la
+relativa anteprima completa e limitata a 192 KiB. Il documento risultante dopo
+append resta limitato a 1 MiB. I contenuti lunghi vengono suddivisi in frame CLI
+completi di non piu di 3072 byte UTF-8. Destinazioni create con cartella padre
+mancante vengono rifiutate prima della mutazione. Il writer legacy configurato soltanto
 tramite ambiente richiede la migrazione a Bridge Control.
 
 Create/append non esegue mai rollback CLI automatici e distruttivi. Dopo un

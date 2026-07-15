@@ -748,10 +748,11 @@ describe("guarded MCP write workflow", () => {
           vault: "Test Vault",
           path: "Projects/Huge.md",
           operation: "create",
-          content: "é".repeat(4_097),
+          content: "é".repeat(32_769),
         },
       });
       expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain("65536");
       expect(readState(statePath)).toEqual({});
       expect(() => readFileSync(logPath, "utf8")).toThrow();
 

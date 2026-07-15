@@ -36,9 +36,12 @@ import {
   type ExactVaultDocumentReadOptions,
 } from "./exact-vault-document.js";
 
-export const MAX_CHANGE_CONTENT_BYTES = 8_192;
-export const MAX_DOCUMENT_BYTES = 16_384;
-export const MAX_PREVIEW_BYTES = 16_384;
+/** Maximum UTF-8 delta accepted by one create or append request. */
+export const MAX_CHANGE_CONTENT_BYTES = 65_536;
+/** A create document is exactly its bounded request delta. */
+export const MAX_DOCUMENT_BYTES = MAX_CHANGE_CONTENT_BYTES;
+/** Allows the complete diff for a line-dense maximum-size request. */
+export const MAX_PREVIEW_BYTES = 196_608;
 export const MAX_WRITE_OBSERVATION_BYTES = 1_048_576;
 export const DEFAULT_BACKUP_RETENTION = 20;
 export const DEFAULT_MAX_PENDING_CHANGES = 100;

@@ -30,6 +30,8 @@ import type { VaultAccessResolver } from "../src/shared-settings.js";
 import type { ExactVaultDocument } from "../src/exact-vault-document.js";
 import {
   FileChangeStorage,
+  MAX_CHANGE_CONTENT_BYTES,
+  MAX_PREVIEW_BYTES,
   MAX_WRITE_OBSERVATION_BYTES,
   PreparedChangeStore,
   WriteToolInputSchemas,
@@ -337,13 +339,30 @@ describe("write workflow schemas and storage", () => {
         content: String.raw`C:\notes`,
       }).success,
     ).toBe(false);
-    expect(
-      WriteToolInputSchemas.prepareChange.safeParse({
-        ...base,
-        operation: "create",
-        content: "é".repeat(4_097),
-      }).success,
-    ).toBe(false);
+    for (const content of [
+      "x".repeat(MAX_CHANGE_CONTENT_BYTES),
+      "é".repeat(MAX_CHANGE_CONTENT_BYTES / 2),
+    ]) {
+      expect(
+        WriteToolInputSchemas.prepareChange.safeParse({
+          ...base,
+          operation: "create",
+          content,
+        }).success,
+      ).toBe(true);
+    }
+    for (const content of [
+      "x".repeat(MAX_CHANGE_CONTENT_BYTES + 1),
+      "é".repeat(MAX_CHANGE_CONTENT_BYTES / 2 + 1),
+    ]) {
+      expect(
+        WriteToolInputSchemas.prepareChange.safeParse({
+          ...base,
+          operation: "create",
+          content,
+        }).success,
+      ).toBe(false);
+    }
     expect(
       WriteToolInputSchemas.prepareChange.safeParse({
         ...base,
@@ -432,7 +451,9 @@ describe("write workflow schemas and storage", () => {
   });
 
   it("rejects a diff whose preview would exceed the bounded MCP output", async () => {
-    const notes: Record<string, string> = {};
+    const notePath = "Projects/Editable/Long line.md";
+    const original = "x".repeat(Math.floor(MAX_PREVIEW_BYTES / 2) + 1_000);
+    const notes: Record<string, string> = { [notePath]: original };
     const invocations: string[][] = [];
     const storage: ChangeStorage = {
       async createBackup() {
@@ -446,12 +467,45 @@ describe("write workflow schemas and storage", () => {
       handlers.prepareChange(
         WriteToolInputSchemas.prepareChange.parse({
           vault: "Test Vault",
-          path: "Projects/Editable/New.md",
-          operation: "create",
-          content: "\n".repeat(8_192),
+          path: notePath,
+          operation: "append",
+          content: "y",
         }),
       ),
     ).rejects.toThrow(/preview.*exceed/iu);
+    expect(notes[notePath]).toBe(original);
+    expect(invocations.every((args) => args[1] === "read")).toBe(true);
+  });
+
+  it("accepts a line-dense 64 KiB create preview within the enlarged bound", async () => {
+    const notes: Record<string, string> = {};
+    const invocations: string[][] = [];
+    const handlers = runtime(createMemoryRunner(notes, invocations), {
+      async createBackup() {
+        throw new Error("prepare must not create a backup");
+      },
+      async appendAudit() {},
+    });
+    const content = "\n".repeat(MAX_CHANGE_CONTENT_BYTES);
+
+    const prepared = resultJson(
+      await handlers.prepareChange(
+        WriteToolInputSchemas.prepareChange.parse({
+          vault: "Test Vault",
+          path: "Projects/Editable/Line dense.md",
+          operation: "create",
+          content,
+        }),
+      ),
+    );
+
+    expect(prepared).toMatchObject({ status: "prepared", operation: "create" });
+    expect(
+      Buffer.byteLength(
+        String((prepared.preview as Record<string, unknown>).diff),
+        "utf8",
+      ),
+    ).toBeLessThanOrEqual(MAX_PREVIEW_BYTES);
     expect(notes).toEqual({});
     expect(invocations.every((args) => args[1] === "read")).toBe(true);
   });
@@ -842,6 +896,40 @@ describe("write workflow schemas and storage", () => {
     ).toBe(false);
   });
 
+  it("accepts an append whose resulting document is exactly 1 MiB", async () => {
+    const notePath = "Projects/Editable/Exact accepted boundary.md";
+    const original = `${"x".repeat(
+      MAX_WRITE_OBSERVATION_BYTES - MAX_CHANGE_CONTENT_BYTES - 1,
+    )}\n`;
+    const content = "y".repeat(MAX_CHANGE_CONTENT_BYTES);
+    const notes = { [notePath]: original };
+    const invocations: string[][] = [];
+    const handlers = runtime(createMemoryRunner(notes, invocations), {
+      async createBackup() {
+        return { backupId: "exact-boundary-backup" };
+      },
+      async appendAudit() {},
+    });
+
+    const prepared = resultJson(
+      await handlers.prepareChange({
+        vault: "Test Vault",
+        path: notePath,
+        operation: "append",
+        content,
+      }),
+    );
+
+    expect(prepared).toMatchObject({ status: "prepared", operation: "append" });
+    expect(Buffer.byteLength(original + content, "utf8")).toBe(
+      MAX_WRITE_OBSERVATION_BYTES,
+    );
+    expect(notes[notePath]).toBe(original);
+    expect(
+      invocations.some((args) => args[1] === "create" || args[1] === "append"),
+    ).toBe(false);
+  });
+
   it("fails closed when a settings-backed writer has no physical vault path", async () => {
     const notePath = "Projects/Editable/Missing root.md";
     const notes = { [notePath]: "original" };
@@ -1158,7 +1246,7 @@ describe("write workflow schemas and storage", () => {
   it("creates a long note through verified IPC-safe create and append chunks", async () => {
     const notes: Record<string, string> = {};
     const invocations: string[][] = [];
-    const content = "Voce chunked 😀 con accenti è.\n".repeat(180);
+    const content = "é".repeat(MAX_CHANGE_CONTENT_BYTES / 2);
     const handlers = runtime(createMemoryRunner(notes, invocations), {
       async createBackup() {
         throw new Error("create must not make a backup");
@@ -1189,6 +1277,7 @@ describe("write workflow schemas and storage", () => {
 
     expect(committed).toMatchObject({ status: "committed", verified: true });
     expect(notes["Projects/Editable/Long create.md"]).toBe(content);
+    expect(Buffer.byteLength(content, "utf8")).toBe(MAX_CHANGE_CONTENT_BYTES);
     expect(writes.filter((args) => args[1] === "create")).toHaveLength(1);
     expect(writes.filter((args) => args[1] === "append").length).toBeGreaterThan(0);
     expect(writes.every((args) => cliIpcFrameBytes(args) <= MAX_CLI_IPC_FRAME_BYTES)).toBe(true);
@@ -1203,7 +1292,7 @@ describe("write workflow schemas and storage", () => {
     const notes = { "Projects/Editable/Long append.md": "original\n" };
     const invocations: string[][] = [];
     const backups: BackupInput[] = [];
-    const content = "Aggiunta chunked 😀 con accenti è.\n".repeat(170);
+    const content = "z".repeat(MAX_CHANGE_CONTENT_BYTES);
     const handlers = runtime(createMemoryRunner(notes, invocations), {
       async createBackup(input) {
         backups.push(input);
@@ -1238,6 +1327,7 @@ describe("write workflow schemas and storage", () => {
     });
     expect(backups).toHaveLength(1);
     expect(notes["Projects/Editable/Long append.md"]).toBe(`original\n${content}`);
+    expect(Buffer.byteLength(content, "utf8")).toBe(MAX_CHANGE_CONTENT_BYTES);
     expect(appends.length).toBeGreaterThan(1);
     expect(appends.every((args) => args.includes("inline"))).toBe(true);
     expect(appends.every((args) => cliIpcFrameBytes(args) <= MAX_CLI_IPC_FRAME_BYTES)).toBe(true);
