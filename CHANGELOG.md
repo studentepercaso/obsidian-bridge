@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.5 - 2026-07-15
+
+- Increase the public create/append proposed-content limit from 8192 to 65536 UTF-8 bytes while retaining the 1 MiB resulting-document boundary.
+- Expand the exact protected/autonomous preview budget to 192 KiB so a valid 64 KiB proposal, including newline-dense content, can still be reviewed in full.
+- Keep every official Obsidian CLI IPC frame capped at 3072 UTF-8 bytes; larger proposals are split on Unicode code-point boundaries and verified after every chunk.
+- Add exact ASCII and multibyte boundary coverage, large create/append transaction tests, and an explicit one-byte-over rejection test.
+- Preserve all permission profiles, confirmation rules, management limits, backup retention, audit privacy, and fail-closed recovery behavior.
+
 ## 0.5.4 - 2026-07-12
 
 - Remove `child_process` and every executable launch from the bundled Bridge Control companion. Its optional CLI scan now reports only a non-certified candidate from allowlisted known paths; the external bridge retains the definitive readiness check.

@@ -1,6 +1,6 @@
 {
   "name": "@obsidian-bridge/mcp",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "GUI-configured, permission-scoped bridge between Codex and the official Obsidian CLI.",
   "author": "studentepercaso",
   "homepage": "https://github.com/studentepercaso/obsidian-bridge#readme",

@@ -1,6 +1,6 @@
 # Review test cases
 
-These cases cover all three version-0.5.4 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
+These cases cover all three version-0.5.5 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
 
 Begin in **Protected access**: enable one exact synthetic vault, limit reading and controlled writing to `Projects`, and verify process separation:
 
@@ -37,7 +37,11 @@ Begin in **Protected access**: enable one exact synthetic vault, limit reading a
    - Expected behavior: prepare, commit CAS, append backup capture, every chunk observation, final verification, and recovery classification use the settings-backed bounded exact UTF-8 reader; the fake CLI read path is not used for transaction state.
    - Expected result: exact hashes and backup content match the physical fixtures, while each create/append mutation uses only the allowlisted official CLI operation.
 
-4b. **Writer pre-mutation boundaries**
+4b. **Writer proposal, preview, and IPC boundaries**
+   - Setup: in a disposable vault, prepare and commit a synthetic create or append containing exactly 64 KiB of UTF-8 content, then prepare the same operation with 64 KiB plus one byte.
+   - Expected result: the exact-boundary change produces a complete preview no larger than 192 KiB, commits with exact verification, and every CLI IPC frame remains at or below 3072 UTF-8 bytes. The one-byte-oversized proposal fails before backup or mutation. The resulting note remains subject to the separate 1 MiB document limit.
+
+4c. **Writer pre-mutation boundaries**
    - Setup: prepare append whose exact resulting document would exceed 1 MiB, and prepare create below a missing parent folder.
    - Expected result: both fail before backup or mutation; the parent folder is not created and no direct filesystem note write occurs.
 

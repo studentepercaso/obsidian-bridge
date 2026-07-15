@@ -16,9 +16,9 @@ describe("public release metadata", () => {
       "companion/obsidian-bridge-control/manifest.json",
     );
 
-    expect(packageJson.version).toBe("0.5.4");
-    expect(plugin.version).toBe("0.5.4");
-    expect(companion.version).toBe("0.5.4");
+    expect(packageJson.version).toBe("0.5.5");
+    expect(plugin.version).toBe("0.5.5");
+    expect(companion.version).toBe("0.5.5");
   });
 
   it("publishes a pinned Git-backed Codex marketplace entry", () => {
@@ -39,7 +39,7 @@ describe("public release metadata", () => {
         source: {
           source: "url",
           url: "https://github.com/studentepercaso/obsidian-bridge.git",
-          ref: "0.5.4",
+          ref: "0.5.5",
         },
         policy: {
           installation: "AVAILABLE",

@@ -1,6 +1,6 @@
 # Guarded writing and full management
 
-Version 0.5.4 provides three per-vault access profiles. Every profile is explicit, fail-closed, and reloads the current Bridge Control policy before a sensitive stage.
+Version 0.5.5 provides three per-vault access profiles. Every profile is explicit, fail-closed, and reloads the current Bridge Control policy before a sensitive stage.
 
 | UI profile | Stored mode | Scope | Supported mutations | Routine per-change confirmation |
 | --- | --- | --- | --- | --- |
@@ -24,7 +24,7 @@ Full management has three independent grants:
 - `move`: move or rename a note by changing its vault-relative destination;
 - `trash`: send a note through Obsidian's configured trash flow.
 
-No update, migration, environment variable, note, tool output, or model instruction can activate Full management or add one of these grants. Version-2 through version-4 settings migrate to version 5 without inventing management authority; they remain deny-all until their own vault records the real `Vault.configDir`. The legacy environment-only mode is read-only in 0.5.4: create/append requires Bridge Control shared settings because normalized CLI stdout is not an exact compare-and-swap source.
+No update, migration, environment variable, note, tool output, or model instruction can activate Full management or add one of these grants. Version-2 through version-4 settings migrate to version 5 without inventing management authority; they remain deny-all until their own vault records the real `Vault.configDir`. The legacy environment-only mode is read-only in 0.5.5: create/append requires Bridge Control shared settings because normalized CLI stdout is not an exact compare-and-swap source.
 
 Hidden paths, the persisted real `Vault.configDir`, `.trash`, absolute paths, traversal, configured deny prefixes, and physical redirects outside the registered vault remain unavailable in every profile. Permanent deletion, shell access, `eval`, arbitrary Obsidian commands, command-palette access, and plugin management are never exposed.
 
@@ -51,7 +51,7 @@ The create/append tool and approval surface remains:
 
 These tools support only `create` and `append`; they do not become management tools when the vault enters Full management. In a settings-backed vault, every observation used by the transaction comes from one bounded exact UTF-8 reader: prepare and its before-hash, commit CAS, exact append backup, every chunk check, final verification, and the observation used for recovery classification. No-final-newline, LF/CRLF, BOM, and Unicode distinctions are preserved. This reader never mutates note data; each mutation remains an allowlisted official Obsidian CLI create/append call.
 
-Append rejects a change whose exact resulting document would exceed 1 MiB before mutation. Create rejects a target whose parent folder does not already exist; it never creates parent directories implicitly. Proposed content remains bounded to 8192 UTF-8 bytes and long content retains bounded Unicode-safe CLI chunking.
+Each create/append proposal accepts at most 64 KiB of UTF-8 content and its complete preview is bounded to 192 KiB. The exact resulting append document remains bounded to 1 MiB and a larger result is rejected before mutation. Create rejects a target whose parent folder does not already exist; it never creates parent directories implicitly. Long content retains Unicode-safe chunking into complete CLI IPC frames of at most 3072 UTF-8 bytes.
 
 Create/append does not attempt destructive automatic rollback through the CLI. If append has mutated the note and a later write or verification step fails, preserve the exact plaintext backup and audit evidence, leave the observed state untouched, and report `manual_recovery_required=true` with `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` or `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. A partial create remains `delete_disabled`. A safe automatic restore needs a future atomic Bridge Control transaction; compare-then-restore CLI calls can race Obsidian, sync clients, editors, and plugins.
 

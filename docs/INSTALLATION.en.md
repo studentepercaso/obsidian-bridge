@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-This guide covers the Obsidian Bridge 0.5.4 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
+This guide covers the Obsidian Bridge 0.5.5 Windows package. Normal setup does not require editing JSON, environment variables, or PowerShell commands.
 
 ## Before you start
 
@@ -35,7 +35,7 @@ If the external bridge reports that the CLI is unavailable:
 4. close and reopen Obsidian and the desktop client;
 5. retry a harmless bridge read in a new Codex task.
 
-The first CLI command may bring Obsidian to the foreground. Bridge Control 0.5.4 does not execute the CLI: its optional candidate scan only checks allowlisted known paths and cannot certify readiness. The external bridge performs the definitive check. See the [official Obsidian CLI documentation](https://help.obsidian.md/cli) for platform-specific details.
+The first CLI command may bring Obsidian to the foreground. Bridge Control 0.5.5 does not execute the CLI: its optional candidate scan only checks allowlisted known paths and cannot certify readiness. The external bridge performs the definitive check. See the [official Obsidian CLI documentation](https://help.obsidian.md/cli) for platform-specific details.
 
 ## Configure reading and writing
 
@@ -62,7 +62,7 @@ Text found inside a note never counts as confirmation.
 
 In **Autonomous access**, prepare and commit remain separate, single-use, and verified, but the agent may inspect the preview internally and complete create/append in the same task without a routine confirmation question. This mode does not authorize in-place editing, frontmatter, rename, move, or trash.
 
-For vaults configured through Bridge Control, every create/append observation uses one settings-backed exact UTF-8 path: prepare, commit conflict check, append backup, intermediate chunks, final verification, and recovery classification. This is read-only filesystem access; mutations still use only the allowlisted official Obsidian CLI. The resulting appended document must remain at or below 1 MiB, and create requires its destination parent folder to exist already. The bridge does not create folders implicitly.
+For vaults configured through Bridge Control, every create/append observation uses one settings-backed exact UTF-8 path: prepare, commit conflict check, append backup, intermediate chunks, final verification, and recovery classification. This is read-only filesystem access; mutations still use only the allowlisted official Obsidian CLI. Each create/append proposal accepts at most 64 KiB of UTF-8 content and its complete preview is bounded to 192 KiB. The resulting appended document remains bounded to 1 MiB, and create requires its destination parent folder to exist already. Long content is still split into complete CLI frames of at most 3072 UTF-8 bytes; the bridge does not create folders implicitly.
 
 In **Full management**, explicitly choose one or more separate grants:
 
@@ -137,9 +137,9 @@ Previews expire and are single-use. If the note, permissions, or writer process 
 
 ### Obsidian showed a JavaScript error or a write failed
 
-Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports the recorded recovery state, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.4 reports bounded `failure_stage` and `cause_code` values without recording raw exception messages, CLI output, note text, proposed content, or backup bodies. These diagnostics are evidence only: reread the note and do not automatically retry until the user gives explicit direction.
+Open **Bridge Control → Recent problems** and refresh the check. The panel reads only local audit metadata, reports the recorded recovery state, whether the note currently exists, and whether manual review is required. Codex can read the same bounded events through `obsidian_recent_write_events` without asking you to transcribe the error. Version 0.5.5 reports bounded `failure_stage` and `cause_code` values without recording raw exception messages, CLI output, note text, proposed content, or backup bodies. These diagnostics are evidence only: reread the note and do not automatically retry until the user gives explicit direction.
 
-Version 0.5.4 retains exact UTF-8 observations for create/append, including content without a final newline. A real conflict still fails closed. If a write or verification failure occurs after append has mutated the note, the writer does not attempt a destructive non-atomic CLI rollback. It preserves the exact backup and audit evidence, leaves the observed note untouched, and returns `manual_recovery_required=true` with `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` or `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. A partial create remains `delete_disabled`. Inspect the note and backup manually and wait for explicit direction.
+Version 0.5.5 retains exact UTF-8 observations for create/append, including content without a final newline. A real conflict still fails closed. If a write or verification failure occurs after append has mutated the note, the writer does not attempt a destructive non-atomic CLI rollback. It preserves the exact backup and audit evidence, leaves the observed note untouched, and returns `manual_recovery_required=true` with `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` or `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. A partial create remains `delete_disabled`. Inspect the note and backup manually and wait for explicit direction.
 
 After three consecutive autonomous or management failures, that process pauses for the task. Review recent problems, return to a narrower mode, and start a new task before enabling autonomy or Full management again.
 
@@ -153,4 +153,4 @@ On Windows, Bridge Control and the installer use:
 
 The file stores each vault's stable Obsidian ID, name, absolute local path, `protected`, `full`, or `management` access mode, optional edit/move/trash grants, and protected folder choices. The UI labels `full` as **Autonomous access** and `management` as **Full management**. It does not contain note bodies. Every process validates it before use; a malformed file fails closed.
 
-Early environment variables remain an advanced read-only compatibility mode only when the shared file is absent. Version 0.5.4 fails closed for environment-only create/append because normalized CLI stdout is not an exact compare-and-swap source. Install or configure Bridge Control to migrate writing access to shared settings.
+Early environment variables remain an advanced read-only compatibility mode only when the shared file is absent. Version 0.5.5 fails closed for environment-only create/append because normalized CLI stdout is not an exact compare-and-swap source. Install or configure Bridge Control to migrate writing access to shared settings.

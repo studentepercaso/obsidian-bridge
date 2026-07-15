@@ -24,11 +24,11 @@ Obsidian Bridge connects Codex and compatible ChatGPT desktop plugin hosts to lo
 - A two-step single-use preview/commit protocol; per-change confirmation remains mandatory in protected access.
 - Default-deny access, per-vault settings, hidden-folder rejection, path containment, timeouts, and output limits.
 - Separate **edit**, **move**, and **trash** grants in Full management; none is inferred during an update or from a note, prompt, or environment variable.
-- Cross-process commit locks, at most 20 shared local plaintext recovery backups, postcondition verification, content-free audit metadata, a **Recent problems** panel, and direct bounded audit diagnostics for Codex after an error. Version 0.5.4 retains settings-backed exact UTF-8 snapshots for every create/append and managed transactional observation, including notes without a final newline, while hardening the companion for Obsidian review.
+- Cross-process commit locks, at most 20 shared local plaintext recovery backups, postcondition verification, content-free audit metadata, a **Recent problems** panel, and direct bounded audit diagnostics for Codex after an error. Version 0.5.5 accepts up to 64 KiB in one create/append proposal while retaining settings-backed exact UTF-8 snapshots for every transactional observation.
 
 ## Quick start on Windows
 
-1. Download **Obsidian-Bridge-Setup-0.5.4.zip** from the [releases page](https://github.com/studentepercaso/obsidian-bridge/releases).
+1. Download **Obsidian-Bridge-Setup-0.5.5.zip** from the [releases page](https://github.com/studentepercaso/obsidian-bridge/releases).
 2. Extract the ZIP completely. Do not run the installer from inside the archive preview.
 3. Double-click **INSTALLA-OBSIDIAN-BRIDGE.cmd**.
 4. Select a vault and complete the guided installation.
@@ -38,9 +38,9 @@ Obsidian Bridge connects Codex and compatible ChatGPT desktop plugin hosts to lo
 
 The installer keeps new vaults deny-by-default and preserves existing Bridge Control permissions during an update. The full walkthrough is in [docs/INSTALLATION.en.md](docs/INSTALLATION.en.md).
 
-Use the asset whose name starts with **Obsidian-Bridge-Setup**. GitHub's automatically generated **Source code** archives are development snapshots, not the guided installer. SHA-256 values are published beside every release in **SHA256-0.5.4.txt**.
+Use the asset whose name starts with **Obsidian-Bridge-Setup**. GitHub's automatically generated **Source code** archives are development snapshots, not the guided installer. SHA-256 values are published beside every release in **SHA256-0.5.5.txt**.
 
-The 0.5.4 installer and Bridge Control interface are currently in Italian; the English guide maps each step.
+The 0.5.5 installer and Bridge Control interface are currently in Italian; the English guide maps each step.
 
 If diagnostics report that the Obsidian CLI is unavailable, enable it under **Obsidian → Settings → General → Command line interface**. The bridge uses the official local CLI and does not emulate vault access through an HTTP service.
 
@@ -49,7 +49,7 @@ If diagnostics report that the Obsidian CLI is unavailable, enable it under **Ob
 Advanced users can add this public repository as a Codex marketplace:
 
 ```powershell
-codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.5.4
+codex plugin marketplace add studentepercaso/obsidian-bridge --ref 0.5.5
 codex plugin add obsidian-bridge@obsidian-bridge-community
 ```
 
@@ -70,7 +70,7 @@ Every write uses two calls:
 1. **Prepare** validates the vault, path, permission, source state, and proposed content. It returns a bounded preview without changing the note.
 2. **Commit** accepts only that unexpired, single-use preview and rechecks permissions and source state. Protected access requires explicit confirmation; Autonomous access or Full management may commit create/append immediately after the agent internally validates the preview in the same task.
 
-For Bridge Control settings-backed vaults, create/append preparation, commit CAS, backup capture, intermediate chunk checks, final verification, and recovery classification all read the same bounded exact UTF-8 representation. The read is physically confined to the authorized vault and never mutates a note directly; create/append mutations still use only the allowlisted official Obsidian CLI. The resulting appended document must remain at or below 1 MiB, and create requires its parent folder to exist, before mutation. The legacy environment-only writer fails closed for create/append because normalized CLI stdout is not an exact CAS source; migrate the vault through Bridge Control.
+For Bridge Control settings-backed vaults, create/append preparation, commit CAS, backup capture, intermediate chunk checks, final verification, and recovery classification all read the same bounded exact UTF-8 representation. One proposal may contain up to 64 KiB, while the resulting document must remain at or below 1 MiB. The read is physically confined to the authorized vault and never mutates a note directly; create/append mutations still use only allowlisted official Obsidian CLI frames of at most 3072 UTF-8 bytes. Create requires its parent folder to exist before mutation. The legacy environment-only writer fails closed for create/append because normalized CLI stdout is not an exact CAS source; migrate the vault through Bridge Control.
 
 Create/append does not perform destructive automatic CLI rollback after a post-mutation failure. It preserves the exact backup and metadata-only audit evidence, leaves the observed note state untouched, and reports `manual_recovery_required=true`; a partial create remains `delete_disabled`. Inspect the current note and obtain explicit user direction. Atomic automatic restoration would require a future Bridge Control transaction.
 
@@ -78,7 +78,7 @@ Full-management changes use their own prepare/commit pair. Prepare returns a bou
 
 The handler runs inside Obsidian. Replacement and frontmatter use `Vault.process` with a compare-and-swap check on the prepared source hash; frontmatter is parsed and serialized with Obsidian's public YAML helpers. Move/rename uses `Vault.rename` and deliberately changes only the selected file: it does **not** rewrite backlinks or other notes. Trash uses Obsidian's public trash API. The management channel exposes no permanent delete, arbitrary command, command palette, plugin management, shell, or `eval`. Hidden paths, `.obsidian`, `.trash`, and physical redirects outside the vault remain denied. Reader, protected writer, autonomous writer, and management tools run in distinct MCP processes with different capabilities.
 
-Bridge Control 0.5.4 contains no `child_process` use and launches no executable. Its CLI panel only identifies a non-authoritative candidate; the external bridge performs the definitive readiness check when needed. The picker uses the vault's actual `Vault.configDir`. Companion Node filesystem access is restricted to documented external settings/lock/quarantine, read-only registry, one-time request, backup, and audit stores, never note paths; note reads and mutations inside the companion remain on public Obsidian APIs. These review-hardening changes add no permission, protocol field, or write surface.
+Bridge Control 0.5.5 contains no `child_process` use and launches no executable. Its CLI panel only identifies a non-authoritative candidate; the external bridge performs the definitive readiness check when needed. The picker uses the vault's actual `Vault.configDir`. Companion Node filesystem access is restricted to documented external settings/lock/quarantine, read-only registry, one-time request, backup, and audit stores, never note paths; note reads and mutations inside the companion remain on public Obsidian APIs. These review-hardening changes add no permission, protocol field, or write surface.
 
 Shared settings now use schema version 5 and carry the real `Vault.configDir` as an authoritative deny rule for every bridge mode. Version-2 through version-4 entries keep their explicit permission choices but remain deny-all until that exact vault opens and records its real configuration directory; any saved folder grant intersecting it is removed. The migration never invents authority.
 
@@ -107,7 +107,7 @@ Automated tests use a simulated CLI and synthetic data. A release also requires 
 - [English installation guide](docs/INSTALLATION.en.md)
 - [Guida di installazione in italiano](docs/INSTALLATION.md)
 - [Controlled writing protocol](docs/WRITING.md)
-- [0.5.4 bilingual release notes](docs/RELEASE_NOTES_0.5.4.md)
+- [0.5.5 bilingual release notes](docs/RELEASE_NOTES_0.5.5.md)
 - [Privacy](PRIVACY.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
@@ -117,6 +117,6 @@ Automated tests use a simulated CLI and synthetic data. A release also requires 
 
 ## Project status
 
-Version 0.5.4 is a public community preview distributed from GitHub. The **Bridge Control** companion is also published in its own review-ready repository and listed in the official Obsidian Community Plugins directory. The local stdio MCP architecture is not the same as a hosted MCP endpoint and is not currently submitted to the universal OpenAI Plugins Directory.
+Version 0.5.5 is a public community preview distributed from GitHub. The **Bridge Control** companion is also published in its own review-ready repository and listed in the official Obsidian Community Plugins directory. The local stdio MCP architecture is not the same as a hosted MCP endpoint and is not currently submitted to the universal OpenAI Plugins Directory.
 
 Obsidian is a trademark of Dynalist Inc. ChatGPT, Codex, and OpenAI are trademarks of OpenAI. This independent project is not affiliated with or endorsed by either company.

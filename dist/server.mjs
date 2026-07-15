@@ -33150,9 +33150,9 @@ async function assertVaultIdentity(runner, access, options = {}) {
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
 import { chmod, mkdir as mkdir2, readdir, unlink, writeFile, appendFile } from "node:fs/promises";
 import path7 from "node:path";
-var MAX_CHANGE_CONTENT_BYTES = 8192;
-var MAX_DOCUMENT_BYTES = 16384;
-var MAX_PREVIEW_BYTES = 16384;
+var MAX_CHANGE_CONTENT_BYTES = 65536;
+var MAX_DOCUMENT_BYTES = MAX_CHANGE_CONTENT_BYTES;
+var MAX_PREVIEW_BYTES = 196608;
 var MAX_WRITE_OBSERVATION_BYTES = 1048576;
 var DEFAULT_BACKUP_RETENTION = 20;
 var DEFAULT_MAX_PENDING_CHANGES = 100;
@@ -35369,7 +35369,7 @@ function createConfigAccessResolver(config2) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.5.4";
+var SERVER_VERSION = "0.5.5";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,
