@@ -1,6 +1,6 @@
 # Review test cases
 
-These cases cover all three version-0.5.7 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
+These cases cover all three version-0.5.8 permission profiles. Use only reviewer-accessible synthetic data in a disposable vault with an independent backup.
 
 Begin in **Protected access**: enable one exact synthetic vault, limit reading and controlled writing to `Projects`, and verify process separation:
 

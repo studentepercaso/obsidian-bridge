@@ -1,6 +1,6 @@
 # Guarded writing and full management
 
-Version 0.5.7 provides three per-vault access profiles. Every profile is explicit, fail-closed, and reloads the current Bridge Control policy before a sensitive stage.
+Version 0.5.8 provides three per-vault access profiles. Every profile is explicit, fail-closed, and reloads the current Bridge Control policy before a sensitive stage.
 
 | UI profile | Stored mode | Scope | Supported mutations | Routine per-change confirmation |
 | --- | --- | --- | --- | --- |
@@ -24,7 +24,7 @@ Full management has three independent grants:
 - `move`: move or rename a note by changing its vault-relative destination;
 - `trash`: send a note through Obsidian's configured trash flow.
 
-No update, migration, environment variable, note, tool output, or model instruction can activate Full management or add one of these grants. Version-2 through version-4 settings migrate to version 5 without inventing management authority; they remain deny-all until their own vault records the real `Vault.configDir`. The legacy environment-only mode is read-only in 0.5.7: create/append requires Bridge Control shared settings because normalized CLI stdout is not an exact compare-and-swap source.
+No update, migration, environment variable, note, tool output, or model instruction can activate Full management or add one of these grants. Version-2 through version-4 settings migrate to version 5 without inventing management authority; they remain deny-all until their own vault records the real `Vault.configDir`. The legacy environment-only mode is read-only in 0.5.8: create/append requires Bridge Control shared settings because normalized CLI stdout is not an exact compare-and-swap source.
 
 Hidden paths, the persisted real `Vault.configDir`, `.trash`, absolute paths, traversal, configured deny prefixes, and physical redirects outside the registered vault remain unavailable in every profile. Permanent deletion, shell access, `eval`, arbitrary Obsidian commands, command-palette access, and plugin management are never exposed.
 

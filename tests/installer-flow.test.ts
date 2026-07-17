@@ -79,28 +79,99 @@ describe("guided installer permission flow", () => {
   });
 
   it("renders natively at high DPI and keeps installation errors in the page", () => {
+    const wpfUi = installer.slice(
+      installer.indexOf("function Get-InstallerWindowXaml"),
+    );
     expect(installer).toContain("SetProcessDpiAwarenessContext");
     expect(installer).toContain("SetThreadDpiAwarenessContext");
-    expect(installer).toContain(
-      "$form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi",
+    expect(wpfUi).toContain("Add-Type -AssemblyName PresentationFramework");
+    expect(wpfUi).toContain("[System.Windows.Markup.XamlReader]::Parse");
+    expect(wpfUi).toContain('UseLayoutRounding="True"');
+    expect(wpfUi).toContain('SnapsToDevicePixels="True"');
+    expect(wpfUi).toContain('<RowDefinition Height="Auto"/>');
+    expect(wpfUi).toContain('<RowDefinition Height="*"/>');
+    expect(wpfUi).toContain('VerticalScrollBarVisibility="Auto"');
+    expect(wpfUi).toContain('TextWrapping="Wrap"');
+    expect(wpfUi).toContain('x:Name="MessageText"');
+    expect(wpfUi).toContain('IsReadOnly="True"');
+    expect(wpfUi).toContain(
+      'Set-InstallerMessage -Text "Installazione non completata: $($_.Exception.Message)"',
     );
-    expect(installer).toContain(
-      "[System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)",
-    );
-    expect(installer).toContain("$content.AutoScroll = $true");
-    expect(installer).toContain(
-      "$messageLabel = New-Object System.Windows.Forms.TextBox",
-    );
-    expect(installer).toContain(
-      "$messageLabel.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical",
-    );
-    expect(installer).toContain(
-      '$messageLabel.Text = "Installazione non completata: $($_.Exception.Message)"',
-    );
-    expect(installer).not.toContain(
-      "[void][System.Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, 'Installazione non completata'",
+    expect(wpfUi).not.toMatch(/System\.Drawing\.(?:Point|Size)/u);
+    expect(wpfUi).not.toMatch(/\.Location\s*=/u);
+    expect(wpfUi).not.toMatch(
+      /New-Object System\.Windows\.Forms\.(?:Form|Panel|Label|Button|ComboBox|CheckBox|TextBox)/u,
     );
   });
+
+  it.skipIf(process.platform !== "win32")(
+    "loads, measures, and closes the real WPF interface without installing",
+    () => {
+      const root = mkdtempSync(join(tmpdir(), "obsidian-bridge-ui-smoke-"));
+      const appData = join(root, "AppData");
+      const localAppData = join(root, "LocalAppData");
+      mkdirSync(appData, { recursive: true });
+      mkdirSync(localAppData, { recursive: true });
+
+      try {
+        const result = spawnSync(
+          "powershell.exe",
+          [
+            "-Sta",
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            installerPath,
+            "-UiSmokeTest",
+          ],
+          {
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              APPDATA: appData,
+              LOCALAPPDATA: localAppData,
+              OBSIDIAN_BRIDGE_SETTINGS_PATH: "",
+            },
+            timeout: 15_000,
+          },
+        );
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stderr).toBe("");
+        const report = JSON.parse(result.stdout) as {
+          uiSmokeTest: boolean;
+          renderEngine: string;
+          loaded: boolean;
+          closed: boolean;
+          installAttempted: boolean;
+          layout: Record<string, boolean>;
+        };
+        expect(report).toMatchObject({
+          uiSmokeTest: true,
+          renderEngine: "WPF",
+          loaded: true,
+          closed: true,
+          installAttempted: false,
+          layout: {
+            headerContainsSubtitle: true,
+            mainScrollReachable: true,
+            completionReachable: true,
+          },
+        });
+        expect(
+          existsSync(join(localAppData, "ObsidianBridge", "settings.json")),
+        ).toBe(false);
+        expect(
+          existsSync(join(localAppData, "ObsidianBridge", "codex-marketplace")),
+        ).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+    20_000,
+  );
 
   it("prefers the packaged installer when source and packaged layouts overlap", () => {
     const packaged =

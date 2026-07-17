@@ -35410,7 +35410,7 @@ function createConfigAccessResolver(config2) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.5.7";
+var SERVER_VERSION = "0.5.8";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,

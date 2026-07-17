@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.7 - INSTALLER WINDOWS
+OBSIDIAN BRIDGE 0.5.8 - INSTALLER WINDOWS
 =========================================
 
 Installazione semplice
@@ -14,6 +14,10 @@ Installazione semplice
 
 Non servono diritti di amministratore. Nessuna API key richiesta: il bridge
 usa la CLI locale ufficiale di Obsidian.
+
+L interfaccia WPF adattiva manda a capo percorsi e messaggi lunghi e mantiene
+raggiungibili tutti i comandi tramite scorrimento anche in finestre compatte o
+con un ridimensionamento elevato dello schermo di Windows.
 
 Dati richiesti e controllati dal pannello
 -----------------------------------------
@@ -72,10 +76,10 @@ Problemi recenti
 ----------------
 Bridge Control include la sezione Problemi recenti. Legge in sola lettura i
 metadati locali del registro audit, senza mostrare il contenuto delle note. La
-versione 0.5.7 puo mostrare una fase di errore limitata e un codice causa sicuro,
+versione 0.5.8 puo mostrare una fase di errore limitata e un codice causa sicuro,
 ma mai messaggi grezzi delle eccezioni, output della CLI, contenuto proposto o
 corpo dei backup. Indica se una scrittura e stata fermata, ripristinata o richiede
-un controllo manuale. La versione 0.5.7 usa la stessa osservazione UTF-8 esatta
+un controllo manuale. La versione 0.5.8 usa la stessa osservazione UTF-8 esatta
 basata sulle impostazioni per prepare create/append, controllo conflitto,
 acquisizione backup, verifica dei blocchi e finale e classificazione del
 recupero. Le mutazioni usano ancora soltanto la CLI ufficiale allowlistata.
