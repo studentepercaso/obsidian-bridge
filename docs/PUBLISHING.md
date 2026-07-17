@@ -1,17 +1,17 @@
 # Publishing paths
 
-Obsidian Bridge 0.5.7 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
+Obsidian Bridge 0.5.8 is distributed as a public community preview from GitHub. Public catalog submissions remain separate review processes.
 
 ## GitHub community distribution
 
 1. Publish the bilingual source and release documentation from the public Git repository.
-2. Expose the Codex plugin through `.agents/plugins/marketplace.json` pinned to tag `0.5.7`.
-3. Publish the guided setup ZIP, companion ZIP, raw Obsidian assets, and `SHA256-0.5.7.txt` in the GitHub release.
-4. Tag the matching `0.5.7` companion in [studentepercaso/bridge-control](https://github.com/studentepercaso/bridge-control). Its GitHub Actions workflow performs a locked check and two byte-identical builds, attests `main.js`, `manifest.json`, and `styles.css`, then uploads those exact files to a draft release for review before publication.
-5. Smoke-test a clean marketplace install, the real guided update from 0.5.6 to 0.5.7, and a clean installer run with a disposable vault.
+2. Expose the Codex plugin through `.agents/plugins/marketplace.json` pinned to tag `0.5.8`.
+3. Publish the guided setup ZIP, companion ZIP, raw Obsidian assets, and `SHA256-0.5.8.txt` in the GitHub release.
+4. Tag the matching `0.5.8` companion in [studentepercaso/bridge-control](https://github.com/studentepercaso/bridge-control). Its GitHub Actions workflow performs a locked check and two byte-identical builds, attests `main.js`, `manifest.json`, and `styles.css`, then uploads those exact files to a draft release for review before publication.
+5. Smoke-test a clean marketplace install, the real guided update from 0.5.7 to 0.5.8, and a clean installer run with a disposable vault, including compact-window and high-scaling layout checks.
 6. Confirm that migration preserves old protected/autonomous choices but grants no Full-management permission.
 
-This route keeps all MCP servers local. Label 0.5.7 as preview software with opt-in vault mutation. Direct testers to use a disposable vault or `Bridge Test`, retain an independent backup, and activate only one Full-management permission at a time during initial testing.
+This route keeps all MCP servers local. Label 0.5.8 as preview software with opt-in vault mutation. Direct testers to use a disposable vault or `Bridge Test`, retain an independent backup, and activate only one Full-management permission at a time during initial testing.
 
 ## OpenAI public plugin submission
 
@@ -36,7 +36,7 @@ Official references:
 
 This repository contains the desktop-only **Bridge Control** companion used by the guided installer. Its canonical source and release assets are also published in the standalone companion repository, which is listed in the Obsidian Community Plugins catalog. Each update must still ship matching public metadata and release assets.
 
-The 0.5.7 companion registers the same fixed public CLI handler, `bridge-control:commit`, and performs managed operations through public Obsidian APIs. It is not a general vault server: the handler accepts only bounded one-time request IDs and tokens from the private bridge data directory, rechecks the current granular permission and exact source hash, creates a recovery backup, verifies the postcondition, and writes metadata-only audit state. Bridge Control 0.5.7 removes `child_process` and every executable launch; the optional CLI scan only performs read-only metadata checks on allowlisted known paths, while the external bridge owns definitive readiness validation. Companion Node filesystem access is confined to documented external settings/lock/quarantine, read-only registry/candidate metadata, one-time request, backup, and audit stores, never note paths. Version-5 shared settings persist `Vault.configDir` as an authoritative deny rule; legacy entries remain deny-all until their own vault migrates, and intersecting folder scopes are removed. Note reads and managed mutations remain on public Obsidian APIs. The command protocol, permission types, and managed mutation code are unchanged.
+The 0.5.8 companion registers the same fixed public CLI handler, `bridge-control:commit`, and performs managed operations through public Obsidian APIs. It is not a general vault server: the handler accepts only bounded one-time request IDs and tokens from the private bridge data directory, rechecks the current granular permission and exact source hash, creates a recovery backup, verifies the postcondition, and writes metadata-only audit state. Bridge Control 0.5.8 contains no `child_process` use or executable launch; the optional CLI scan only performs read-only metadata checks on allowlisted known paths, while the external bridge owns definitive readiness validation. Companion Node filesystem access is confined to documented external settings/lock/quarantine, read-only registry/candidate metadata, one-time request, backup, and audit stores, never note paths. Version-5 shared settings persist `Vault.configDir` as an authoritative deny rule; legacy entries remain deny-all until their own vault migrates, and intersecting folder scopes are removed. Note reads and managed mutations remain on public Obsidian APIs. The command protocol, permission types, and managed mutation code are unchanged.
 
 The manual release-workflow path can create a signed historical-verification attestation only when the complete published asset set for an exact tag matches a clean rebuild byte for byte. It deliberately does not claim SLSA provenance from the later backfill run. A local 0.5.3 dry run has verified two identical builds and exact equality with all three published assets. Do not describe the 0.5.3 release as verified by an attestation until the merged workflow has completed its manual GitHub Actions dispatch from `main` and the complete signer-workflow, `--source-ref refs/heads/main`, predicate-type, and predicate-field policy in [`bridge-control/docs/RELEASE_WORKFLOW.md`](https://github.com/studentepercaso/bridge-control/blob/main/docs/RELEASE_WORKFLOW.md) succeeds for every asset.
 
@@ -44,12 +44,13 @@ For every catalog update, publish the required companion assets, retain public s
 
 ## Release gate
 
-Do not publish 0.5.7 until all of the following are true:
+Do not publish 0.5.8 until all of the following are true:
 
 - `npm run check:all` passes and generated server and companion bundles are current;
 - the standalone companion's no-shell source/bundle sentinel passes; `child_process`, `exec`, `execFile`, `spawn`, `fork`, and `shell: true` remain absent;
 - the companion release workflow completes the locked check, reproducible double build, provenance attestation, and draft-release upload for all three required raw assets;
 - a real Obsidian 1.12.7+ smoke test passes in a disposable vault with the official CLI enabled;
+- the packaged WPF installer smoke test proves that its header, main scroll area, and completion actions remain reachable at the minimum supported window size;
 - the final archive passes Codex plugin and skill validators;
 - reader, protected writer, autonomous writer, and manager remain four separate MCP processes with only their documented tools and approval policies;
 - the manager exposes only `obsidian_prepare_managed_change` and `obsidian_commit_managed_change`;

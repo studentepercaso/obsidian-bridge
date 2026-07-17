@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.7 - READ THIS FIRST
+OBSIDIAN BRIDGE 0.5.8 - READ THIS FIRST
 
 1. Extract the complete ZIP to a normal folder.
 2. Double-click INSTALLA-OBSIDIAN-BRIDGE.cmd.
@@ -7,8 +7,10 @@ OBSIDIAN BRIDGE 0.5.7 - READ THIS FIRST
 5. Keep protected access, enable autonomous access, or explicitly choose the
    individual permissions offered by Full management.
 
-The user interface of the 0.5.7 installer and Bridge Control panel is currently
-in Italian. No administrator rights or OpenAI API key are required.
+The user interface of the 0.5.8 installer and Bridge Control panel is currently
+in Italian. The adaptive WPF installer wraps long paths and messages and keeps
+all actions reachable by scrolling in compact or highly scaled Windows layouts.
+No administrator rights or OpenAI API key are required.
 
 New vaults start with protected mode and no note access. Folder-scoped writing
 requires a preview and separate confirmation. Autonomous access permits create
@@ -30,11 +32,11 @@ Access modes in Bridge Control:
   unavailable. Returning to a lower mode takes effect immediately.
 
 The Recent problems section reads only bounded local audit metadata, never note
-contents. Version 0.5.7 can show a bounded failure stage and safe cause code,
+contents. Version 0.5.8 can show a bounded failure stage and safe cause code,
 but never raw exception messages, CLI output, proposed content, or backup bodies.
 It explains whether a failed write was stopped before applying, restored
 automatically, or needs manual review; it can open an existing affected note and
-remember up to 100 problems marked as reviewed. Version 0.5.7 uses the same
+remember up to 100 problems marked as reviewed. Version 0.5.8 uses the same
 settings-backed exact UTF-8 observation for create/append prepare, conflict
 checks, backup capture, chunk/final verification, and recovery classification.
 Mutations still use only the allowlisted official Obsidian CLI. Each create or
@@ -57,7 +59,7 @@ Bridge Control runs inside that exact vault and records authoritative Vault.conf
 choices are retained, but migration never invents edit, move, or trash
 permission. Malformed data is not overwritten.
 
-Bridge Control 0.5.7 never launches an executable. Its optional CLI scan only
+Bridge Control 0.5.8 never launches an executable. Its optional CLI scan only
 reports a non-certified candidate from known allowlisted locations; the external
 bridge performs the definitive readiness check. If that check fails, enable the
 official CLI in Obsidian > Settings > General > Command line interface.

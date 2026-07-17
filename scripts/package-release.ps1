@@ -198,10 +198,27 @@ try {
         throw 'Packaged installer self-test did not return the expected report.'
     }
 
+    $previousAppData = $env:APPDATA
     $previousLocalAppData = $env:LOCALAPPDATA
     try {
+        $env:APPDATA = Join-Path $verificationRoot 'isolated-app-data'
         $env:LOCALAPPDATA = Join-Path $verificationRoot 'isolated-local-app-data'
+        [System.IO.Directory]::CreateDirectory($env:APPDATA) | Out-Null
         [System.IO.Directory]::CreateDirectory($env:LOCALAPPDATA) | Out-Null
+
+        $uiSmokeOutput = & powershell.exe -Sta -NoLogo -NoProfile -ExecutionPolicy Bypass -File $verifiedInstaller -UiSmokeTest
+        if ($LASTEXITCODE -ne 0) {
+            throw "Packaged WPF UI smoke test failed with exit code $LASTEXITCODE"
+        }
+        $uiSmokeReport = ($uiSmokeOutput -join [Environment]::NewLine) | ConvertFrom-Json
+        if (-not [bool]$uiSmokeReport.uiSmokeTest -or
+            [string]$uiSmokeReport.renderEngine -ne 'WPF' -or
+            -not [bool]$uiSmokeReport.layout.headerContainsSubtitle -or
+            -not [bool]$uiSmokeReport.layout.mainScrollReachable -or
+            -not [bool]$uiSmokeReport.layout.completionReachable) {
+            throw 'Packaged WPF UI smoke test did not verify the adaptive layout.'
+        }
+
         $marketplaceOutput = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $verifiedInstaller -MarketplaceSelfTest
         if ($LASTEXITCODE -ne 0) {
             throw "Packaged marketplace self-test failed with exit code $LASTEXITCODE"
@@ -212,6 +229,7 @@ try {
         }
     }
     finally {
+        $env:APPDATA = $previousAppData
         $env:LOCALAPPDATA = $previousLocalAppData
     }
 

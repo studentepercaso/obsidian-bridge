@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.8 - 2026-07-17
+
+- Replace the fixed WinForms installer surface with an adaptive WPF layout that uses automatic rows, text wrapping, and a vertically scrollable setup area.
+- Keep long vault paths, instructions, status messages, consent text, errors, and completion actions readable and reachable in compact windows and at high Windows display scaling.
+- Add an isolated STA WPF UI smoke mode that opens the real window, checks the header, scroll area, and completion view, closes automatically, and never attempts installation.
+- Run the WPF smoke check from the extracted setup package as part of the release gate.
+- Preserve the 0.5.7 self-contained payload, permission model, command protocol, write limits, backups, audit behavior, and note-mutation semantics unchanged.
+
 ## 0.5.7 - 2026-07-17
 
 - Make the Windows installer self-contained by generating a verified local Codex marketplace from an allowlisted plugin payload instead of requiring an external `.agents` directory.

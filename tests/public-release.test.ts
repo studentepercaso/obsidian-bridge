@@ -15,10 +15,20 @@ describe("public release metadata", () => {
     const companion = readJson(
       "companion/obsidian-bridge-control/manifest.json",
     );
+    const companionPackage = readJson(
+      "companion/obsidian-bridge-control/package.json",
+    );
 
-    expect(packageJson.version).toBe("0.5.7");
-    expect(plugin.version).toBe("0.5.7");
-    expect(companion.version).toBe("0.5.7");
+    expect(packageJson.version).toBe("0.5.8");
+    expect(plugin.version).toBe("0.5.8");
+    expect(companion.version).toBe("0.5.8");
+    expect(companionPackage.version).toBe("0.5.8");
+    expect(
+      readFileSync(
+        new URL("../docs/RELEASE_NOTES_0.5.8.md", import.meta.url),
+        "utf8",
+      ),
+    ).toContain("Obsidian Bridge 0.5.8");
   });
 
   it("publishes a pinned Git-backed Codex marketplace entry", () => {
@@ -39,7 +49,7 @@ describe("public release metadata", () => {
         source: {
           source: "url",
           url: "https://github.com/studentepercaso/obsidian-bridge.git",
-          ref: "0.5.7",
+          ref: "0.5.8",
         },
         policy: {
           installation: "AVAILABLE",

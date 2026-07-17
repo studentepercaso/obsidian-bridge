@@ -3,6 +3,7 @@ param(
     [switch]$DryRun,
     [switch]$SelfTest,
     [switch]$MarketplaceSelfTest,
+    [switch]$UiSmokeTest,
     [switch]$Install,
     [switch]$AcceptInstallation,
     [string]$VaultPath
@@ -13,7 +14,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:BridgePluginId = 'bridge-control'
 $script:CodexPluginId = 'obsidian-bridge'
-$script:ExpectedCodexPluginVersion = '0.5.7'
+$script:ExpectedCodexPluginVersion = '0.5.8'
 $script:BridgePluginRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:PayloadRoot = Join-Path $script:BridgePluginRoot 'companion\obsidian-bridge-control'
 $localApplicationData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -2160,13 +2161,13 @@ function Invoke-CommandLineInstallation {
 
 function Assert-InstallerModeArguments {
     $modeCount = 0
-    foreach ($modeEnabled in @($DryRun, $SelfTest, $MarketplaceSelfTest, $Install)) {
+    foreach ($modeEnabled in @($DryRun, $SelfTest, $MarketplaceSelfTest, $UiSmokeTest, $Install)) {
         if ($modeEnabled) {
             $modeCount++
         }
     }
     if ($modeCount -gt 1) {
-        throw 'Scegli una sola modalita tra -DryRun, -SelfTest, -MarketplaceSelfTest e -Install.'
+        throw 'Scegli una sola modalita tra -DryRun, -SelfTest, -MarketplaceSelfTest, -UiSmokeTest e -Install.'
     }
     if ($AcceptInstallation -and -not $Install) {
         throw '-AcceptInstallation puo essere usato soltanto insieme a -Install.'
@@ -2178,7 +2179,7 @@ function Write-InstallerCommandLineError {
 
     $report = [ordered]@{
         success = $false
-        mode = if ($Install) { 'install' } elseif ($DryRun) { 'dry-run' } elseif ($SelfTest) { 'self-test' } elseif ($MarketplaceSelfTest) { 'marketplace-self-test' } else { 'command-line' }
+        mode = if ($Install) { 'install' } elseif ($DryRun) { 'dry-run' } elseif ($SelfTest) { 'self-test' } elseif ($MarketplaceSelfTest) { 'marketplace-self-test' } elseif ($UiSmokeTest) { 'ui-smoke-test' } else { 'command-line' }
         error = [ordered]@{
             message = $Message
         }
@@ -2227,7 +2228,7 @@ namespace ObsidianBridgeInstaller {
     }
 }
 
-function Show-Installer {
+function Show-LegacyInstaller {
     param([AllowEmptyString()][string]$InitialVaultPath)
 
     Enable-InstallerHighDpi
@@ -2237,7 +2238,7 @@ function Show-Installer {
     [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Installa Obsidian Bridge 0.5.7'
+    $form.Text = "Installa Obsidian Bridge $script:ExpectedCodexPluginVersion"
     $form.StartPosition = 'CenterScreen'
     $form.ClientSize = New-Object System.Drawing.Size(800, 630)
     $form.MinimumSize = New-Object System.Drawing.Size(680, 560)
@@ -2256,7 +2257,7 @@ function Show-Installer {
     $form.Controls.Add($header)
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = 'Obsidian Bridge 0.5.7'
+    $title.Text = "Obsidian Bridge $script:ExpectedCodexPluginVersion"
     $title.ForeColor = [System.Drawing.Color]::White
     $title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 18, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
     $title.AutoSize = $true
@@ -2608,10 +2609,675 @@ function Show-Installer {
     $form.Dispose()
 }
 
+function Get-InstallerWindowXaml {
+    return @'
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Name="InstallerWindow"
+    Width="880"
+    Height="720"
+    MinWidth="680"
+    MinHeight="560"
+    WindowStartupLocation="CenterScreen"
+    ResizeMode="CanResizeWithGrip"
+    Background="#F7F8FC"
+    FontFamily="{DynamicResource {x:Static SystemFonts.MessageFontFamilyKey}}"
+    FontSize="{DynamicResource {x:Static SystemFonts.MessageFontSizeKey}}"
+    UseLayoutRounding="True"
+    SnapsToDevicePixels="True"
+    TextOptions.TextFormattingMode="Display"
+    TextOptions.TextRenderingMode="ClearType">
+    <Window.Resources>
+        <LinearGradientBrush x:Key="HeaderBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#56439F" Offset="0"/>
+            <GradientStop Color="#6C55B7" Offset="1"/>
+        </LinearGradientBrush>
+        <Style x:Key="SectionEyebrow" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#6A58AB"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#17151F"/>
+            <Setter Property="FontSize" Value="19"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#E2DFEA"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="18"/>
+        </Style>
+        <Style x:Key="BaseButton" TargetType="Button">
+            <Setter Property="MinHeight" Value="42"/>
+            <Setter Property="Padding" Value="18,9"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Foreground" Value="#282430"/>
+            <Setter Property="BorderBrush" Value="#CBC7D5"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="ButtonChrome"
+                            Padding="{TemplateBinding Padding}"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="8">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.88"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="#8A78CF"/>
+                                <Setter TargetName="ButtonChrome" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource BaseButton}">
+            <Setter Property="MinWidth" Value="190"/>
+            <Setter Property="Background" Value="#5B47A6"/>
+            <Setter Property="BorderBrush" Value="#5B47A6"/>
+            <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style x:Key="VaultSelector" TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="Padding" Value="11,7"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#CBC7D5"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="#F7F8FC">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource HeaderBrush}" Padding="34,20,34,22">
+            <StackPanel>
+                <TextBlock
+                    Foreground="#DCD5F4"
+                    FontSize="11"
+                    FontWeight="SemiBold"
+                    Text="INSTALLAZIONE GUIDATA"/>
+                <TextBlock
+                    x:Name="ProductTitle"
+                    Margin="0,5,0,0"
+                    Foreground="White"
+                    FontSize="30"
+                    FontWeight="SemiBold"
+                    TextWrapping="Wrap"/>
+                <TextBlock
+                    x:Name="HeaderSubtitle"
+                    Margin="0,7,0,0"
+                    Foreground="#EEEAFB"
+                    FontSize="14"
+                    Text="Collega ChatGPT ai tuoi vault con permessi chiari e controllabili."
+                    TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <ScrollViewer
+                x:Name="SetupView"
+                Background="#F7F8FC"
+                VerticalScrollBarVisibility="Auto"
+                HorizontalScrollBarVisibility="Disabled"
+                PanningMode="VerticalOnly">
+                <Grid
+                    x:Name="SetupContent"
+                    Margin="32,26,32,32"
+                    MaxWidth="920"
+                    HorizontalAlignment="Stretch"
+                    Background="#F7F8FC">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Style="{StaticResource SectionEyebrow}" Text="PASSAGGIO 1"/>
+                    <TextBlock Grid.Row="1" Margin="0,4,0,14" Style="{StaticResource SectionTitle}" Text="Scegli il vault Obsidian"/>
+
+                    <Grid Grid.Row="2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ComboBox
+                            x:Name="VaultCombo"
+                            Grid.Column="0"
+                            Style="{StaticResource VaultSelector}"
+                            DisplayMemberPath="Label"
+                            IsTextSearchEnabled="False"/>
+                        <Button
+                            x:Name="BrowseButton"
+                            Grid.Column="1"
+                            Margin="12,0,0,0"
+                            MinWidth="120"
+                            Style="{StaticResource BaseButton}"
+                            Content="Sfoglia..."/>
+                    </Grid>
+
+                    <TextBlock
+                        x:Name="VaultPathText"
+                        Grid.Row="3"
+                        Margin="4,9,0,0"
+                        Foreground="#66616F"
+                        Text="Nessun vault selezionato"
+                        TextWrapping="Wrap"/>
+
+                    <TextBlock Grid.Row="4" Margin="0,28,0,0" Style="{StaticResource SectionEyebrow}" Text="PASSAGGIO 2"/>
+                    <TextBlock Grid.Row="5" Margin="0,4,0,14" Style="{StaticResource SectionTitle}" Text="Controlla i permessi"/>
+
+                    <Border Grid.Row="6" Style="{StaticResource Card}" Background="#F2EFFA" BorderBrush="#DDD6F2">
+                        <TextBlock
+                            Foreground="#3B315D"
+                            Text="Il vault parte in Accesso protetto. Dopo l&#39;installazione scegli cartelle e autonomia in Bridge Control. L&#39;installer non abilita mai Gestione completa."
+                            TextWrapping="Wrap"/>
+                    </Border>
+
+                    <TextBlock Grid.Row="7" Margin="0,28,0,0" Style="{StaticResource SectionEyebrow}" Text="PASSAGGIO 3"/>
+                    <TextBlock Grid.Row="8" Margin="0,4,0,14" Style="{StaticResource SectionTitle}" Text="Verifica e installa"/>
+
+                    <Border Grid.Row="9" Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock FontWeight="SemiBold" Text="Stato del sistema"/>
+                            <TextBlock
+                                x:Name="StatusText"
+                                Margin="0,10,0,0"
+                                Foreground="#4E4957"
+                                TextWrapping="Wrap"/>
+                            <Button
+                                x:Name="NodeDownloadButton"
+                                Margin="0,16,0,0"
+                                HorizontalAlignment="Left"
+                                Style="{StaticResource BaseButton}"
+                                Content="Scarica Node.js 20+"
+                                Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="10" Margin="0,20,0,0" Style="{StaticResource Card}">
+                        <CheckBox x:Name="ConsentCheck" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Top">
+                            <TextBlock
+                                Margin="9,-1,0,0"
+                                Text="Autorizzo Bridge Control nel vault selezionato e il connettore locale per Codex. I permessi esistenti restano invariati."
+                                TextWrapping="Wrap"/>
+                        </CheckBox>
+                    </Border>
+
+                    <Border
+                        x:Name="MessageCard"
+                        Grid.Row="11"
+                        Margin="0,18,0,0"
+                        Padding="15"
+                        CornerRadius="8"
+                        Background="#FFF1F1"
+                        BorderBrush="#E6A5A5"
+                        BorderThickness="1"
+                        Visibility="Collapsed">
+                        <TextBox
+                            x:Name="MessageText"
+                            MinHeight="28"
+                            MaxHeight="130"
+                            IsReadOnly="True"
+                            IsTabStop="True"
+                            AutomationProperties.Name="Messaggio dell&#39;installer"
+                            AutomationProperties.LiveSetting="Assertive"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Foreground="#942323"
+                            TextWrapping="Wrap"
+                            VerticalScrollBarVisibility="Auto"/>
+                    </Border>
+
+                    <ProgressBar
+                        x:Name="InstallProgress"
+                        Grid.Row="12"
+                        Margin="0,18,0,0"
+                        Height="5"
+                        IsIndeterminate="True"
+                        Visibility="Collapsed"/>
+
+                    <Button
+                        x:Name="InstallButton"
+                        Grid.Row="13"
+                        Margin="0,20,0,4"
+                        HorizontalAlignment="Right"
+                        Style="{StaticResource PrimaryButton}"
+                        Content="Installa Bridge"
+                        IsDefault="True"
+                        IsEnabled="False"/>
+                </Grid>
+            </ScrollViewer>
+
+            <ScrollViewer
+                x:Name="CompletionView"
+                Background="#F7F8FC"
+                Visibility="Collapsed"
+                VerticalScrollBarVisibility="Auto"
+                HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="40,34,40,40" MaxWidth="840" HorizontalAlignment="Stretch">
+                    <TextBlock
+                        Text="Configurazione completata"
+                        FontSize="27"
+                        FontWeight="SemiBold"
+                        Foreground="#347747"
+                        TextWrapping="Wrap"/>
+                    <TextBlock
+                        x:Name="CompletionText"
+                        Margin="0,18,0,0"
+                        TextWrapping="Wrap"/>
+                    <WrapPanel Margin="0,26,0,0">
+                        <Button x:Name="OpenObsidianButton" Margin="0,0,12,12" MinWidth="160" Style="{StaticResource BaseButton}" Content="Apri Obsidian"/>
+                        <Button x:Name="OpenCodexButton" Margin="0,0,12,12" MinWidth="190" Style="{StaticResource BaseButton}" Content="Apri plugin in Codex" IsEnabled="False"/>
+                        <Button x:Name="CloseButton" Margin="0,0,0,12" MinWidth="110" Style="{StaticResource PrimaryButton}" Content="Chiudi"/>
+                    </WrapPanel>
+                    <Border Margin="0,10,0,0" Style="{StaticResource Card}" Background="#F2F3F7">
+                        <TextBox
+                            x:Name="CodexFallbackText"
+                            IsReadOnly="True"
+                            IsTabStop="True"
+                            AutomationProperties.Name="Dettagli per aprire il plugin in Codex"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Foreground="#66616F"
+                            TextWrapping="Wrap"/>
+                    </Border>
+                    <TextBlock
+                        Margin="0,22,0,0"
+                        Foreground="#77727E"
+                        Text="Per rimuoverlo usa Impostazioni &gt; Plugin della community &gt; Bridge Control &gt; Disinstalla. L&#39;installer non elimina note o file del vault."
+                        TextWrapping="Wrap"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
+</Window>
+'@
+}
+
+function Show-Installer {
+    param(
+        [AllowEmptyString()][string]$InitialVaultPath,
+        [switch]$SmokeTest
+    )
+
+    Enable-InstallerHighDpi
+    if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne [System.Threading.ApartmentState]::STA) {
+        throw 'L interfaccia dell installatore richiede PowerShell in modalita STA.'
+    }
+
+    Add-Type -AssemblyName PresentationFramework
+    Add-Type -AssemblyName PresentationCore
+    Add-Type -AssemblyName WindowsBase
+    Add-Type -AssemblyName System.Xaml
+
+    $window = [System.Windows.Markup.XamlReader]::Parse((Get-InstallerWindowXaml))
+    $window.Title = "Installa Obsidian Bridge $script:ExpectedCodexPluginVersion"
+
+    $controlNames = @(
+        'ProductTitle', 'HeaderSubtitle', 'SetupView', 'SetupContent', 'VaultCombo', 'BrowseButton',
+        'VaultPathText', 'StatusText', 'NodeDownloadButton', 'ConsentCheck', 'MessageCard',
+        'MessageText', 'InstallProgress', 'InstallButton', 'CompletionView', 'CompletionText',
+        'OpenObsidianButton', 'OpenCodexButton', 'CloseButton', 'CodexFallbackText'
+    )
+    $controls = @{}
+    foreach ($controlName in $controlNames) {
+        $control = $window.FindName($controlName)
+        if ($null -eq $control) {
+            throw "Controllo WPF mancante: $controlName"
+        }
+        $controls[$controlName] = $control
+    }
+
+    $productTitle = $controls['ProductTitle']
+    $headerSubtitle = $controls['HeaderSubtitle']
+    $setupView = $controls['SetupView']
+    $setupContent = $controls['SetupContent']
+    $vaultCombo = $controls['VaultCombo']
+    $browseButton = $controls['BrowseButton']
+    $vaultPathText = $controls['VaultPathText']
+    $statusText = $controls['StatusText']
+    $nodeDownloadButton = $controls['NodeDownloadButton']
+    $consentCheck = $controls['ConsentCheck']
+    $messageCard = $controls['MessageCard']
+    $messageText = $controls['MessageText']
+    $installProgress = $controls['InstallProgress']
+    $installButton = $controls['InstallButton']
+    $completionView = $controls['CompletionView']
+    $completionText = $controls['CompletionText']
+    $openObsidianButton = $controls['OpenObsidianButton']
+    $openCodexButton = $controls['OpenCodexButton']
+    $closeButton = $controls['CloseButton']
+    $codexFallbackText = $controls['CodexFallbackText']
+
+    $productTitle.Text = "Obsidian Bridge $script:ExpectedCodexPluginVersion"
+    $completionText.Text = "Bridge Control e installato nel vault.`n`nApri Obsidian e scegli Accesso protetto, Accesso autonomo o i singoli permessi di Gestione completa. L installer non aumenta mai i permessi durante l aggiornamento.`n`nNessuna API key richiesta: il collegamento usa la CLI locale ufficiale di Obsidian."
+    $codexFallbackText.Text = 'Dopo l installazione, qui apparira il percorso stabile del marketplace Codex.'
+
+    $status = Get-ObsidianStatus
+    $nodeStatus = Get-NodeStatus
+    $packageIssue = $null
+    try { [void](Assert-CodexPluginPayload -PluginRoot $script:BridgePluginRoot) }
+    catch { $packageIssue = $_.Exception.Message }
+
+    $cliText = if ($null -ne $status.CliPath) { 'CLI Obsidian: pronta.' } else { 'CLI Obsidian: non rilevata. Abilitala nelle impostazioni di Obsidian.' }
+    $runningText = if ($status.Running) { 'Obsidian: aperto.' } else { 'Obsidian: non aperto; potrai avviarlo alla fine.' }
+    $packageText = if ($null -eq $packageIssue) { 'Pacchetto Bridge: pronto.' } else { 'Pacchetto Bridge: incompleto.' }
+    $statusText.Text = "$cliText`n$runningText`n$($nodeStatus.Message)`n$packageText"
+    $nodeDownloadButton.Visibility = if ($nodeStatus.Ready) { [System.Windows.Visibility]::Collapsed } else { [System.Windows.Visibility]::Visible }
+
+    $script:selectedVaultPath = ''
+    $script:installedVaultPath = ''
+    $script:codexDeeplink = $null
+    $script:stableMarketplaceJson = $null
+    $script:initialVaultIssue = $null
+
+    $brushConverter = New-Object System.Windows.Media.BrushConverter
+    function Set-InstallerMessage {
+        param(
+            [AllowEmptyString()][string]$Text,
+            [ValidateSet('error', 'info')][string]$Kind = 'error'
+        )
+
+        if ([string]::IsNullOrWhiteSpace($Text)) {
+            $messageText.Text = ''
+            $messageCard.Visibility = [System.Windows.Visibility]::Collapsed
+            return
+        }
+        if ($Kind -eq 'info') {
+            $messageCard.Background = $brushConverter.ConvertFromString('#F0EDFA')
+            $messageCard.BorderBrush = $brushConverter.ConvertFromString('#CFC5EE')
+            $messageText.Foreground = $brushConverter.ConvertFromString('#493B79')
+        }
+        else {
+            $messageCard.Background = $brushConverter.ConvertFromString('#FFF1F1')
+            $messageCard.BorderBrush = $brushConverter.ConvertFromString('#E6A5A5')
+            $messageText.Foreground = $brushConverter.ConvertFromString('#942323')
+        }
+        $messageText.Text = $Text
+        $messageCard.Visibility = [System.Windows.Visibility]::Visible
+    }
+
+    function Update-InstallButtonState {
+        $installButton.IsEnabled = (
+            [bool]$consentCheck.IsChecked -and
+            $nodeStatus.Ready -and
+            $null -eq $packageIssue -and
+            -not [string]::IsNullOrWhiteSpace($script:selectedVaultPath)
+        )
+    }
+
+    function Invoke-InstallerRender {
+        $window.UpdateLayout()
+        [void]$window.Dispatcher.Invoke(
+            [System.Windows.Threading.DispatcherPriority]::Render,
+            [System.Action]{ }
+        )
+    }
+
+    function Test-ControlInsideViewport {
+        param(
+            [Parameter(Mandatory = $true)]$Control,
+            [Parameter(Mandatory = $true)]$Viewport
+        )
+
+        if ($Control.ActualWidth -le 0 -or $Control.ActualHeight -le 0 -or $Viewport.ViewportHeight -le 0) {
+            return $false
+        }
+        try {
+            $origin = $Control.TransformToAncestor($Viewport).Transform((New-Object System.Windows.Point(0, 0)))
+            return (
+                $origin.X -lt $Viewport.ViewportWidth -and
+                ($origin.X + $Control.ActualWidth) -gt 0 -and
+                $origin.Y -lt $Viewport.ViewportHeight -and
+                ($origin.Y + $Control.ActualHeight) -gt 0
+            )
+        }
+        catch {
+            return $false
+        }
+    }
+
+    function Reset-InstallerMessage {
+        if (-not $nodeStatus.Ready) {
+            Set-InstallerMessage -Text 'Dato mancante: installa Node.js 20+ dal sito ufficiale, poi riapri questo installer.'
+        }
+        elseif ($null -ne $packageIssue) {
+            Set-InstallerMessage -Text "Pacchetto incompleto: $packageIssue"
+        }
+        elseif ($null -ne $script:initialVaultIssue) {
+            Set-InstallerMessage -Text "Vault iniziale non valido: $script:initialVaultIssue"
+        }
+        else {
+            Set-InstallerMessage -Text ''
+        }
+    }
+
+    function Add-VaultToCombo {
+        param([Parameter(Mandatory = $true)][string]$Path)
+
+        $canonical = Get-CanonicalVaultPath -Path $Path
+        foreach ($existing in $vaultCombo.Items) {
+            if ([string]::Equals($existing.Path, $canonical, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $vaultCombo.SelectedItem = $existing
+                return
+            }
+        }
+        $item = [PSCustomObject]@{
+            Name = Get-VaultName -Path $canonical
+            Path = $canonical
+            Label = "$(Get-VaultName -Path $canonical)  -  $canonical"
+        }
+        [void]$vaultCombo.Items.Add($item)
+        $vaultCombo.SelectedItem = $item
+    }
+
+    foreach ($vault in @(Get-DiscoveredVaults)) {
+        [void]$vaultCombo.Items.Add($vault)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($InitialVaultPath)) {
+        try { Add-VaultToCombo -Path $InitialVaultPath }
+        catch { $script:initialVaultIssue = $_.Exception.Message }
+    }
+    elseif ($vaultCombo.Items.Count -gt 0) {
+        $vaultCombo.SelectedIndex = 0
+    }
+
+    $vaultCombo.Add_SelectionChanged({
+        if ($null -ne $vaultCombo.SelectedItem) {
+            $script:selectedVaultPath = $vaultCombo.SelectedItem.Path
+            $vaultPathText.Text = $script:selectedVaultPath
+            $consentCheck.IsChecked = $false
+            $script:initialVaultIssue = $null
+            Reset-InstallerMessage
+            Update-InstallButtonState
+        }
+    })
+    if ($null -ne $vaultCombo.SelectedItem) {
+        $script:selectedVaultPath = $vaultCombo.SelectedItem.Path
+        $vaultPathText.Text = $script:selectedVaultPath
+    }
+
+    $browseButton.Add_Click({
+        Add-Type -AssemblyName System.Windows.Forms
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = 'Seleziona la cartella principale del vault Obsidian'
+        $dialog.ShowNewFolderButton = $false
+        try {
+            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                try {
+                    Add-VaultToCombo -Path $dialog.SelectedPath
+                    Reset-InstallerMessage
+                }
+                catch {
+                    Set-InstallerMessage -Text "Vault non valido: $($_.Exception.Message)"
+                }
+            }
+        }
+        finally {
+            $dialog.Dispose()
+        }
+    })
+
+    $nodeDownloadButton.Add_Click({
+        try { Start-Process 'https://nodejs.org/en/download' }
+        catch { Set-InstallerMessage -Text 'Apri manualmente https://nodejs.org/en/download' }
+    })
+    $consentCheck.Add_Checked({ Update-InstallButtonState })
+    $consentCheck.Add_Unchecked({ Update-InstallButtonState })
+
+    $installButton.Add_Click({
+        try {
+            $installButton.IsEnabled = $false
+            $browseButton.IsEnabled = $false
+            $vaultCombo.IsEnabled = $false
+            $installProgress.Visibility = [System.Windows.Visibility]::Visible
+            $window.Cursor = [System.Windows.Input.Cursors]::Wait
+            Set-InstallerMessage -Text 'Installazione in corso...' -Kind 'info'
+            Invoke-InstallerRender
+
+            $context = Get-InstallContext -SelectedVaultPath $script:selectedVaultPath
+            $installResult = Invoke-BridgeInstallation -Context $context -Consent ([bool]$consentCheck.IsChecked)
+            $script:installedVaultPath = $context.VaultPath
+            $script:codexDeeplink = $installResult.CodexDeeplink
+            $script:stableMarketplaceJson = $installResult.MarketplaceJson
+            $codexFallbackText.Text = "Se il link non si apre, usa questo marketplace stabile:`n$($installResult.MarketplaceJson)"
+            $openCodexButton.IsEnabled = $true
+            $setupView.Visibility = [System.Windows.Visibility]::Collapsed
+            $completionView.Visibility = [System.Windows.Visibility]::Visible
+            $completionView.ScrollToTop()
+        }
+        catch {
+            Set-InstallerMessage -Text "Installazione non completata: $($_.Exception.Message)"
+            $browseButton.IsEnabled = $true
+            $vaultCombo.IsEnabled = $true
+            Update-InstallButtonState
+        }
+        finally {
+            $installProgress.Visibility = [System.Windows.Visibility]::Collapsed
+            $window.Cursor = [System.Windows.Input.Cursors]::Arrow
+        }
+    })
+
+    $openObsidianButton.Add_Click({
+        try { Open-SelectedVault -Path $script:installedVaultPath }
+        catch { $completionText.Text = "$($completionText.Text)`n`nImpossibile aprire Obsidian: $($_.Exception.Message)" }
+    })
+    $openCodexButton.Add_Click({
+        try {
+            if ($null -ne $script:codexDeeplink) { Start-Process $script:codexDeeplink }
+        }
+        catch {
+            $fallback = if ($null -ne $script:stableMarketplaceJson) { "`nMarketplace stabile: $script:stableMarketplaceJson" } else { '' }
+            $codexFallbackText.Text = "Impossibile aprire Codex: $($_.Exception.Message)$fallback"
+        }
+    })
+    $closeButton.Add_Click({ $window.Close() })
+
+    Update-InstallButtonState
+    Reset-InstallerMessage
+
+    $script:uiSmokeReport = $null
+    $script:uiSmokeFailure = $null
+    if ($SmokeTest) {
+        $window.ShowInTaskbar = $false
+        $window.WindowStartupLocation = [System.Windows.WindowStartupLocation]::Manual
+        $window.Left = -10000
+        $window.Top = -10000
+        $window.Opacity = 1
+        $window.ShowActivated = $false
+        $window.Add_ContentRendered({
+            try {
+                $window.Width = $window.MinWidth
+                $window.Height = $window.MinHeight
+                $window.UpdateLayout()
+                $setupView.ScrollToTop()
+                $window.UpdateLayout()
+                $setupView.ScrollToEnd()
+                $window.UpdateLayout()
+                $mainReachable = Test-ControlInsideViewport -Control $installButton -Viewport $setupView
+                $setupView.Visibility = [System.Windows.Visibility]::Collapsed
+                $completionView.Visibility = [System.Windows.Visibility]::Visible
+                $completionView.ScrollToEnd()
+                $window.UpdateLayout()
+                $completionReachable = Test-ControlInsideViewport -Control $closeButton -Viewport $completionView
+                $script:uiSmokeReport = [ordered]@{
+                    uiSmokeTest = $true
+                    renderEngine = 'WPF'
+                    loaded = $true
+                    closed = $false
+                    installAttempted = $false
+                    layout = [ordered]@{
+                        headerContainsSubtitle = ($headerSubtitle.ActualHeight -gt 0)
+                        mainScrollReachable = $mainReachable
+                        completionReachable = $completionReachable
+                    }
+                }
+            }
+            catch {
+                $script:uiSmokeFailure = $_.Exception.Message
+            }
+            finally {
+                $window.Close()
+            }
+        })
+    }
+
+    [void]$window.ShowDialog()
+    if ($SmokeTest) {
+        if ($null -ne $script:uiSmokeFailure) {
+            throw "WPF UI smoke test non riuscito: $script:uiSmokeFailure"
+        }
+        if ($null -eq $script:uiSmokeReport) {
+            throw 'WPF UI smoke test non ha prodotto un report.'
+        }
+        $script:uiSmokeReport['closed'] = $true
+        Write-Output (ConvertTo-Json -InputObject $script:uiSmokeReport -Depth 10)
+    }
+}
+
 try {
     Assert-InstallerModeArguments
     if ($Install) {
         Invoke-CommandLineInstallation -SelectedVaultPath $VaultPath -Consent $AcceptInstallation.IsPresent
+    }
+    elseif ($UiSmokeTest) {
+        Show-Installer -InitialVaultPath $VaultPath -SmokeTest
     }
     elseif ($MarketplaceSelfTest) {
         Invoke-MarketplaceSelfTest
@@ -2627,13 +3293,13 @@ try {
     }
 }
 catch {
-    if ($DryRun -or $SelfTest -or $MarketplaceSelfTest -or $Install -or $AcceptInstallation) {
+    if ($DryRun -or $SelfTest -or $MarketplaceSelfTest -or $UiSmokeTest -or $Install -or $AcceptInstallation) {
         Write-InstallerCommandLineError -Message $_.Exception.Message
     }
     else {
         try {
-            Add-Type -AssemblyName System.Windows.Forms
-            [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Obsidian Bridge', 'OK', 'Error')
+            Add-Type -AssemblyName PresentationFramework
+            [void][System.Windows.MessageBox]::Show($_.Exception.Message, 'Obsidian Bridge', [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
         }
         catch {
             [Console]::Error.WriteLine($_.Exception.Message)
