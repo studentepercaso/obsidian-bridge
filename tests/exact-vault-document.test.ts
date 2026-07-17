@@ -2,14 +2,19 @@ import {
   link,
   mkdtemp,
   mkdir,
+  open,
   rm,
+  stat,
   symlink,
+  utimes,
   writeFile,
+  type FileHandle,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readExactVaultDocument } from "../src/exact-vault-document.js";
 import { hashDocumentState } from "../src/write-workflow.js";
@@ -17,7 +22,16 @@ import { hashDocumentState } from "../src/write-workflow.js";
 describe("exact physical vault document reader", () => {
   const temporaryDirectories: string[] = [];
 
+  type PositionalRead = (
+    this: FileHandle,
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+  ) => Promise<{ bytesRead: number; buffer: Buffer }>;
+
   afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(
       temporaryDirectories.splice(0).map(async (directory) => {
         await rm(directory, { recursive: true, force: true });
@@ -29,6 +43,51 @@ describe("exact physical vault document reader", () => {
     const directory = await mkdtemp(path.join(tmpdir(), prefix));
     temporaryDirectories.push(directory);
     return directory;
+  }
+
+  async function injectAfterPass(
+    filePath: string,
+    expectedBytes: number,
+    targetPass: number | "every",
+    action: (completedPass: number) => Promise<void>,
+  ): Promise<() => boolean> {
+    const probe = await open(filePath, "r");
+    const prototype = Object.getPrototypeOf(probe) as {
+      read: PositionalRead;
+    };
+    const originalRead = prototype.read;
+    await probe.close();
+
+    let injected = false;
+    let completedPasses = 0;
+    vi.spyOn(prototype, "read").mockImplementation(async function (
+      this: FileHandle,
+      buffer: Buffer,
+      offset: number,
+      length: number,
+      position: number,
+    ) {
+      const result = await originalRead.call(
+        this,
+        buffer,
+        offset,
+        length,
+        position,
+      );
+      if (
+        position === expectedBytes &&
+        length === 1 &&
+        result.bytesRead === 0
+      ) {
+        completedPasses += 1;
+        if (targetPass === "every" || completedPasses === targetPass) {
+          injected = true;
+          await action(completedPasses);
+        }
+      }
+      return result;
+    });
+    return () => injected;
   }
 
   it.each([
@@ -112,6 +171,209 @@ describe("exact physical vault document reader", () => {
         maxBytes: 100,
       }),
     ).rejects.toThrow(/not valid UTF-8/iu);
+  });
+
+  it("accepts ctime-only metadata churn when both byte reads agree", async () => {
+    const vault = await temporaryDirectory("exact-vault-ctime-");
+    const notePath = "Note.md";
+    const filePath = path.join(vault, notePath);
+    const content = Buffer.from("stable content\n", "utf8");
+    await writeFile(filePath, content);
+    const fixedMtime = new Date("2026-01-02T03:04:05.000Z");
+    const firstAtime = new Date("2026-01-02T03:04:06.000Z");
+    await utimes(filePath, firstAtime, fixedMtime);
+    const before = await stat(filePath, { bigint: true });
+
+    const wasInjected = await injectAfterPass(
+      filePath,
+      content.byteLength,
+      1,
+      async () => {
+        await utimes(
+          filePath,
+          new Date("2026-01-02T03:04:07.000Z"),
+          fixedMtime,
+        );
+      },
+    );
+
+    const result = await readExactVaultDocument(vault, notePath, {
+      allowMissing: false,
+      maxBytes: 100,
+    });
+    const after = await stat(filePath, { bigint: true });
+
+    expect(wasInjected()).toBe(true);
+    expect(after.mtimeNs).toBe(before.mtimeNs);
+    expect(after.ctimeNs).not.toBe(before.ctimeNs);
+    expect(result).toEqual({ exists: true, content: content.toString("utf8") });
+  });
+
+  it("settles ctime-only churn on the second read with a third pass", async () => {
+    const vault = await temporaryDirectory("exact-vault-late-ctime-");
+    const notePath = "Note.md";
+    const filePath = path.join(vault, notePath);
+    const content = Buffer.from("stable content\n", "utf8");
+    const fixedMtime = new Date("2026-01-03T03:04:05.000Z");
+    await writeFile(filePath, content);
+    await utimes(
+      filePath,
+      new Date("2026-01-03T03:04:06.000Z"),
+      fixedMtime,
+    );
+
+    const wasInjected = await injectAfterPass(
+      filePath,
+      content.byteLength,
+      2,
+      async () => {
+        await utimes(
+          filePath,
+          new Date("2026-01-03T03:04:07.000Z"),
+          fixedMtime,
+        );
+      },
+    );
+
+    await expect(
+      readExactVaultDocument(vault, notePath, {
+        allowMissing: false,
+        maxBytes: 100,
+      }),
+    ).resolves.toEqual({
+      exists: true,
+      content: content.toString("utf8"),
+    });
+    expect(wasInjected()).toBe(true);
+  });
+
+  it("fails closed when ctime-only metadata churn never settles", async () => {
+    const vault = await temporaryDirectory("exact-vault-continuous-ctime-");
+    const notePath = "Note.md";
+    const filePath = path.join(vault, notePath);
+    const content = Buffer.from("stable content\n", "utf8");
+    const fixedMtime = new Date("2026-01-04T03:04:05.000Z");
+    const atimeBase = Date.parse("2026-01-04T03:04:06.000Z");
+    await writeFile(filePath, content);
+    await utimes(filePath, new Date(atimeBase), fixedMtime);
+
+    const wasInjected = await injectAfterPass(
+      filePath,
+      content.byteLength,
+      "every",
+      async (completedPass) => {
+        const before = await stat(filePath, { bigint: true });
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          await delay(2);
+          await utimes(
+            filePath,
+            new Date(
+              atimeBase + completedPass * 10_000 + attempt * 1_000,
+            ),
+            fixedMtime,
+          );
+          const after = await stat(filePath, { bigint: true });
+          if (after.ctimeNs !== before.ctimeNs) return;
+        }
+        throw new Error("test could not produce ctime-only churn");
+      },
+    );
+
+    await expect(
+      readExactVaultDocument(vault, notePath, {
+        allowMissing: false,
+        maxBytes: 100,
+      }),
+    ).rejects.toThrow(/metadata did not settle during bounded verification/iu);
+    expect(wasInjected()).toBe(true);
+  });
+
+  it("rejects same-size byte changes even when mtime is restored", async () => {
+    const vault = await temporaryDirectory("exact-vault-byte-change-");
+    const notePath = "Note.md";
+    const filePath = path.join(vault, notePath);
+    const beforeContent = Buffer.from("alpha\n", "utf8");
+    const afterContent = Buffer.from("omega\n", "utf8");
+    const fixedMtime = new Date("2026-02-03T04:05:06.000Z");
+    const fixedAtime = new Date("2026-02-03T04:05:07.000Z");
+    await writeFile(filePath, beforeContent);
+    await utimes(filePath, fixedAtime, fixedMtime);
+
+    const wasInjected = await injectAfterPass(
+      filePath,
+      beforeContent.byteLength,
+      1,
+      async () => {
+        await writeFile(filePath, afterContent);
+        await utimes(filePath, fixedAtime, fixedMtime);
+      },
+    );
+
+    await expect(
+      readExactVaultDocument(vault, notePath, {
+        allowMissing: false,
+        maxBytes: 100,
+      }),
+    ).rejects.toThrow(/bytes changed between verification reads/iu);
+    expect(wasInjected()).toBe(true);
+  });
+
+  it("rejects a same-size byte change after the second verification read", async () => {
+    const vault = await temporaryDirectory("exact-vault-late-byte-change-");
+    const notePath = "Note.md";
+    const filePath = path.join(vault, notePath);
+    const beforeContent = Buffer.from("alpha\n", "utf8");
+    const afterContent = Buffer.from("omega\n", "utf8");
+    const fixedMtime = new Date("2026-02-04T04:05:06.000Z");
+    const fixedAtime = new Date("2026-02-04T04:05:07.000Z");
+    await writeFile(filePath, beforeContent);
+    await utimes(filePath, fixedAtime, fixedMtime);
+
+    const wasInjected = await injectAfterPass(
+      filePath,
+      beforeContent.byteLength,
+      2,
+      async () => {
+        await writeFile(filePath, afterContent);
+        await utimes(filePath, fixedAtime, fixedMtime);
+      },
+    );
+
+    await expect(
+      readExactVaultDocument(vault, notePath, {
+        allowMissing: false,
+        maxBytes: 100,
+      }),
+    ).rejects.toThrow(/bytes changed between verification reads/iu);
+    expect(wasInjected()).toBe(true);
+  });
+
+  it("continues to reject modification-time churn", async () => {
+    const vault = await temporaryDirectory("exact-vault-mtime-");
+    const notePath = "Note.md";
+    const filePath = path.join(vault, notePath);
+    const content = Buffer.from("stable content\n", "utf8");
+    const initialMtime = new Date("2026-03-04T05:06:07.000Z");
+    await writeFile(filePath, content);
+    await utimes(filePath, initialMtime, initialMtime);
+
+    const wasInjected = await injectAfterPass(
+      filePath,
+      content.byteLength,
+      1,
+      async () => {
+        const changedMtime = new Date("2026-03-04T05:06:08.000Z");
+        await utimes(filePath, changedMtime, changedMtime);
+      },
+    );
+
+    await expect(
+      readExactVaultDocument(vault, notePath, {
+        allowMissing: false,
+        maxBytes: 100,
+      }),
+    ).rejects.toThrow(/modification time changed while it was being read/iu);
+    expect(wasInjected()).toBe(true);
   });
 
   it("preserves a pre-aborted signal reason", async () => {
