@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -225,8 +226,10 @@ describe("guided installer permission flow", () => {
           success: true,
           mode: "install",
           vaultId,
-          vaultPath,
         });
+        expect(realpathSync.native(report.vaultPath).toLowerCase()).toBe(
+          realpathSync.native(vaultPath).toLowerCase(),
+        );
         expect(existsSync(join(report.pluginPath, "manifest.json"))).toBe(true);
         expect(existsSync(join(report.pluginPath, "main.js"))).toBe(true);
         expect(existsSync(report.sharedSettingsPath)).toBe(true);
