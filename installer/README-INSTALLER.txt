@@ -1,4 +1,4 @@
-OBSIDIAN BRIDGE 0.5.6 - INSTALLER WINDOWS
+OBSIDIAN BRIDGE 0.5.7 - INSTALLER WINDOWS
 =========================================
 
 Installazione semplice
@@ -72,10 +72,10 @@ Problemi recenti
 ----------------
 Bridge Control include la sezione Problemi recenti. Legge in sola lettura i
 metadati locali del registro audit, senza mostrare il contenuto delle note. La
-versione 0.5.6 puo mostrare una fase di errore limitata e un codice causa sicuro,
+versione 0.5.7 puo mostrare una fase di errore limitata e un codice causa sicuro,
 ma mai messaggi grezzi delle eccezioni, output della CLI, contenuto proposto o
 corpo dei backup. Indica se una scrittura e stata fermata, ripristinata o richiede
-un controllo manuale. La versione 0.5.6 usa la stessa osservazione UTF-8 esatta
+un controllo manuale. La versione 0.5.7 usa la stessa osservazione UTF-8 esatta
 basata sulle impostazioni per prepare create/append, controllo conflitto,
 acquisizione backup, verifica dei blocchi e finale e classificazione del
 recupero. Le mutazioni usano ancora soltanto la CLI ufficiale allowlistata.
@@ -142,3 +142,18 @@ nuovo mostra scope prudente; per uno gia configurato mostra le autorizzazioni
 che un aggiornamento conserverebbe, inclusa la modalita accessMode. Il report
 include anche lo stato di Node.js, ma una dipendenza mancante non rende il
 DryRun distruttivo ne tenta installazioni automatiche.
+
+Installazione automatizzata (avanzata)
+--------------------------------------
+Per installare senza interfaccia grafica usa entrambi gli switch espliciti:
+
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+    .\installer\Install-ObsidianBridge.ps1 -Install `
+    -AcceptInstallation -VaultPath "C:\percorso\del\vault"
+
+`-Install` richiede sempre un percorso vault completo e `-AcceptInstallation`.
+Quest ultimo conferma soltanto l installazione del companion Bridge Control e
+del connettore Codex locale; non concede accesso alle note e non abilita
+Accesso autonomo o Gestione completa. Il comando non apre finestre e restituisce
+un report JSON. In caso di errore restituisce exit code 1 e un errore JSON su
+stderr.

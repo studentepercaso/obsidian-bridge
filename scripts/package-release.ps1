@@ -14,6 +14,23 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 }
 $outputRoot = [System.IO.Path]::GetFullPath($OutputDirectory)
 
+function Remove-VerifiedOutputDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $candidate = [System.IO.Path]::GetFullPath($Path)
+    if (-not $candidate.StartsWith($outputRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to manage a path outside the output directory: $candidate"
+    }
+    if (-not (Test-Path -LiteralPath $candidate)) {
+        return
+    }
+    $item = Get-Item -LiteralPath $candidate -Force
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Refusing to recursively remove a reparse point: $candidate"
+    }
+    Remove-Item -LiteralPath $candidate -Recurse -Force
+}
+
 $packageJson = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'package.json') | ConvertFrom-Json
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = [string]$packageJson.version
@@ -48,17 +65,15 @@ if ($status) {
 
 [System.IO.Directory]::CreateDirectory($outputRoot) | Out-Null
 $setupName = "Obsidian-Bridge-Setup-$Version"
-$setupRoot = [System.IO.Path]::GetFullPath((Join-Path $outputRoot $setupName))
-$companionStage = [System.IO.Path]::GetFullPath((Join-Path $outputRoot ".bridge-control-stage-$Version"))
-$archiveStage = [System.IO.Path]::GetFullPath((Join-Path $outputRoot ".source-stage-$Version.zip"))
+$runId = [Guid]::NewGuid().ToString('N')
+$setupRoot = [System.IO.Path]::GetFullPath((Join-Path $outputRoot ".setup-stage-$Version-$runId"))
+$companionStage = [System.IO.Path]::GetFullPath((Join-Path $outputRoot ".bridge-control-stage-$Version-$runId"))
+$archiveStage = [System.IO.Path]::GetFullPath((Join-Path $outputRoot ".source-stage-$Version-$runId.zip"))
+$verificationRoot = [System.IO.Path]::GetFullPath((Join-Path $outputRoot ".setup-verification-$Version-$runId"))
 
-foreach ($candidate in @($setupRoot, $companionStage)) {
-    if (-not $candidate.StartsWith($outputRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to manage a path outside the output directory: $candidate"
-    }
-    if (Test-Path -LiteralPath $candidate) {
-        Remove-Item -LiteralPath $candidate -Recurse -Force
-    }
+try {
+foreach ($candidate in @($setupRoot, $companionStage, $verificationRoot)) {
+    Remove-VerifiedOutputDirectory -Path $candidate
 }
 if (Test-Path -LiteralPath $archiveStage) {
     Remove-Item -LiteralPath $archiveStage -Force
@@ -118,31 +133,126 @@ Copy-Item -LiteralPath (Join-Path $pluginRoot 'installer/README-INSTALLER.en.txt
 
 $setupZip = Join-Path $outputRoot "$setupName.zip"
 if (Test-Path -LiteralPath $setupZip) {
-    Remove-Item -LiteralPath $setupZip -Force
+    throw "Refusing to overwrite an existing release artifact: $setupZip"
 }
 
+$companionFiles = @('main.js', 'manifest.json', 'styles.css')
 [System.IO.Directory]::CreateDirectory($companionStage) | Out-Null
-foreach ($file in @('main.js', 'manifest.json', 'styles.css')) {
+foreach ($file in $companionFiles) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "companion/obsidian-bridge-control/$file") -Destination (Join-Path $companionStage $file)
 }
 $companionZip = Join-Path $outputRoot "Bridge-Control-$Version-Obsidian.zip"
 if (Test-Path -LiteralPath $companionZip) {
-    Remove-Item -LiteralPath $companionZip -Force
+    throw "Refusing to overwrite an existing release artifact: $companionZip"
 }
-
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory($setupRoot, $setupZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-[System.IO.Compression.ZipFile]::CreateFromDirectory($companionStage, $companionZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-Remove-Item -LiteralPath $companionStage -Recurse -Force
-
+$rawAssetDirectory = [System.IO.Path]::GetFullPath((Join-Path $outputRoot "Bridge-Control-$Version-assets"))
+if (Test-Path -LiteralPath $rawAssetDirectory) {
+    throw "Refusing to overwrite an existing release asset directory: $rawAssetDirectory"
+}
+$rawReleaseAssets = @($companionFiles | ForEach-Object { Join-Path $rawAssetDirectory $_ })
 $hashPath = Join-Path $outputRoot "SHA256-$Version.txt"
-$hashLines = foreach ($file in @($setupZip, $companionZip)) {
-    $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
-    "$hash  $([System.IO.Path]::GetFileName($file))"
+if (Test-Path -LiteralPath $hashPath) {
+    throw "Refusing to overwrite an existing release artifact: $hashPath"
 }
-$hashLines | Set-Content -LiteralPath $hashPath -Encoding ASCII
+
+$releaseVerified = $false
+try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($setupRoot, $setupZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($companionStage, $companionZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    Remove-VerifiedOutputDirectory -Path $companionStage
+
+    $requiredSetupEntries = @(
+        'INSTALLA-OBSIDIAN-BRIDGE.cmd',
+        '.agents/plugins/marketplace.json',
+        'plugins/obsidian-bridge/installer/Install-ObsidianBridge.ps1',
+        'plugins/obsidian-bridge/.codex-plugin/plugin.json',
+        'plugins/obsidian-bridge/.mcp.json',
+        'plugins/obsidian-bridge/dist/server.mjs',
+        'plugins/obsidian-bridge/skills/use-obsidian-vault/SKILL.md',
+        'plugins/obsidian-bridge/companion/obsidian-bridge-control/main.js',
+        'plugins/obsidian-bridge/companion/obsidian-bridge-control/manifest.json',
+        'plugins/obsidian-bridge/companion/obsidian-bridge-control/styles.css'
+    )
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($setupZip)
+    try {
+        $entryNames = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+        foreach ($requiredEntry in $requiredSetupEntries) {
+            if ($entryNames -notcontains $requiredEntry) {
+                throw "Setup archive verification failed; missing entry: $requiredEntry"
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+
+    Expand-Archive -LiteralPath $setupZip -DestinationPath $verificationRoot -Force
+    $verifiedInstaller = Join-Path $verificationRoot 'plugins/obsidian-bridge/installer/Install-ObsidianBridge.ps1'
+    $selfTestOutput = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $verifiedInstaller -SelfTest
+    if ($LASTEXITCODE -ne 0) {
+        throw "Packaged installer self-test failed with exit code $LASTEXITCODE"
+    }
+    $selfTestReport = ($selfTestOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    if (-not [bool]$selfTestReport.selfTest) {
+        throw 'Packaged installer self-test did not return the expected report.'
+    }
+
+    $previousLocalAppData = $env:LOCALAPPDATA
+    try {
+        $env:LOCALAPPDATA = Join-Path $verificationRoot 'isolated-local-app-data'
+        [System.IO.Directory]::CreateDirectory($env:LOCALAPPDATA) | Out-Null
+        $marketplaceOutput = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $verifiedInstaller -MarketplaceSelfTest
+        if ($LASTEXITCODE -ne 0) {
+            throw "Packaged marketplace self-test failed with exit code $LASTEXITCODE"
+        }
+        $marketplaceReport = ($marketplaceOutput -join [Environment]::NewLine) | ConvertFrom-Json
+        if (-not [bool]$marketplaceReport.relationshipVerified -or [string]$marketplaceReport.sourceType -ne 'local') {
+            throw 'Packaged marketplace self-test did not verify the generated local relationship.'
+        }
+    }
+    finally {
+        $env:LOCALAPPDATA = $previousLocalAppData
+    }
+
+    [System.IO.Directory]::CreateDirectory($rawAssetDirectory) | Out-Null
+    foreach ($file in $companionFiles) {
+        Copy-Item -LiteralPath (Join-Path $repoRoot "companion/obsidian-bridge-control/$file") -Destination (Join-Path $rawAssetDirectory $file)
+    }
+    $hashLines = foreach ($file in @($setupZip, $companionZip) + $rawReleaseAssets) {
+        $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$hash  $([System.IO.Path]::GetFileName($file))"
+    }
+    $hashLines | Set-Content -LiteralPath $hashPath -Encoding ASCII
+    $releaseVerified = $true
+}
+finally {
+    Remove-VerifiedOutputDirectory -Path $verificationRoot
+    Remove-VerifiedOutputDirectory -Path $companionStage
+    Remove-VerifiedOutputDirectory -Path $setupRoot
+    if (-not $releaseVerified) {
+        foreach ($failedArtifact in @($setupZip, $companionZip, $hashPath) + $rawReleaseAssets) {
+            if (Test-Path -LiteralPath $failedArtifact -PathType Leaf) {
+                Remove-Item -LiteralPath $failedArtifact -Force
+            }
+        }
+        Remove-VerifiedOutputDirectory -Path $rawAssetDirectory
+    }
+}
 
 Write-Host "Created:"
 Write-Host "  $setupZip"
 Write-Host "  $companionZip"
+foreach ($rawAsset in $rawReleaseAssets) {
+    Write-Host "  $rawAsset"
+}
 Write-Host "  $hashPath"
+}
+finally {
+    foreach ($temporaryDirectory in @($verificationRoot, $companionStage, $setupRoot)) {
+        Remove-VerifiedOutputDirectory -Path $temporaryDirectory
+    }
+    if (Test-Path -LiteralPath $archiveStage -PathType Leaf) {
+        Remove-Item -LiteralPath $archiveStage -Force
+    }
+}

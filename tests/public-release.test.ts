@@ -16,9 +16,9 @@ describe("public release metadata", () => {
       "companion/obsidian-bridge-control/manifest.json",
     );
 
-    expect(packageJson.version).toBe("0.5.6");
-    expect(plugin.version).toBe("0.5.6");
-    expect(companion.version).toBe("0.5.6");
+    expect(packageJson.version).toBe("0.5.7");
+    expect(plugin.version).toBe("0.5.7");
+    expect(companion.version).toBe("0.5.7");
   });
 
   it("publishes a pinned Git-backed Codex marketplace entry", () => {
@@ -39,7 +39,7 @@ describe("public release metadata", () => {
         source: {
           source: "url",
           url: "https://github.com/studentepercaso/obsidian-bridge.git",
-          ref: "0.5.6",
+          ref: "0.5.7",
         },
         policy: {
           installation: "AVAILABLE",
@@ -57,6 +57,23 @@ describe("public release metadata", () => {
     expect(
       readFileSync(new URL("../README.it.md", import.meta.url), "utf8"),
     ).toContain("[English](README.md)");
+  });
+
+  it("packages verified raw companion assets without overwriting generic user files", () => {
+    const packaging = readFileSync(
+      new URL("../scripts/package-release.ps1", import.meta.url),
+      "utf8",
+    );
+    expect(packaging).toContain(
+      '"Bridge-Control-$Version-assets"',
+    );
+    expect(packaging).toContain(
+      "Refusing to overwrite an existing release asset directory",
+    );
+    expect(packaging).toContain(
+      "@($setupZip, $companionZip) + $rawReleaseAssets",
+    );
+    expect(packaging).toContain("$runId = [Guid]::NewGuid().ToString('N')");
   });
 
   it("keeps protected, autonomous and management writers in separate approval domains", () => {

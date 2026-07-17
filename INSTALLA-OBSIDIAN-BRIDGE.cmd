@@ -1,8 +1,8 @@
 @echo off
 setlocal
 title Installazione Obsidian Bridge
-set "OB_SCRIPT=%~dp0installer\Install-ObsidianBridge.ps1"
-if not exist "%OB_SCRIPT%" set "OB_SCRIPT=%~dp0plugins\obsidian-bridge\installer\Install-ObsidianBridge.ps1"
+set "OB_SCRIPT=%~dp0plugins\obsidian-bridge\installer\Install-ObsidianBridge.ps1"
+if not exist "%OB_SCRIPT%" set "OB_SCRIPT=%~dp0installer\Install-ObsidianBridge.ps1"
 if not exist "%OB_SCRIPT%" (
   echo Installatore non trovato. Estrai l intero ZIP prima di eseguire questo file.
   pause
