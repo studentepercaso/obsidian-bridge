@@ -2,6 +2,9 @@
 param(
     [switch]$DryRun,
     [switch]$SelfTest,
+    [switch]$MarketplaceSelfTest,
+    [switch]$Install,
+    [switch]$AcceptInstallation,
     [string]$VaultPath
 )
 
@@ -10,7 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:BridgePluginId = 'bridge-control'
 $script:CodexPluginId = 'obsidian-bridge'
-$script:ExpectedCodexPluginVersion = '0.5.6'
+$script:ExpectedCodexPluginVersion = '0.5.7'
 $script:BridgePluginRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:PayloadRoot = Join-Path $script:BridgePluginRoot 'companion\obsidian-bridge-control'
 $localApplicationData = if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
@@ -863,19 +866,11 @@ function Get-NodeStatus {
     }
 }
 
-function Assert-CodexPackageRelationship {
-    param(
-        [Parameter(Mandatory = $true)][string]$MarketplacePath,
-        [Parameter(Mandatory = $true)][string]$PluginRoot
-    )
+function Assert-CodexPluginPayload {
+    param([Parameter(Mandatory = $true)][string]$PluginRoot)
 
-    $marketplacePathFull = [System.IO.Path]::GetFullPath($MarketplacePath)
     $pluginRootFull = [System.IO.Path]::GetFullPath($PluginRoot).TrimEnd('\', '/')
-    Assert-RegularFileOrMissing -Path $marketplacePathFull
     Assert-NoReparseAncestors -Path $pluginRootFull
-    if (-not (Test-Path -LiteralPath $marketplacePathFull -PathType Leaf)) {
-        throw "Marketplace Codex non trovato: $marketplacePathFull"
-    }
     if (-not (Test-Path -LiteralPath $pluginRootFull -PathType Container)) {
         throw "Root del plugin Codex non trovata: $pluginRootFull"
     }
@@ -891,6 +886,30 @@ function Assert-CodexPackageRelationship {
         $pluginManifest['name'] -ne $script:CodexPluginId -or
         -not $versionAccepted) {
         throw "Il manifest Codex deve identificare $script:CodexPluginId versione ${script:ExpectedCodexPluginVersion}: $pluginManifestPath"
+    }
+
+    foreach ($relativePath in @('.mcp.json', 'dist\server.mjs', 'skills\use-obsidian-vault\SKILL.md')) {
+        $requiredPath = Join-Path $pluginRootFull $relativePath
+        Assert-RegularFileOrMissing -Path $requiredPath -StopAt $pluginRootFull
+        if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+            throw "File necessario del plugin Codex mancante: $requiredPath"
+        }
+    }
+
+    return $pluginRootFull
+}
+
+function Assert-CodexPackageRelationship {
+    param(
+        [Parameter(Mandatory = $true)][string]$MarketplacePath,
+        [Parameter(Mandatory = $true)][string]$PluginRoot
+    )
+
+    $marketplacePathFull = [System.IO.Path]::GetFullPath($MarketplacePath)
+    $pluginRootFull = Assert-CodexPluginPayload -PluginRoot $PluginRoot
+    Assert-RegularFileOrMissing -Path $marketplacePathFull
+    if (-not (Test-Path -LiteralPath $marketplacePathFull -PathType Leaf)) {
+        throw "Marketplace Codex non trovato: $marketplacePathFull"
     }
 
     $marketplace = Read-JsonExact -Path $marketplacePathFull -Description 'Il marketplace Codex'
@@ -1012,30 +1031,77 @@ function Copy-DirectoryTreeSafely {
     }
 }
 
+function New-CodexMarketplaceDocument {
+    return [ordered]@{
+        name = 'obsidian-bridge-local'
+        interface = [ordered]@{
+            displayName = 'Obsidian Bridge'
+        }
+        plugins = @(
+            [ordered]@{
+                name = $script:CodexPluginId
+                source = [ordered]@{
+                    source = 'local'
+                    path = './plugins/obsidian-bridge'
+                }
+                policy = [ordered]@{
+                    installation = 'AVAILABLE'
+                    authentication = 'ON_INSTALL'
+                }
+                category = 'Productivity'
+            }
+        )
+    }
+}
+
+function Copy-CodexPluginPayloadSafely {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePluginRoot,
+        [Parameter(Mandatory = $true)][string]$DestinationPluginRoot
+    )
+
+    $sourceRoot = Assert-CodexPluginPayload -PluginRoot $SourcePluginRoot
+    $destinationRoot = Assert-ManagedAppDataPath -Path $DestinationPluginRoot
+    if (-not (Test-Path -LiteralPath $destinationRoot -PathType Container)) {
+        Assert-NoReparseAncestors -Path $destinationRoot
+        [void](New-Item -ItemType Directory -Path $destinationRoot)
+    }
+    if (Test-PathIsReparsePoint -Path $destinationRoot) {
+        throw "La destinazione del plugin Codex e un reparse point: $destinationRoot"
+    }
+
+    foreach ($directory in @('.codex-plugin', 'dist', 'skills')) {
+        Copy-DirectoryTreeSafely -Source (Join-Path $sourceRoot $directory) -Destination (Join-Path $destinationRoot $directory)
+    }
+
+    $sourceMcp = Join-Path $sourceRoot '.mcp.json'
+    $destinationMcp = Join-Path $destinationRoot '.mcp.json'
+    Assert-RegularFileOrMissing -Path $sourceMcp -StopAt $sourceRoot
+    [System.IO.File]::Copy($sourceMcp, $destinationMcp, $false)
+    return Assert-CodexPluginPayload -PluginRoot $destinationRoot
+}
+
 function Install-StableMarketplace {
     param(
-        [Parameter(Mandatory = $true)][string]$SourceMarketplaceJson,
+        [Parameter(Mandatory = $true)][string]$SourcePluginRoot,
         [Parameter(Mandatory = $true)][string]$Timestamp
     )
 
-    $sourceJson = [System.IO.Path]::GetFullPath($SourceMarketplaceJson)
-    $sourceMarketplaceRoot = [System.IO.Directory]::GetParent(
-        [System.IO.Directory]::GetParent(
-            [System.IO.Directory]::GetParent($sourceJson).FullName
-        ).FullName
-    ).FullName
-    [void](Assert-CodexPackageRelationship -MarketplacePath $sourceJson -PluginRoot (Join-Path $sourceMarketplaceRoot 'plugins\obsidian-bridge'))
+    $sourceRoot = Assert-CodexPluginPayload -PluginRoot $SourcePluginRoot
 
     $stableRoot = [System.IO.Path]::GetFullPath($script:StableMarketplaceRoot)
     [void](Assert-ManagedAppDataPath -Path $stableRoot)
     Assert-NoReparseAncestors -Path $stableRoot
     $stableJson = Join-Path $stableRoot '.agents\plugins\marketplace.json'
-    if ([string]::Equals($sourceMarketplaceRoot.TrimEnd('\', '/'), $stableRoot.TrimEnd('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)) {
+    $stableDeeplink = New-CodexPluginDeeplink -MarketplacePath $stableJson
+    $stablePluginRoot = Join-Path $stableRoot 'plugins\obsidian-bridge'
+    if ([string]::Equals($sourceRoot, $stablePluginRoot.TrimEnd('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)) {
+        [void](Assert-CodexPackageRelationship -MarketplacePath $stableJson -PluginRoot $stablePluginRoot)
         return [PSCustomObject]@{
             Root = $stableRoot
             MarketplaceJson = $stableJson
             Backup = $null
-            Deeplink = Get-CodexPluginDeeplink -MarketplacePath $stableJson
+            Deeplink = $stableDeeplink
         }
     }
 
@@ -1052,11 +1118,11 @@ function Install-StableMarketplace {
         if (Test-PathIsReparsePoint -Path $stageRoot) {
             throw "La cartella di preparazione e un reparse point: $stageRoot"
         }
-        Copy-DirectoryTreeSafely -Source (Join-Path $sourceMarketplaceRoot '.agents') -Destination (Join-Path $stageRoot '.agents')
-        Copy-DirectoryTreeSafely -Source (Join-Path $sourceMarketplaceRoot 'plugins\obsidian-bridge') -Destination (Join-Path $stageRoot 'plugins\obsidian-bridge')
-
+        $stagedPluginRoot = Join-Path $stageRoot 'plugins\obsidian-bridge'
+        [void](Copy-CodexPluginPayloadSafely -SourcePluginRoot $sourceRoot -DestinationPluginRoot $stagedPluginRoot)
         $stagedJson = Join-Path $stageRoot '.agents\plugins\marketplace.json'
-        [void](Assert-CodexPackageRelationship -MarketplacePath $stagedJson -PluginRoot (Join-Path $stageRoot 'plugins\obsidian-bridge'))
+        Write-JsonAtomically -Path $stagedJson -Value (New-CodexMarketplaceDocument)
+        [void](Assert-CodexPackageRelationship -MarketplacePath $stagedJson -PluginRoot $stagedPluginRoot)
 
         if (Test-Path -LiteralPath $stableRoot) {
             Assert-NoReparseAncestors -Path $stableRoot
@@ -1083,7 +1149,7 @@ function Install-StableMarketplace {
             Root = $stableRoot
             MarketplaceJson = $stableJson
             Backup = $backupRoot
-            Deeplink = Get-CodexPluginDeeplink -MarketplacePath $stableJson
+            Deeplink = $stableDeeplink
         }
     }
     finally {
@@ -1517,11 +1583,7 @@ function Get-InstallContext {
     $vault = $identity.Path
     $vaultName = $identity.Name
     $vaultId = $identity.Id
-    $sourceMarketplaceJson = Find-MarketplaceJson
-    if ($null -eq $sourceMarketplaceJson) {
-        throw 'Marketplace Codex non trovato. Avvia INSTALLA-OBSIDIAN-BRIDGE.cmd dalla cartella completa estratta dallo ZIP.'
-    }
-    [void](Assert-CodexPackageRelationship -MarketplacePath $sourceMarketplaceJson -PluginRoot $script:BridgePluginRoot)
+    $sourcePluginRoot = Assert-CodexPluginPayload -PluginRoot $script:BridgePluginRoot
 
     $payloadFiles = @('manifest.json', 'main.js', 'styles.css')
     foreach ($file in $payloadFiles) {
@@ -1574,7 +1636,7 @@ function Get-InstallContext {
         VaultSettingsEntry = $entry
         PayloadFiles = [string[]]$payloadFiles
         PayloadDestinationHashes = $payloadDestinationHashes
-        SourceMarketplaceJson = $sourceMarketplaceJson
+        SourcePluginRoot = $sourcePluginRoot
     }
 }
 
@@ -1717,7 +1779,7 @@ function Invoke-BridgeInstallation {
             Write-JsonAtomically -Path $Context.CommunityPluginsPath -Value ([object[]]$pluginList.ToArray())
 
             # Il marketplace stabile e l ultimo passo; la funzione ripristina da sola la versione precedente se fallisce.
-            $stableMarketplace = Install-StableMarketplace -SourceMarketplaceJson $Context.SourceMarketplaceJson -Timestamp $timestamp
+            $stableMarketplace = Install-StableMarketplace -SourcePluginRoot $Context.SourcePluginRoot -Timestamp $timestamp
             if ($null -ne $stableMarketplace.Backup) {
                 [void]$backups.Add($stableMarketplace.Backup)
             }
@@ -1988,6 +2050,35 @@ function Invoke-InstallerSelfTest {
     Write-Output (ConvertTo-Json -InputObject $report -Depth 10)
 }
 
+function Invoke-MarketplaceSelfTest {
+    $timestamp = Get-Date -Format 'yyyyMMddHHmmssfff'
+    $installed = Install-StableMarketplace -SourcePluginRoot $script:BridgePluginRoot -Timestamp $timestamp
+    $pluginRoot = Join-Path $installed.Root 'plugins\obsidian-bridge'
+    [void](Assert-CodexPackageRelationship -MarketplacePath $installed.MarketplaceJson -PluginRoot $pluginRoot)
+    $updated = Install-StableMarketplace -SourcePluginRoot $script:BridgePluginRoot -Timestamp ($timestamp + '-update')
+    $relationship = Assert-CodexPackageRelationship -MarketplacePath $updated.MarketplaceJson -PluginRoot $pluginRoot
+    $marketplace = Read-JsonExact -Path $relationship -Description 'Il marketplace Codex di test'
+    $entry = [System.Collections.Generic.Dictionary[string, object]]$marketplace['plugins'][0]
+    $source = [System.Collections.Generic.Dictionary[string, object]]$entry['source']
+    $report = [ordered]@{
+        marketplaceSelfTest = $true
+        sourcePluginRoot = $script:BridgePluginRoot
+        stableRoot = $installed.Root
+        relationshipVerified = $true
+        updateVerified = ($null -ne $updated.Backup -and (Test-Path -LiteralPath $updated.Backup -PathType Container))
+        marketplaceName = $marketplace['name']
+        sourceType = $source['source']
+        sourcePath = $source['path']
+        requiredFiles = [ordered]@{
+            manifest = Test-Path -LiteralPath (Join-Path $pluginRoot '.codex-plugin\plugin.json') -PathType Leaf
+            mcp = Test-Path -LiteralPath (Join-Path $pluginRoot '.mcp.json') -PathType Leaf
+            server = Test-Path -LiteralPath (Join-Path $pluginRoot 'dist\server.mjs') -PathType Leaf
+            skill = Test-Path -LiteralPath (Join-Path $pluginRoot 'skills\use-obsidian-vault\SKILL.md') -PathType Leaf
+        }
+    }
+    Write-Output (ConvertTo-Json -InputObject $report -Depth 10)
+}
+
 function Invoke-DryRun {
     param([AllowEmptyString()][string]$SelectedVaultPath)
 
@@ -2028,11 +2119,71 @@ function Invoke-DryRun {
         nodeVersion = $nodeStatus.Version
         nodeMessage = $nodeStatus.Message
         codexReady = $nodeStatus.Ready
-        marketplaceJson = Find-MarketplaceJson
+        marketplaceSource = 'generated-from-verified-plugin-payload'
+        sourcePluginRoot = $context.SourcePluginRoot
         stableMarketplaceJson = Join-Path $script:StableMarketplaceRoot '.agents\plugins\marketplace.json'
         codexDeeplinkAfterInstall = New-CodexPluginDeeplink -MarketplacePath (Join-Path $script:StableMarketplaceRoot '.agents\plugins\marketplace.json')
     }
     Write-Output (ConvertTo-Json -InputObject $report -Depth 10)
+}
+
+function Invoke-CommandLineInstallation {
+    param(
+        [AllowEmptyString()][string]$SelectedVaultPath,
+        [Parameter(Mandatory = $true)][bool]$Consent
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SelectedVaultPath)) {
+        throw 'La modalita -Install richiede -VaultPath con il percorso completo del vault.'
+    }
+    if (-not $Consent) {
+        throw 'Installazione non autorizzata. Aggiungi -AcceptInstallation soltanto dopo avere verificato il vault e accettato l installazione del companion Obsidian e del connettore Codex locale.'
+    }
+
+    $context = Get-InstallContext -SelectedVaultPath $SelectedVaultPath
+    $result = Invoke-BridgeInstallation -Context $context -Consent $Consent
+    $report = [ordered]@{
+        success = $true
+        mode = 'install'
+        vaultId = $result.VaultId
+        vaultName = $result.VaultName
+        vaultPath = $result.VaultPath
+        pluginPath = $result.PluginPath
+        sharedSettingsPath = $result.SharedSettingsPath
+        marketplaceRoot = $result.MarketplaceRoot
+        marketplaceJson = $result.MarketplaceJson
+        codexDeeplink = $result.CodexDeeplink
+        backups = [string[]]@($result.Backups)
+    }
+    Write-Output (ConvertTo-Json -InputObject $report -Depth 10)
+}
+
+function Assert-InstallerModeArguments {
+    $modeCount = 0
+    foreach ($modeEnabled in @($DryRun, $SelfTest, $MarketplaceSelfTest, $Install)) {
+        if ($modeEnabled) {
+            $modeCount++
+        }
+    }
+    if ($modeCount -gt 1) {
+        throw 'Scegli una sola modalita tra -DryRun, -SelfTest, -MarketplaceSelfTest e -Install.'
+    }
+    if ($AcceptInstallation -and -not $Install) {
+        throw '-AcceptInstallation puo essere usato soltanto insieme a -Install.'
+    }
+}
+
+function Write-InstallerCommandLineError {
+    param([Parameter(Mandatory = $true)][string]$Message)
+
+    $report = [ordered]@{
+        success = $false
+        mode = if ($Install) { 'install' } elseif ($DryRun) { 'dry-run' } elseif ($SelfTest) { 'self-test' } elseif ($MarketplaceSelfTest) { 'marketplace-self-test' } else { 'command-line' }
+        error = [ordered]@{
+            message = $Message
+        }
+    }
+    [Console]::Error.WriteLine((ConvertTo-Json -InputObject $report -Depth 5 -Compress))
 }
 
 function Open-SelectedVault {
@@ -2042,46 +2193,87 @@ function Open-SelectedVault {
     Start-Process $uri
 }
 
+function Enable-InstallerHighDpi {
+    if ($null -eq ('ObsidianBridgeInstaller.NativeDpi' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace ObsidianBridgeInstaller {
+    public static class NativeDpi {
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern bool SetProcessDPIAware();
+    }
+}
+'@
+    }
+
+    try {
+        $perMonitorV2 = [IntPtr](-4)
+        $processAware = [ObsidianBridgeInstaller.NativeDpi]::SetProcessDpiAwarenessContext($perMonitorV2)
+        [void][ObsidianBridgeInstaller.NativeDpi]::SetThreadDpiAwarenessContext($perMonitorV2)
+        if (-not $processAware) {
+            [void][ObsidianBridgeInstaller.NativeDpi]::SetProcessDPIAware()
+        }
+    }
+    catch {
+        try { [void][ObsidianBridgeInstaller.NativeDpi]::SetProcessDPIAware() } catch { }
+    }
+}
+
 function Show-Installer {
     param([AllowEmptyString()][string]$InitialVaultPath)
 
+    Enable-InstallerHighDpi
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     [System.Windows.Forms.Application]::EnableVisualStyles()
+    [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'Installa Obsidian Bridge 0.5.6'
+    $form.Text = 'Installa Obsidian Bridge 0.5.7'
     $form.StartPosition = 'CenterScreen'
-    $form.Size = New-Object System.Drawing.Size(780, 650)
-    $form.MinimumSize = New-Object System.Drawing.Size(780, 650)
-    $form.MaximizeBox = $false
+    $form.ClientSize = New-Object System.Drawing.Size(800, 630)
+    $form.MinimumSize = New-Object System.Drawing.Size(680, 560)
+    $form.AutoScaleDimensions = New-Object System.Drawing.SizeF(96, 96)
+    $form.AutoScaleMode = [System.Windows.Forms.AutoScaleMode]::Dpi
+    $form.MaximizeBox = $true
+    $form.SizeGripStyle = [System.Windows.Forms.SizeGripStyle]::Show
+    $form.ShowIcon = $false
     $form.BackColor = [System.Drawing.Color]::White
-    $form.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+    $form.Font = New-Object System.Drawing.Font('Segoe UI', 9.5, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
 
     $header = New-Object System.Windows.Forms.Panel
     $header.Dock = 'Top'
-    $header.Height = 94
+    $header.Height = 88
     $header.BackColor = [System.Drawing.Color]::FromArgb(88, 70, 160)
     $form.Controls.Add($header)
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = 'Collega Obsidian a ChatGPT - Bridge 0.5.6'
+    $title.Text = 'Obsidian Bridge 0.5.7'
     $title.ForeColor = [System.Drawing.Color]::White
-    $title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 20)
+    $title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 18, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
     $title.AutoSize = $true
     $title.Location = New-Object System.Drawing.Point(24, 14)
     $header.Controls.Add($title)
 
     $subtitle = New-Object System.Windows.Forms.Label
-    $subtitle.Text = 'Nessuna API key richiesta: usa la CLI locale ufficiale di Obsidian.'
+    $subtitle.Text = 'Collega ChatGPT ai tuoi vault con permessi chiari e controllabili.'
     $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(235, 232, 250)
     $subtitle.AutoSize = $true
-    $subtitle.Location = New-Object System.Drawing.Point(27, 56)
+    $subtitle.Location = New-Object System.Drawing.Point(27, 53)
     $header.Controls.Add($subtitle)
 
     $content = New-Object System.Windows.Forms.Panel
     $content.Dock = 'Fill'
     $content.Padding = New-Object System.Windows.Forms.Padding(24, 16, 24, 16)
+    $content.AutoScroll = $true
     $form.Controls.Add($content)
     $content.BringToFront()
 
@@ -2097,12 +2289,14 @@ function Show-Installer {
     $vaultCombo.DisplayMember = 'Label'
     $vaultCombo.Location = New-Object System.Drawing.Point(28, 47)
     $vaultCombo.Size = New-Object System.Drawing.Size(570, 30)
+    $vaultCombo.Anchor = 'Top, Left, Right'
     $content.Controls.Add($vaultCombo)
 
     $browseButton = New-Object System.Windows.Forms.Button
     $browseButton.Text = 'Sfoglia...'
     $browseButton.Location = New-Object System.Drawing.Point(610, 45)
     $browseButton.Size = New-Object System.Drawing.Size(110, 32)
+    $browseButton.Anchor = 'Top, Right'
     $content.Controls.Add($browseButton)
 
     $vaultPathLabel = New-Object System.Windows.Forms.Label
@@ -2111,6 +2305,7 @@ function Show-Installer {
     $vaultPathLabel.AutoEllipsis = $true
     $vaultPathLabel.Location = New-Object System.Drawing.Point(28, 81)
     $vaultPathLabel.Size = New-Object System.Drawing.Size(690, 22)
+    $vaultPathLabel.Anchor = 'Top, Left, Right'
     $content.Controls.Add($vaultPathLabel)
 
     $accessLabel = New-Object System.Windows.Forms.Label
@@ -2125,26 +2320,33 @@ function Show-Installer {
     $accessCard.BorderStyle = 'FixedSingle'
     $accessCard.Location = New-Object System.Drawing.Point(28, 148)
     $accessCard.Size = New-Object System.Drawing.Size(690, 78)
+    $accessCard.Anchor = 'Top, Left, Right'
     $content.Controls.Add($accessCard)
 
     $accessText = New-Object System.Windows.Forms.Label
-    $accessText.Text = "Un nuovo vault parte in Accesso protetto senza cartelle. In Bridge Control scegli le cartelle, Accesso autonomo o i permessi di Gestione completa. L'installer non attiva mai modalita elevate."
+    $accessText.Text = "Il vault parte in Accesso protetto. Dopo l'installazione scegli cartelle e autonomia in Bridge Control. L'installer non abilita mai Gestione completa."
     $accessText.ForeColor = [System.Drawing.Color]::FromArgb(55, 48, 90)
     $accessText.Location = New-Object System.Drawing.Point(12, 11)
     $accessText.Size = New-Object System.Drawing.Size(662, 52)
+    $accessText.Anchor = 'Top, Bottom, Left, Right'
     $accessCard.Controls.Add($accessText)
 
     $status = Get-ObsidianStatus
     $nodeStatus = Get-NodeStatus
+    $packageIssue = $null
+    try { [void](Assert-CodexPluginPayload -PluginRoot $script:BridgePluginRoot) }
+    catch { $packageIssue = $_.Exception.Message }
     $statusBox = New-Object System.Windows.Forms.Label
-    $cliText = if ($null -ne $status.CliPath) { "CLI rilevata: $($status.CliPath)" } else { 'CLI Obsidian non rilevata: abilitala nelle impostazioni di Obsidian.' }
-    $runningText = if ($status.Running) { 'Obsidian e aperto.' } else { 'Obsidian non e aperto: potrai avviarlo alla fine.' }
-    $statusBox.Text = "$cliText`r`n$runningText`r`n$($nodeStatus.Message)"
+    $cliText = if ($null -ne $status.CliPath) { 'CLI Obsidian: pronta.' } else { 'CLI Obsidian: non rilevata. Abilitala nelle impostazioni di Obsidian.' }
+    $runningText = if ($status.Running) { 'Obsidian: aperto.' } else { 'Obsidian: non aperto; potrai avviarlo alla fine.' }
+    $packageText = if ($null -eq $packageIssue) { 'Pacchetto Bridge: pronto.' } else { 'Pacchetto Bridge: incompleto.' }
+    $statusBox.Text = "$cliText`r`n$runningText`r`n$($nodeStatus.Message)`r`n$packageText"
     $statusBox.BackColor = [System.Drawing.Color]::FromArgb(244, 242, 252)
     $statusBox.BorderStyle = 'FixedSingle'
     $statusBox.Location = New-Object System.Drawing.Point(28, 243)
     $statusBox.Padding = New-Object System.Windows.Forms.Padding(10, 8, 10, 8)
     $statusBox.Size = New-Object System.Drawing.Size(690, 88)
+    $statusBox.Anchor = 'Top, Left, Right'
     $content.Controls.Add($statusBox)
 
     $nodeDownloadButton = New-Object System.Windows.Forms.Button
@@ -2158,7 +2360,8 @@ function Show-Installer {
     $consentCheck.AutoSize = $false
     $consentCheck.Size = New-Object System.Drawing.Size(690, 74)
     $consentCheck.Location = New-Object System.Drawing.Point(28, 375)
-    $consentCheck.Text = "Autorizzo l'installazione del plugin community Bridge Control nel vault selezionato e del connettore locale per Codex. I permessi esistenti non vengono modificati."
+    $consentCheck.Text = "Autorizzo Bridge Control nel vault selezionato e il connettore locale per Codex. I permessi esistenti restano invariati."
+    $consentCheck.Anchor = 'Top, Left, Right'
     $content.Controls.Add($consentCheck)
 
     $installButton = New-Object System.Windows.Forms.Button
@@ -2166,27 +2369,38 @@ function Show-Installer {
     $installButton.BackColor = [System.Drawing.Color]::FromArgb(88, 70, 160)
     $installButton.ForeColor = [System.Drawing.Color]::White
     $installButton.FlatStyle = 'Flat'
+    $installButton.FlatAppearance.BorderSize = 0
     $installButton.Enabled = $false
     $installButton.Location = New-Object System.Drawing.Point(500, 450)
     $installButton.Size = New-Object System.Drawing.Size(218, 42)
+    $installButton.Anchor = 'Top, Right'
+    $installButton.Cursor = [System.Windows.Forms.Cursors]::Hand
     $content.Controls.Add($installButton)
 
-    $messageLabel = New-Object System.Windows.Forms.Label
+    $messageLabel = New-Object System.Windows.Forms.TextBox
     $messageLabel.ForeColor = [System.Drawing.Color]::Firebrick
-    $messageLabel.AutoEllipsis = $true
+    $messageLabel.BackColor = [System.Drawing.Color]::White
+    $messageLabel.BorderStyle = [System.Windows.Forms.BorderStyle]::None
+    $messageLabel.Multiline = $true
+    $messageLabel.ReadOnly = $true
+    $messageLabel.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+    $messageLabel.ShortcutsEnabled = $true
+    $messageLabel.TabStop = $false
     $messageLabel.Location = New-Object System.Drawing.Point(28, 455)
-    $messageLabel.Size = New-Object System.Drawing.Size(450, 52)
+    $messageLabel.Size = New-Object System.Drawing.Size(450, 60)
+    $messageLabel.Anchor = 'Top, Left, Right'
     $content.Controls.Add($messageLabel)
 
     $completion = New-Object System.Windows.Forms.Panel
     $completion.Dock = 'Fill'
     $completion.BackColor = [System.Drawing.Color]::White
+    $completion.AutoScroll = $true
     $completion.Visible = $false
     $form.Controls.Add($completion)
 
     $doneTitle = New-Object System.Windows.Forms.Label
     $doneTitle.Text = 'Configurazione completata'
-    $doneTitle.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 21)
+    $doneTitle.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 18, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
     $doneTitle.ForeColor = [System.Drawing.Color]::FromArgb(60, 120, 76)
     $doneTitle.AutoSize = $true
     $doneTitle.Location = New-Object System.Drawing.Point(34, 120)
@@ -2194,9 +2408,10 @@ function Show-Installer {
 
     $doneText = New-Object System.Windows.Forms.Label
     $doneText.Text = "Bridge Control e installato nel vault.`r`nApri Obsidian > Impostazioni > Bridge Control: usa Accesso protetto, Accesso autonomo o scegli i permessi di Gestione completa dopo l'avviso esplicito.`r`nL'installer non attiva modalita elevate. In Problemi recenti puoi controllare errori, recupero e note coinvolte.`r`nNessuna API key richiesta: il collegamento usa la CLI locale ufficiale di Obsidian."
-    $doneText.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+    $doneText.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)
     $doneText.Location = New-Object System.Drawing.Point(38, 174)
     $doneText.Size = New-Object System.Drawing.Size(690, 128)
+    $doneText.Anchor = 'Top, Left, Right'
     $completion.Controls.Add($doneText)
 
     $openObsidianButton = New-Object System.Windows.Forms.Button
@@ -2216,6 +2431,7 @@ function Show-Installer {
     $codexFallbackLabel.ForeColor = [System.Drawing.Color]::DimGray
     $codexFallbackLabel.Location = New-Object System.Drawing.Point(40, 371)
     $codexFallbackLabel.Size = New-Object System.Drawing.Size(680, 62)
+    $codexFallbackLabel.Anchor = 'Top, Left, Right'
     $completion.Controls.Add($codexFallbackLabel)
 
     $closeButton = New-Object System.Windows.Forms.Button
@@ -2229,19 +2445,38 @@ function Show-Installer {
     $uninstallLabel.ForeColor = [System.Drawing.Color]::DimGray
     $uninstallLabel.Location = New-Object System.Drawing.Point(40, 442)
     $uninstallLabel.Size = New-Object System.Drawing.Size(670, 60)
+    $uninstallLabel.Anchor = 'Top, Left, Right'
     $completion.Controls.Add($uninstallLabel)
 
     $script:selectedVaultPath = ''
     $script:installedVaultPath = ''
     $script:codexDeeplink = $null
     $script:stableMarketplaceJson = $null
+    $script:initialVaultIssue = $null
 
     function Update-InstallButtonState {
         $installButton.Enabled = (
             $consentCheck.Checked -and
             $nodeStatus.Ready -and
+            $null -eq $packageIssue -and
             -not [string]::IsNullOrWhiteSpace($script:selectedVaultPath)
         )
+    }
+
+    function Reset-InstallerMessage {
+        $messageLabel.ForeColor = [System.Drawing.Color]::Firebrick
+        if (-not $nodeStatus.Ready) {
+            $messageLabel.Text = 'Dato mancante: installa Node.js 20+ dal sito ufficiale, poi riapri questo installer.'
+        }
+        elseif ($null -ne $packageIssue) {
+            $messageLabel.Text = "Pacchetto incompleto: $packageIssue"
+        }
+        elseif ($null -ne $script:initialVaultIssue) {
+            $messageLabel.Text = "Vault iniziale non valido: $script:initialVaultIssue"
+        }
+        else {
+            $messageLabel.Text = ''
+        }
     }
 
     function Add-VaultToCombo {
@@ -2266,7 +2501,7 @@ function Show-Installer {
         [void]$vaultCombo.Items.Add($vault)
     }
     if (-not [string]::IsNullOrWhiteSpace($InitialVaultPath)) {
-        try { Add-VaultToCombo -Path $InitialVaultPath } catch { $messageLabel.Text = $_.Exception.Message }
+        try { Add-VaultToCombo -Path $InitialVaultPath } catch { $script:initialVaultIssue = $_.Exception.Message }
     }
     elseif ($vaultCombo.Items.Count -gt 0) {
         $vaultCombo.SelectedIndex = 0
@@ -2277,7 +2512,8 @@ function Show-Installer {
             $script:selectedVaultPath = $vaultCombo.SelectedItem.Path
             $vaultPathLabel.Text = $script:selectedVaultPath
             $consentCheck.Checked = $false
-            $messageLabel.Text = ''
+            $script:initialVaultIssue = $null
+            Reset-InstallerMessage
             Update-InstallButtonState
         }
     })
@@ -2295,10 +2531,11 @@ function Show-Installer {
         if ($dialog.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
             try {
                 Add-VaultToCombo -Path $dialog.SelectedPath
-                $messageLabel.Text = ''
+                Reset-InstallerMessage
             }
             catch {
-                [void][System.Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, 'Vault non valido', 'OK', 'Warning')
+                $messageLabel.ForeColor = [System.Drawing.Color]::Firebrick
+                $messageLabel.Text = "Vault non valido: $($_.Exception.Message)"
             }
         }
         $dialog.Dispose()
@@ -2317,10 +2554,7 @@ function Show-Installer {
         Update-InstallButtonState
     })
     Update-InstallButtonState
-
-    if (-not $nodeStatus.Ready) {
-        $messageLabel.Text = 'Dato mancante: installa Node.js 20+ dal sito ufficiale, poi riapri questo installer.'
-    }
+    Reset-InstallerMessage
 
     $installButton.Add_Click({
         try {
@@ -2346,10 +2580,9 @@ function Show-Installer {
         }
         catch {
             $messageLabel.ForeColor = [System.Drawing.Color]::Firebrick
-            $messageLabel.Text = $_.Exception.Message
+            $messageLabel.Text = "Installazione non completata: $($_.Exception.Message)"
             $browseButton.Enabled = $true
             Update-InstallButtonState
-            [void][System.Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, 'Installazione non completata', 'OK', 'Error')
         }
     })
 
@@ -2376,7 +2609,14 @@ function Show-Installer {
 }
 
 try {
-    if ($SelfTest) {
+    Assert-InstallerModeArguments
+    if ($Install) {
+        Invoke-CommandLineInstallation -SelectedVaultPath $VaultPath -Consent $AcceptInstallation.IsPresent
+    }
+    elseif ($MarketplaceSelfTest) {
+        Invoke-MarketplaceSelfTest
+    }
+    elseif ($SelfTest) {
         Invoke-InstallerSelfTest
     }
     elseif ($DryRun) {
@@ -2387,8 +2627,8 @@ try {
     }
 }
 catch {
-    if ($DryRun -or $SelfTest) {
-        [Console]::Error.WriteLine($_.Exception.Message)
+    if ($DryRun -or $SelfTest -or $MarketplaceSelfTest -or $Install -or $AcceptInstallation) {
+        Write-InstallerCommandLineError -Message $_.Exception.Message
     }
     else {
         try {

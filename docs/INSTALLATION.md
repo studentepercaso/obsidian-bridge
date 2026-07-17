@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · [Italiano](INSTALLATION.md)
 
-Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.5.6. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
+Questa guida descrive il pacchetto Windows di Obsidian Bridge 0.5.7. Il flusso normale non richiede PowerShell, modifica di file JSON o variabili d'ambiente.
 
 ## Prima di iniziare
 
@@ -35,7 +35,7 @@ L'unico passaggio di configurazione che l'installer non può eseguire al posto t
 4. chiudi e riapri Obsidian e il client desktop;
 5. riprova una lettura innocua del bridge in una nuova attività Codex.
 
-Il primo comando CLI può portare Obsidian in primo piano. Bridge Control 0.5.6 non esegue la CLI: la rilevazione facoltativa controlla soltanto percorsi noti allowlistati e non può certificare che la CLI sia pronta. La verifica definitiva appartiene al bridge esterno. Per i dettagli specifici della piattaforma usa la [guida ufficiale della CLI di Obsidian](https://obsidian.md/help/cli).
+Il primo comando CLI può portare Obsidian in primo piano. Bridge Control 0.5.7 non esegue la CLI: la rilevazione facoltativa controlla soltanto percorsi noti allowlistati e non può certificare che la CLI sia pronta. La verifica definitiva appartiene al bridge esterno. Per i dettagli specifici della piattaforma usa la [guida ufficiale della CLI di Obsidian](https://obsidian.md/help/cli).
 
 ## Impostare lettura e scrittura
 
@@ -145,9 +145,9 @@ Le anteprime scadono e sono monouso. Se la nota, il permesso o il processo cambi
 
 ### Obsidian ha mostrato un errore JavaScript o una scrittura è fallita
 
-Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica lo stato di recupero registrato, se la nota esiste ancora e se serve un controllo manuale. Codex può leggere gli stessi eventi limitati con `obsidian_recent_write_events`, senza chiederti di trascrivere l'errore. La versione 0.5.6 riporta `failure_stage` e `cause_code` limitati senza registrare messaggi grezzi delle eccezioni, output della CLI, testo delle note, contenuto proposto o corpo dei backup. La diagnostica è soltanto evidenza: rileggi la nota e non riprovare automaticamente finché l'utente non fornisce indicazioni esplicite.
+Apri **Bridge Control > Problemi recenti** e premi **Aggiorna controllo**. Il pannello legge soltanto i metadati locali dell'audit, indica lo stato di recupero registrato, se la nota esiste ancora e se serve un controllo manuale. Codex può leggere gli stessi eventi limitati con `obsidian_recent_write_events`, senza chiederti di trascrivere l'errore. La versione 0.5.7 riporta `failure_stage` e `cause_code` limitati senza registrare messaggi grezzi delle eccezioni, output della CLI, testo delle note, contenuto proposto o corpo dei backup. La diagnostica è soltanto evidenza: rileggi la nota e non riprovare automaticamente finché l'utente non fornisce indicazioni esplicite.
 
-La 0.5.6 conserva le osservazioni UTF-8 esatte per create/append, compresi i contenuti privi di nuova riga finale. Per i file Windows sincronizzati esegue fino a tre letture posizionali limitate dallo stesso handle stabile, accetta soltanto dopo due sequenze di byte identiche e una finestra finale stabile dei metadati e non considera un aggiornamento isolato di `ctime` come modifica del contenuto. Cambi di identità, percorso, dimensione, `mtime` o byte, troncamenti e crescite continuano a chiudere l'operazione in modo prudente. Se append ha già modificato la nota e poi fallisce la scrittura o la verifica, il writer non tenta un rollback CLI distruttivo e non atomico. Conserva backup esatto ed evidenza audit, lascia intatta la nota osservata e restituisce `manual_recovery_required=true` con `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` o `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. Una create parziale resta `delete_disabled`. Controlla manualmente nota e backup e attendi indicazioni esplicite.
+La 0.5.7 conserva le osservazioni UTF-8 esatte per create/append, compresi i contenuti privi di nuova riga finale. Per i file Windows sincronizzati esegue fino a tre letture posizionali limitate dallo stesso handle stabile, accetta soltanto dopo due sequenze di byte identiche e una finestra finale stabile dei metadati e non considera un aggiornamento isolato di `ctime` come modifica del contenuto. Cambi di identità, percorso, dimensione, `mtime` o byte, troncamenti e crescite continuano a chiudere l'operazione in modo prudente. Se append ha già modificato la nota e poi fallisce la scrittura o la verifica, il writer non tenta un rollback CLI distruttivo e non atomico. Conserva backup esatto ed evidenza audit, lascia intatta la nota osservata e restituisce `manual_recovery_required=true` con `WRITE_FAILED_MANUAL_RECOVERY_REQUIRED` o `VERIFICATION_FAILED_MANUAL_RECOVERY_REQUIRED`. Una create parziale resta `delete_disabled`. Controlla manualmente nota e backup e attendi indicazioni esplicite.
 
 Se il writer autonomo o il gestore incontra tre errori consecutivi, si sospende per quel task. Controlla **Problemi recenti**, torna a una modalità più ristretta e avvia un nuovo task prima di riabilitare l'autonomia o Gestione completa.
 
@@ -161,4 +161,4 @@ Su Windows Bridge Control e l'installer usano:
 
 Il file contiene, per ogni vault, ID stabile Obsidian, nome, percorso locale assoluto, profilo `protected`, `full` o `management`, gli eventuali permessi edit/move/trash e le cartelle protette autorizzate; non contiene il corpo delle note. Nella UI `full` è mostrato come **Accesso autonomo** e `management` come **Gestione completa**. ID e percorso servono a evitare che un'autorizzazione venga applicata al vault sbagliato, anche in presenza di nomi uguali. È condiviso dai processi MCP e viene validato prima dell'uso. Un file presente ma non valido non concede un accesso parziale: il bridge chiude l'operazione in modo prudente.
 
-Le variabili d'ambiente storiche restano una modalità avanzata di compatibilità in sola lettura soltanto quando il file condiviso è assente. La versione 0.5.6 rifiuta create/append configurati soltanto tramite ambiente perché lo stdout normalizzato della CLI non è una sorgente compare-and-swap esatta. Installa o configura Bridge Control per migrare l'accesso in scrittura alle impostazioni condivise.
+Le variabili d'ambiente storiche restano una modalità avanzata di compatibilità in sola lettura soltanto quando il file condiviso è assente. La versione 0.5.7 rifiuta create/append configurati soltanto tramite ambiente perché lo stdout normalizzato della CLI non è una sorgente compare-and-swap esatta. Installa o configura Bridge Control per migrare l'accesso in scrittura alle impostazioni condivise.

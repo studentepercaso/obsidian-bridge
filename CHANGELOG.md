@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.7 - 2026-07-17
+
+- Make the Windows installer self-contained by generating a verified local Codex marketplace from an allowlisted plugin payload instead of requiring an external `.agents` directory.
+- Prefer the packaged installer layout when source and setup trees overlap, while safely supporting a source checkout for development.
+- Enable Per-Monitor-V2 DPI awareness, native DPI autoscaling, resizing and scrolling; simplify status text and remove the duplicate blocking installation-error dialog.
+- Verify every setup release by reopening and extracting the generated ZIP, checking required entries, and running installer and marketplace self-tests from the extracted package.
+- Preserve the 0.5.6 synchronized-note fix, permission model, command protocol, write limits, backups, and audit behavior unchanged.
+
 ## 0.5.6 - 2026-07-17
 
 - Stop treating Windows `ctime` by itself as a content-version signal, preventing false conflicts when OneDrive or another sync provider updates file metadata without changing note bytes.
