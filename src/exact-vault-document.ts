@@ -1,9 +1,10 @@
 import { constants, type BigIntStats } from "node:fs";
-import { lstat, open } from "node:fs/promises";
+import { lstat, open, type FileHandle } from "node:fs/promises";
 
 import { assertPhysicalVaultPath } from "./physical-scope.js";
 
 const READ_CHUNK_BYTES = 64 * 1024;
+const MAX_STABILITY_PASSES = 3;
 
 export type ExactVaultDocument =
   | { readonly exists: false }
@@ -53,12 +54,22 @@ function sameFileIdentity(left: BigIntStats, right: BigIntStats): boolean {
   );
 }
 
-function sameFileSnapshot(left: BigIntStats, right: BigIntStats): boolean {
+/**
+ * Compare the fields that describe the file identity and byte stream.
+ *
+ * `ctimeNs` is intentionally excluded. On Windows it also changes for
+ * metadata-only updates (for example Cloud Files/OneDrive placeholder state),
+ * so treating it as a content version creates false conflicts. Exact bytes
+ * are verified independently with repeated reads from the same open handle.
+ */
+function sameFileContentSnapshot(
+  left: BigIntStats,
+  right: BigIntStats,
+): boolean {
   return (
     sameFileIdentity(left, right) &&
     left.size === right.size &&
-    left.mtimeNs === right.mtimeNs &&
-    left.ctimeNs === right.ctimeNs
+    left.mtimeNs === right.mtimeNs
   );
 }
 
@@ -81,6 +92,40 @@ async function lstatIfPresent(filePath: string): Promise<BigIntStats | null> {
       { cause: error },
     );
   }
+}
+
+async function readExactPass(
+  handle: FileHandle,
+  expectedBytes: number,
+  signal?: AbortSignal,
+): Promise<Buffer> {
+  const bytes = Buffer.allocUnsafe(expectedBytes);
+  let offset = 0;
+  while (offset < expectedBytes) {
+    signal?.throwIfAborted();
+    const { bytesRead } = await handle.read(
+      bytes,
+      offset,
+      Math.min(READ_CHUNK_BYTES, expectedBytes - offset),
+      offset,
+    );
+    if (bytesRead === 0) {
+      throw new ExactVaultDocumentReadError(
+        "vault document was truncated while it was being read",
+      );
+    }
+    offset += bytesRead;
+  }
+
+  // Detect growth even if filesystem metadata is momentarily stale.
+  signal?.throwIfAborted();
+  const extra = Buffer.allocUnsafe(1);
+  if ((await handle.read(extra, 0, 1, expectedBytes)).bytesRead !== 0) {
+    throw new ExactVaultDocumentReadError(
+      "vault document grew while it was being read",
+    );
+  }
+  return bytes;
 }
 
 /**
@@ -137,7 +182,7 @@ export async function readExactVaultDocument(
     );
   }
 
-  let bytes: Buffer;
+  let bytes: Buffer | undefined;
   try {
     options.signal?.throwIfAborted();
     const opened = await handle.stat({ bigint: true });
@@ -148,56 +193,71 @@ export async function readExactVaultDocument(
       );
     }
     const expectedBytes = assertBoundedSize(opened, options.maxBytes);
-    bytes = Buffer.allocUnsafe(expectedBytes);
-    let offset = 0;
-    while (offset < expectedBytes) {
+    let previousBytes: Buffer | undefined;
+    for (let pass = 0; pass < MAX_STABILITY_PASSES; pass += 1) {
       options.signal?.throwIfAborted();
-      const { bytesRead } = await handle.read(
-        bytes,
-        offset,
-        Math.min(READ_CHUNK_BYTES, expectedBytes - offset),
-        offset,
-      );
-      if (bytesRead === 0) {
+      const passBefore = await handle.stat({ bigint: true });
+      assertRegularSingleLinkFile(passBefore);
+      if (!sameFileContentSnapshot(opened, passBefore)) {
         throw new ExactVaultDocumentReadError(
-          "vault document changed while it was being read",
+          "vault document identity, size, or modification time changed while it was being read",
         );
       }
-      offset += bytesRead;
-    }
 
-    // Detect growth even if filesystem metadata is momentarily stale.
-    options.signal?.throwIfAborted();
-    const extra = Buffer.allocUnsafe(1);
-    if ((await handle.read(extra, 0, 1, expectedBytes)).bytesRead !== 0) {
-      throw new ExactVaultDocumentReadError(
-        "vault document changed while it was being read",
+      const passBytes = await readExactPass(
+        handle,
+        expectedBytes,
+        options.signal,
       );
-    }
+      options.signal?.throwIfAborted();
+      const passAfter = await handle.stat({ bigint: true });
+      assertRegularSingleLinkFile(passAfter);
+      if (
+        !sameFileContentSnapshot(opened, passAfter) ||
+        !sameFileContentSnapshot(passBefore, passAfter)
+      ) {
+        throw new ExactVaultDocumentReadError(
+          "vault document identity, size, or modification time changed while it was being read",
+        );
+      }
+      if (previousBytes !== undefined && !previousBytes.equals(passBytes)) {
+        throw new ExactVaultDocumentReadError(
+          "vault document bytes changed between verification reads",
+        );
+      }
 
-    options.signal?.throwIfAborted();
-    const openedAfter = await handle.stat({ bigint: true });
-    assertRegularSingleLinkFile(openedAfter);
-    if (!sameFileSnapshot(opened, openedAfter)) {
-      throw new ExactVaultDocumentReadError(
-        "vault document changed while it was being read",
+      options.signal?.throwIfAborted();
+      const physicalPathAfter = await assertPhysicalVaultPath(
+        vaultPath,
+        notePath,
+        { allowMissingLeaf: false },
       );
-    }
+      const pathAfter = await lstatIfPresent(physicalPathAfter);
+      if (
+        pathAfter === null ||
+        physicalPathAfter !== physicalPath ||
+        !sameFileContentSnapshot(passAfter, pathAfter)
+      ) {
+        throw new ExactVaultDocumentReadError(
+          "vault document path changed while it was being read",
+        );
+      }
 
-    options.signal?.throwIfAborted();
-    const physicalPathAfter = await assertPhysicalVaultPath(
-      vaultPath,
-      notePath,
-      { allowMissingLeaf: false },
-    );
-    const pathAfter = await lstatIfPresent(physicalPathAfter);
-    if (
-      pathAfter === null ||
-      physicalPathAfter !== physicalPath ||
-      !sameFileSnapshot(openedAfter, pathAfter)
-    ) {
+      // Accept only after two matching byte reads and one complete quiet
+      // metadata window. A ctime-only change requests another bounded pass;
+      // it is never accepted as the final state by itself.
+      const ctimeStable =
+        passBefore.ctimeNs === passAfter.ctimeNs &&
+        passAfter.ctimeNs === pathAfter.ctimeNs;
+      if (previousBytes !== undefined && ctimeStable) {
+        bytes = passBytes;
+        break;
+      }
+      previousBytes = passBytes;
+    }
+    if (bytes === undefined) {
       throw new ExactVaultDocumentReadError(
-        "vault document path changed while it was being read",
+        "vault document metadata did not settle during bounded verification",
       );
     }
   } finally {
@@ -205,6 +265,11 @@ export async function readExactVaultDocument(
   }
 
   options.signal?.throwIfAborted();
+  if (bytes === undefined) {
+    throw new ExactVaultDocumentReadError(
+      "vault document verification produced no stable snapshot",
+    );
+  }
   try {
     return {
       exists: true,

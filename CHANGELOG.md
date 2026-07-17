@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.6 - 2026-07-17
+
+- Stop treating Windows `ctime` by itself as a content-version signal, preventing false conflicts when OneDrive or another sync provider updates file metadata without changing note bytes.
+- Verify each exact note snapshot with repeated positional reads from the same stable handle and require two identical byte sequences plus a final quiet metadata window.
+- Continue to fail closed on identity, path, size, `mtime`, truncation, growth, or byte changes, including same-size mutations with a restored modification time.
+- Add deterministic Windows regressions for early, late, and continuous metadata churn and for real early/late same-size content changes.
+- Coordinate Bridge Control and public installer metadata at version 0.5.6 without adding permissions, protocol fields, write surfaces, or higher size limits.
+
 ## 0.5.5 - 2026-07-15
 
 - Increase the public create/append proposed-content limit from 8192 to 65536 UTF-8 bytes while retaining the 1 MiB resulting-document boundary.

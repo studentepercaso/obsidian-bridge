@@ -32786,6 +32786,7 @@ async function assertPhysicalVaultPath(vaultRoot, relativePath, options = {}) {
 
 // src/exact-vault-document.ts
 var READ_CHUNK_BYTES = 64 * 1024;
+var MAX_STABILITY_PASSES = 3;
 var ExactVaultDocumentReadError = class extends Error {
   constructor(message, options) {
     super(message, options);
@@ -32810,8 +32811,8 @@ function assertRegularSingleLinkFile(stats) {
 function sameFileIdentity(left, right) {
   return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode && left.nlink === right.nlink;
 }
-function sameFileSnapshot(left, right) {
-  return sameFileIdentity(left, right) && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
+function sameFileContentSnapshot(left, right) {
+  return sameFileIdentity(left, right) && left.size === right.size && left.mtimeNs === right.mtimeNs;
 }
 function assertBoundedSize(stats, maxBytes) {
   if (stats.size > BigInt(maxBytes)) {
@@ -32831,6 +32832,33 @@ async function lstatIfPresent(filePath) {
       { cause: error51 }
     );
   }
+}
+async function readExactPass(handle, expectedBytes, signal) {
+  const bytes = Buffer.allocUnsafe(expectedBytes);
+  let offset = 0;
+  while (offset < expectedBytes) {
+    signal?.throwIfAborted();
+    const { bytesRead } = await handle.read(
+      bytes,
+      offset,
+      Math.min(READ_CHUNK_BYTES, expectedBytes - offset),
+      offset
+    );
+    if (bytesRead === 0) {
+      throw new ExactVaultDocumentReadError(
+        "vault document was truncated while it was being read"
+      );
+    }
+    offset += bytesRead;
+  }
+  signal?.throwIfAborted();
+  const extra = Buffer.allocUnsafe(1);
+  if ((await handle.read(extra, 0, 1, expectedBytes)).bytesRead !== 0) {
+    throw new ExactVaultDocumentReadError(
+      "vault document grew while it was being read"
+    );
+  }
+  return bytes;
 }
 async function readExactVaultDocument(vaultPath, notePath, options) {
   options.signal?.throwIfAborted();
@@ -32881,54 +32909,67 @@ async function readExactVaultDocument(vaultPath, notePath, options) {
       );
     }
     const expectedBytes = assertBoundedSize(opened, options.maxBytes);
-    bytes = Buffer.allocUnsafe(expectedBytes);
-    let offset = 0;
-    while (offset < expectedBytes) {
+    let previousBytes;
+    for (let pass = 0; pass < MAX_STABILITY_PASSES; pass += 1) {
       options.signal?.throwIfAborted();
-      const { bytesRead } = await handle.read(
-        bytes,
-        offset,
-        Math.min(READ_CHUNK_BYTES, expectedBytes - offset),
-        offset
-      );
-      if (bytesRead === 0) {
+      const passBefore = await handle.stat({ bigint: true });
+      assertRegularSingleLinkFile(passBefore);
+      if (!sameFileContentSnapshot(opened, passBefore)) {
         throw new ExactVaultDocumentReadError(
-          "vault document changed while it was being read"
+          "vault document identity, size, or modification time changed while it was being read"
         );
       }
-      offset += bytesRead;
-    }
-    options.signal?.throwIfAborted();
-    const extra = Buffer.allocUnsafe(1);
-    if ((await handle.read(extra, 0, 1, expectedBytes)).bytesRead !== 0) {
-      throw new ExactVaultDocumentReadError(
-        "vault document changed while it was being read"
+      const passBytes = await readExactPass(
+        handle,
+        expectedBytes,
+        options.signal
       );
-    }
-    options.signal?.throwIfAborted();
-    const openedAfter = await handle.stat({ bigint: true });
-    assertRegularSingleLinkFile(openedAfter);
-    if (!sameFileSnapshot(opened, openedAfter)) {
-      throw new ExactVaultDocumentReadError(
-        "vault document changed while it was being read"
+      options.signal?.throwIfAborted();
+      const passAfter = await handle.stat({ bigint: true });
+      assertRegularSingleLinkFile(passAfter);
+      if (!sameFileContentSnapshot(opened, passAfter) || !sameFileContentSnapshot(passBefore, passAfter)) {
+        throw new ExactVaultDocumentReadError(
+          "vault document identity, size, or modification time changed while it was being read"
+        );
+      }
+      if (previousBytes !== void 0 && !previousBytes.equals(passBytes)) {
+        throw new ExactVaultDocumentReadError(
+          "vault document bytes changed between verification reads"
+        );
+      }
+      options.signal?.throwIfAborted();
+      const physicalPathAfter = await assertPhysicalVaultPath(
+        vaultPath,
+        notePath,
+        { allowMissingLeaf: false }
       );
+      const pathAfter = await lstatIfPresent(physicalPathAfter);
+      if (pathAfter === null || physicalPathAfter !== physicalPath || !sameFileContentSnapshot(passAfter, pathAfter)) {
+        throw new ExactVaultDocumentReadError(
+          "vault document path changed while it was being read"
+        );
+      }
+      const ctimeStable = passBefore.ctimeNs === passAfter.ctimeNs && passAfter.ctimeNs === pathAfter.ctimeNs;
+      if (previousBytes !== void 0 && ctimeStable) {
+        bytes = passBytes;
+        break;
+      }
+      previousBytes = passBytes;
     }
-    options.signal?.throwIfAborted();
-    const physicalPathAfter = await assertPhysicalVaultPath(
-      vaultPath,
-      notePath,
-      { allowMissingLeaf: false }
-    );
-    const pathAfter = await lstatIfPresent(physicalPathAfter);
-    if (pathAfter === null || physicalPathAfter !== physicalPath || !sameFileSnapshot(openedAfter, pathAfter)) {
+    if (bytes === void 0) {
       throw new ExactVaultDocumentReadError(
-        "vault document path changed while it was being read"
+        "vault document metadata did not settle during bounded verification"
       );
     }
   } finally {
     await handle.close();
   }
   options.signal?.throwIfAborted();
+  if (bytes === void 0) {
+    throw new ExactVaultDocumentReadError(
+      "vault document verification produced no stable snapshot"
+    );
+  }
   try {
     return {
       exists: true,
@@ -35369,7 +35410,7 @@ function createConfigAccessResolver(config2) {
 
 // src/server.ts
 var SERVER_NAME = "obsidian-bridge";
-var SERVER_VERSION = "0.5.5";
+var SERVER_VERSION = "0.5.6";
 var READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
   destructiveHint: false,

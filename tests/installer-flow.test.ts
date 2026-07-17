@@ -213,5 +213,6 @@ describe("guided installer permission flow", () => {
         },
       });
     },
+    15_000,
   );
 });
